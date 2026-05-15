@@ -97,6 +97,8 @@ On first run, skillpack detects your installed AI agents and asks which should b
 | `skillpack update <addr> --force-remote` | Upstream wins (overwrites local edits) |
 | `skillpack update <addr> --force-local` | Local wins (pushes to remote) |
 | `skillpack update <addr> --merge` | File-level three-way merge |
+| `skillpack update <addr> --merge --llm` | Three-way merge with LLM-assisted conflict resolution |
+| `skillpack update <addr> --merge --llm <agent>` | Same, using a specific LLM agent |
 | `skillpack update --dry-run` | Preview only |
 
 ### Publishing
@@ -106,6 +108,13 @@ On first run, skillpack detects your installed AI agents and asks which should b
 | `skillpack publish <addr>` | Push local edits back to the remote repo |
 | `skillpack publish ./my-skill --repo <name>` | Add a new local skill to a repo |
 | `skillpack publish --dry-run` | Preview only |
+
+### Forking
+
+| Command | Description |
+|---------|-------------|
+| `skillpack fork <addr> <my-repo>` | Copy an installed skill into your own repo, tracking upstream origin |
+| `skillpack fork <addr> <my-repo> --agent <name>` | Fork from a specific agent's installed copy |
 
 ### Sync
 
@@ -163,8 +172,9 @@ Default agents detected automatically on first run: `claude-code`, `copilot`, `h
 ## Other
 
 ```bash
-skillpack --version   # print the installed version
-skillpack --help      # command reference
+skillpack --version    # print the installed version
+skillpack self-update  # check for a newer release and print the upgrade command
+skillpack --help       # command reference
 ```
 
 ## Contributing Skills

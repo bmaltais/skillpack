@@ -114,6 +114,22 @@ skillpack sync           # pull all repos, then update + publish all installed s
 skillpack sync --dry-run # preview what would change
 ```
 
+### Forking a Skill
+
+```bash
+skillpack fork <addr> <my-repo>              # copy skill into your own repo, track upstream origin
+skillpack fork <addr> <my-repo> --agent <n>  # fork from a specific agent's installed copy
+```
+
+After forking, `skillpack update` detects upstream changes as conflicts.
+Use `skillpack update --merge <addr>` (or `--merge --llm`) to pull them in.
+
+### Self-Update
+
+```bash
+skillpack self-update   # check for a newer release and print the upgrade command
+```
+
 Sync logic per installed skill:
 - No local edits + upstream changed → **auto-update**
 - Local edits + no upstream change → **auto-publish**
@@ -124,9 +140,11 @@ Sync logic per installed skill:
 When `sync` or `update` reports a CONFLICT:
 
 ```bash
-skillpack update --force-remote <addr>   # discard local edits, take upstream
-skillpack update --force-local  <addr>   # push local version, mark as upstream
-skillpack update --merge        <addr>   # 3-way merge; writes conflict markers on failure
+skillpack update --force-remote <addr>        # discard local edits, take upstream
+skillpack update --force-local  <addr>        # push local version, mark as upstream
+skillpack update --merge        <addr>        # 3-way merge; writes conflict markers on failure
+skillpack update --merge --llm  <addr>        # 3-way merge + LLM-assisted conflict resolution
+skillpack update --merge --llm <agent> <addr> # use a specific LLM agent to resolve
 ```
 
 After `--merge` with conflicts, resolve `<<<<<<< ours` / `>>>>>>> theirs` blocks

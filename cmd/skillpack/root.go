@@ -50,6 +50,7 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(publishCmd)
 	rootCmd.AddCommand(syncCmd)
+	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(forkCmd)
 	rootCmd.AddCommand(selfUpdateCmd)
 }

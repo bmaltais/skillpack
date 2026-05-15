@@ -31,7 +31,9 @@ agents:
 
 The first-run wizard auto-detects which agents are present by checking whether each `skill_dir` exists on disk. Only present agents are added to config; the rest are skipped silently.
 
-On first run, if no config exists, the tool runs an interactive wizard to detect installed agents and set `default_agent`.
+On first run, if no config exists, the tool runs an interactive wizard to:
+1. Detect installed agents (check if each known `skill_dir` exists on disk) and set `default_agent`
+2. Offer to register the skillpack repo itself and install the `skillpack/skillpack` skill into all detected agents
 
 ### Skill Repository Format
 
@@ -219,6 +221,8 @@ v2 (planned): `--merge --llm` delegates resolution to the agent configured to us
 - [ ] Color output / formatting
 - [ ] Help text and examples
 - [ ] `list --available` with category grouping
+- [ ] Write `skillpack/SKILL.md` — the self-describing skill for AI agents
+- [ ] First-run wizard offers to register the skillpack repo and install `skillpack/skillpack` automatically
 
 ## Tech Stack
 
@@ -251,6 +255,8 @@ skillpack/
 │   │   └── repo.go        # repo management, skill discovery (walk for SKILL.md)
 │   └── skill/
 │       └── skill.go       # install, remove, hash, conflict detection
+├── skillpack/
+│   └── SKILL.md           # the skillpack skill (address: skillpack/skillpack)
 ├── go.mod
 └── plan.md
 ```

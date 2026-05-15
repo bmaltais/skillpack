@@ -151,5 +151,67 @@ var repoUpdateCmd = &cobra.Command{
 func init() {
 	repoAddCmd.Flags().String("name", "", "Name for the repository (default: inferred from URL)")
 	repoAddCmd.Flags().String("token", "", "Personal access token for private HTTPS repos (saved to config)")
-	repoCmd.AddCommand(repoAddCmd, repoListCmd, repoRemoveCmd, repoUpdateCmd)
+	repoCmd.AddCommand(repoAddCmd, repoListCmd, repoRemoveCmd, repoUpdateCmd, repoRenameCmd)
+}
+
+var repoRenameCmd = &cobra.Command{
+	Use:   "rename <old-name> <new-name>",
+	Short: "Rename a registered repository",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		oldName, newName := args[0], args[1]
+
+		st, err := state.Load()
+		if err != nil {
+			return err
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+
+		rec, ok := st.Repos[oldName]
+		if !ok {
+			return fmt.Errorf("repo %q not found", oldName)
+		}
+		if _, exists := st.Repos[newName]; exists {
+			return fmt.Errorf("repo %q already exists", newName)
+		}
+
+		// Rename the cache directory on disk.
+		newCachePath, err := repo.RenameCache(oldName, newName)
+		if err != nil {
+			return err
+		}
+
+		// Update state: replace the repo record key.
+		rec.CachePath = newCachePath
+		delete(st.Repos, oldName)
+		st.Repos[newName] = rec
+
+		// Rekey installed skills whose address starts with "<oldName>/".
+		prefix := oldName + "/"
+		for addr, agents := range st.InstalledSkills {
+			if strings.HasPrefix(addr, prefix) {
+				newAddr := newName + "/" + addr[len(prefix):]
+				st.InstalledSkills[newAddr] = agents
+				delete(st.InstalledSkills, addr)
+			}
+		}
+
+		// Move credential if present.
+		if token, ok := cfg.Credentials[oldName]; ok {
+			cfg.Credentials[newName] = token
+			delete(cfg.Credentials, oldName)
+			if err := config.Save(cfg); err != nil {
+				return err
+			}
+		}
+
+		if err := state.Save(st); err != nil {
+			return err
+		}
+		fmt.Printf("Renamed %q → %q\n", oldName, newName)
+		return nil
+	},
 }

@@ -69,6 +69,24 @@ func Remove(name string, st *state.State) error {
 	return nil
 }
 
+// RenameCache moves the on-disk cache directory from oldName to newName and
+// returns the new absolute cache path.
+func RenameCache(oldName, newName string) (string, error) {
+	reposDir, err := config.ReposDir()
+	if err != nil {
+		return "", err
+	}
+	oldPath := filepath.Join(reposDir, oldName)
+	newPath := filepath.Join(reposDir, newName)
+	if _, err := os.Stat(newPath); err == nil {
+		return "", fmt.Errorf("cache directory %s already exists", newPath)
+	}
+	if err := os.Rename(oldPath, newPath); err != nil {
+		return "", fmt.Errorf("renaming cache dir: %w", err)
+	}
+	return newPath, nil
+}
+
 // Update performs a git pull on the cached repo clone.
 // token is optional; pass "" to rely on env vars.
 func Update(name, token string, st *state.State) error {

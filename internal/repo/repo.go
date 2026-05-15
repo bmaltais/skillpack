@@ -40,6 +40,14 @@ func Add(name, url, token string, st *state.State) error {
 		return fmt.Errorf("creating repos dir: %w", err)
 	}
 
+	// A leftover cache dir from a previously failed clone would cause PlainClone
+	// to fail with "repository already exists". Wipe it so the retry is clean.
+	if _, statErr := os.Stat(cachePath); statErr == nil {
+		if err := os.RemoveAll(cachePath); err != nil {
+			return fmt.Errorf("removing stale cache dir %s: %w", cachePath, err)
+		}
+	}
+
 	cloneOpts := &gogit.CloneOptions{
 		URL:      url,
 		Progress: os.Stdout,

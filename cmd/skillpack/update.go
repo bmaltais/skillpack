@@ -106,20 +106,28 @@ the upstream_sha recorded at fork time as the common base.`,
 			return nil
 		}
 
+		// Compute column widths from actual data.
+		addrW := 5
+		agentW := 5
+		for _, t := range targets {
+			addrW = maxInt(addrW, len(t.addr))
+			agentW = maxInt(agentW, len(t.agent))
+		}
+
 		var conflictCount int
 		changed := false
 
 		for _, t := range targets {
 			result, err := skill.CheckUpdate(t.addr, t.agent, st)
 			if err != nil {
-				fmt.Printf("  %-40s  %-14s  error: %v\n", t.addr, t.agent, err)
+				fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, t.addr, agentW, t.agent, err)
 				continue
 			}
 
 			if !result.HasUpstream {
 				// Nothing to do — but report if locally modified
 				if result.IsModified {
-					fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, yellow("locally modified (no upstream change)"))
+					fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, yellow("locally modified (no upstream change)"))
 				}
 				continue
 			}
@@ -131,10 +139,10 @@ the upstream_sha recorded at fork time as the common base.`,
 						if err := skill.ForceRemote(t.addr, t.agent, cfg.TokenForRepo(repoNameFromAddr(t.addr)), st); err != nil {
 							return err
 						}
-						fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, green("force-remote applied"))
+						fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("force-remote applied"))
 						changed = true
 					} else {
-						fmt.Printf("  %-40s  %-14s  [dry-run] would force-remote\n", t.addr, t.agent)
+						fmt.Printf("  %-*s  %-*s  [dry-run] would force-remote\n", addrW, t.addr, agentW, t.agent)
 					}
 
 				case forceLocal:
@@ -142,10 +150,10 @@ the upstream_sha recorded at fork time as the common base.`,
 						if err := skill.ForceLocal(t.addr, t.agent, cfg.TokenForRepo(repoNameFromAddr(t.addr)), st); err != nil {
 							return err
 						}
-						fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, green("force-local applied (pushed to remote)"))
+						fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("force-local applied (pushed to remote)"))
 						changed = true
 					} else {
-						fmt.Printf("  %-40s  %-14s  [dry-run] would force-local (push to remote)\n", t.addr, t.agent)
+						fmt.Printf("  %-*s  %-*s  [dry-run] would force-local (push to remote)\n", addrW, t.addr, agentW, t.agent)
 					}
 
 				case doMerge:
@@ -181,21 +189,21 @@ the upstream_sha recorded at fork time as the common base.`,
 										return snapErr
 									}
 								}
-								fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, green("merged + LLM resolved"))
+								fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("merged + LLM resolved"))
 								changed = true
 							} else {
-								fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, yellow("merged — conflicts written, resolve manually or use --llm"))
+								fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, yellow("merged — conflicts written, resolve manually or use --llm"))
 							}
 						} else {
-								fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, green("merged cleanly"))
+							fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("merged cleanly"))
 							changed = true
 						}
 					} else {
-						fmt.Printf("  %-40s  %-14s  [dry-run] would merge\n", t.addr, t.agent)
+						fmt.Printf("  %-*s  %-*s  [dry-run] would merge\n", addrW, t.addr, agentW, t.agent)
 					}
 
 				default:
-					fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, red("CONFLICT: local modified + upstream changed — use --force-remote, --force-local, or --merge"))
+					fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, red("CONFLICT: local modified + upstream changed — use --force-remote, --force-local, or --merge"))
 					conflictCount++
 				}
 			} else {
@@ -204,10 +212,10 @@ the upstream_sha recorded at fork time as the common base.`,
 					if err := skill.ApplyUpdate(t.addr, t.agent, cfg.TokenForRepo(repoNameFromAddr(t.addr)), st); err != nil {
 						return err
 					}
-					fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, green("updated"))
+					fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("updated"))
 					changed = true
 				} else {
-					fmt.Printf("  %-40s  %-14s  [dry-run] would update\n", t.addr, t.agent)
+					fmt.Printf("  %-*s  %-*s  [dry-run] would update\n", addrW, t.addr, agentW, t.agent)
 				}
 			}
 		}

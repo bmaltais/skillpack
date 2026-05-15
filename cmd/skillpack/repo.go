@@ -88,9 +88,22 @@ var repoListCmd = &cobra.Command{
 			fmt.Println("No repositories registered. Run: skillpack repo add <url>")
 			return nil
 		}
+		type repoEntry struct {
+			name     string
+			url      string
+			skillCnt int
+		}
+		var entries []repoEntry
+		nameW := 4
+		urlW := 3
 		for name, rec := range st.Repos {
 			skills, _ := repo.DiscoverSkills(name, st)
-			fmt.Printf("%-24s  %-50s  %d skill(s)\n", name, rec.URL, len(skills))
+			entries = append(entries, repoEntry{name, rec.URL, len(skills)})
+			nameW = maxInt(nameW, len(name))
+			urlW = maxInt(urlW, len(rec.URL))
+		}
+		for _, e := range entries {
+			fmt.Printf("%-*s  %-*s  %d skill(s)\n", nameW, e.name, urlW, e.url, e.skillCnt)
 		}
 		return nil
 	},

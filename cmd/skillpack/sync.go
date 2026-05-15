@@ -68,26 +68,38 @@ Resolve conflicts at sync time with:
 			return results[i].AgentName < results[j].AgentName
 		})
 
+		// Compute column widths from actual data.
+		addrW := 5 // len("Skill") minimum
+		agentW := 5
+		for _, r := range results {
+			addrW = maxInt(addrW, len(r.Addr))
+			agentW = maxInt(agentW, len(r.AgentName))
+		}
+		for _, c := range conflicts {
+			addrW = maxInt(addrW, len(c.Addr))
+			agentW = maxInt(agentW, len(c.AgentName))
+		}
+
 		// Tally
 		var updated, published, current, errCount int
 		for _, r := range results {
 			switch {
 			case r.Err != nil:
-				fmt.Printf("  %-40s  %-14s  error: %v\n", r.Addr, r.AgentName, r.Err)
+				fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, r.Addr, agentW, r.AgentName, r.Err)
 				errCount++
 			case r.Action == skill.SyncUpdated:
 				tag := green("updated")
 				if dryRun {
 					tag = "[dry-run] would update"
 				}
-				fmt.Printf("  %-40s  %-14s  %s\n", r.Addr, r.AgentName, tag)
+				fmt.Printf("  %-*s  %-*s  %s\n", addrW, r.Addr, agentW, r.AgentName, tag)
 				updated++
 			case r.Action == skill.SyncPublished:
 				tag := green("published")
 				if dryRun {
 					tag = "[dry-run] would publish"
 				}
-				fmt.Printf("  %-40s  %-14s  %s\n", r.Addr, r.AgentName, tag)
+				fmt.Printf("  %-*s  %-*s  %s\n", addrW, r.Addr, agentW, r.AgentName, tag)
 				published++
 			case r.Action == skill.SyncAlreadyCurrent:
 				current++
@@ -98,7 +110,7 @@ Resolve conflicts at sync time with:
 				token := cfg.TokenForRepo(strings.SplitN(c.Addr, "/", 2)[0])
 				hadConflicts, mergeErr := skill.MergeSkill(c.Addr, c.AgentName, token, st)
 				if mergeErr != nil {
-					fmt.Printf("  %-40s  %-14s  merge error: %v\n", c.Addr, c.AgentName, mergeErr)
+					fmt.Printf("  %-*s  %-*s  merge error: %v\n", addrW, c.Addr, agentW, c.AgentName, mergeErr)
 					continue
 				}
 				if hadConflicts {
@@ -109,35 +121,35 @@ Resolve conflicts at sync time with:
 						}
 						resolver, resolverErr := skill.NewDefaultLLMResolver(agentName)
 						if resolverErr != nil {
-							fmt.Printf("  %-40s  %-14s  %v\n", c.Addr, c.AgentName, resolverErr)
+							fmt.Printf("  %-*s  %-*s  %v\n", addrW, c.Addr, agentW, c.AgentName, resolverErr)
 							continue
 						}
 						if llmErr := skill.LLMResolveConflicts(c.Addr, c.AgentName, resolver, st); llmErr != nil {
-							fmt.Printf("  %-40s  %-14s  LLM error: %v\n", c.Addr, c.AgentName, llmErr)
+							fmt.Printf("  %-*s  %-*s  LLM error: %v\n", addrW, c.Addr, agentW, c.AgentName, llmErr)
 							continue
 						}
 						rec := st.InstalledSkills[c.Addr][c.AgentName]
 						if rec.UpstreamAddr != "" {
 							if pushErr := skill.PushForkAfterLLM(c.Addr, c.AgentName, token, st); pushErr != nil {
-								fmt.Printf("  %-40s  %-14s  push error: %v\n", c.Addr, c.AgentName, pushErr)
+								fmt.Printf("  %-*s  %-*s  push error: %v\n", addrW, c.Addr, agentW, c.AgentName, pushErr)
 								continue
 							}
 						} else {
 							if snapErr := skill.SnapshotInstalled(c.Addr, c.AgentName, st); snapErr != nil {
-								fmt.Printf("  %-40s  %-14s  snapshot error: %v\n", c.Addr, c.AgentName, snapErr)
+								fmt.Printf("  %-*s  %-*s  snapshot error: %v\n", addrW, c.Addr, agentW, c.AgentName, snapErr)
 								continue
 							}
 						}
 						published++ // counts as a state change for the save-guard below
-						fmt.Printf("  %-40s  %-14s  %s\n", c.Addr, c.AgentName, green("merged + LLM resolved"))
+						fmt.Printf("  %-*s  %-*s  %s\n", addrW, c.Addr, agentW, c.AgentName, green("merged + LLM resolved"))
 					} else {
-						fmt.Printf("  %-40s  %-14s  %s\n", c.Addr, c.AgentName, yellow("merged — conflicts written, resolve manually or use --llm"))
+						fmt.Printf("  %-*s  %-*s  %s\n", addrW, c.Addr, agentW, c.AgentName, yellow("merged — conflicts written, resolve manually or use --llm"))
 					}
 				} else {
-					fmt.Printf("  %-40s  %-14s  %s\n", c.Addr, c.AgentName, green("merged cleanly"))
+					fmt.Printf("  %-*s  %-*s  %s\n", addrW, c.Addr, agentW, c.AgentName, green("merged cleanly"))
 				}
 			} else {
-				fmt.Printf("  %-40s  %-14s  %s\n", c.Addr, c.AgentName, red("CONFLICT — resolve manually"))
+				fmt.Printf("  %-*s  %-*s  %s\n", addrW, c.Addr, agentW, c.AgentName, red("CONFLICT — resolve manually"))
 			}
 		}
 

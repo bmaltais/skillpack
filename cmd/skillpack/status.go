@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
@@ -29,7 +30,8 @@ Use --no-fetch to skip the network call and report against cached state.`,
 
 		st, err := state.Load()
 		if err != nil {
-			return err
+			fmt.Printf("error: could not load state: %v\n", err)
+			return nil
 		}
 
 		if len(st.InstalledSkills) == 0 {
@@ -37,10 +39,16 @@ Use --no-fetch to skip the network call and report against cached state.`,
 			return nil
 		}
 
+		cfg, cfgErr := config.Load()
+		tokenFor := func(string) string { return "" }
+		if cfgErr == nil {
+			tokenFor = cfg.TokenForRepo
+		}
+
 		if !noFetch {
 			fmt.Println("Fetching repos...")
 			for name := range st.Repos {
-				if pullErr := repo.Update(name, "", st); pullErr != nil {
+				if pullErr := repo.Update(name, tokenFor(name), st); pullErr != nil {
 					fmt.Printf("  warning: could not fetch %s: %v\n", name, pullErr)
 				}
 			}
@@ -68,8 +76,12 @@ Use --no-fetch to skip the network call and report against cached state.`,
 			return rows[i].agentName < rows[j].agentName
 		})
 
-		// Print header
-		fmt.Printf("\n  %-40s  %-14s  %s\n", bold("Skill"), bold("Agent"), bold("Status"))
+		// Print header — apply bold after padding to avoid ANSI codes skewing column widths.
+		fmt.Printf("\n  %s  %s  %s\n",
+			bold(fmt.Sprintf("%-40s", "Skill")),
+			bold(fmt.Sprintf("%-14s", "Agent")),
+			bold("Status"),
+		)
 		fmt.Printf("  %-40s  %-14s  %s\n", "────────────────────────────────────────", "──────────────", "───────────────────")
 
 		var nCurrent, nUpdate, nModified, nConflict, nErr int

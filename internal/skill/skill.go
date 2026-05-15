@@ -118,8 +118,14 @@ func IsModified(rec state.InstalledSkillRecord) (bool, error) {
 // ComputeHash returns a deterministic SHA-256 digest of all file contents in dir,
 // sorted by relative path to ensure stability across platforms.
 func ComputeHash(dir string) (string, error) {
+	// Resolve symlinks on the root so filepath.Walk sees a real directory,
+	// not a symlink entry that it would treat as a non-directory file.
+	realDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", fmt.Errorf("resolving symlinks for %q: %w", dir, err)
+	}
 	var files []string
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(realDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -135,7 +141,7 @@ func ComputeHash(dir string) (string, error) {
 
 	h := sha256.New()
 	for _, f := range files {
-		rel, _ := filepath.Rel(dir, f)
+		rel, _ := filepath.Rel(realDir, f)
 		// Normalise path separators so hashes are consistent across platforms.
 		fmt.Fprintf(h, "%s\n", strings.ReplaceAll(rel, "\\", "/"))
 		data, err := os.ReadFile(f)

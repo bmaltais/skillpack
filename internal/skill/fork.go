@@ -217,8 +217,14 @@ func pushForkAfterMerge(addr, agentName, token string, upstreamHeadSHA string, s
 	}
 	if !staged {
 		// No changes to commit — update state without pushing
-		hash, _ := ComputeHash(rec.LocalPath)
-		ref, _ := r.Head()
+		hash, hashErr := ComputeHash(rec.LocalPath)
+		if hashErr != nil {
+			return fmt.Errorf("computing installed hash: %w", hashErr)
+		}
+		ref, headErr := r.Head()
+		if headErr != nil {
+			return fmt.Errorf("reading fork repo HEAD: %w", headErr)
+		}
 		st.InstalledSkills[addr][agentName] = state.InstalledSkillRecord{
 			InstalledAtSHA: ref.Hash().String(),
 			InstalledHash:  hash,

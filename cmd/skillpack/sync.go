@@ -122,7 +122,13 @@ Resolve conflicts at sync time with:
 								fmt.Printf("  %-40s  %-14s  push error: %v\n", c.Addr, c.AgentName, pushErr)
 								continue
 							}
+						} else {
+							if snapErr := skill.SnapshotInstalled(c.Addr, c.AgentName, st); snapErr != nil {
+								fmt.Printf("  %-40s  %-14s  snapshot error: %v\n", c.Addr, c.AgentName, snapErr)
+								continue
+							}
 						}
+						published++ // counts as a state change for the save-guard below
 						fmt.Printf("  %-40s  %-14s  %s\n", c.Addr, c.AgentName, green("merged + LLM resolved"))
 					} else {
 						fmt.Printf("  %-40s  %-14s  %s\n", c.Addr, c.AgentName, yellow("merged — conflicts written, resolve manually or use --llm"))

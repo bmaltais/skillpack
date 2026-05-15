@@ -168,14 +168,21 @@ the upstream_sha recorded at fork time as the common base.`,
 								if err := skill.LLMResolveConflicts(t.addr, t.agent, resolver, st); err != nil {
 									return err
 								}
-								// Push resolved result to fork repo if applicable
+								// Push resolved result to fork repo if applicable;
+								// otherwise snapshot state so future updates use the
+								// resolved files as the new baseline.
 								rec := st.InstalledSkills[t.addr][t.agent]
 								if rec.UpstreamAddr != "" {
 									if pushErr := skill.PushForkAfterLLM(t.addr, t.agent, token, st); pushErr != nil {
 										return pushErr
 									}
+								} else {
+									if snapErr := skill.SnapshotInstalled(t.addr, t.agent, st); snapErr != nil {
+										return snapErr
+									}
 								}
 								fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, green("merged + LLM resolved"))
+								changed = true
 							} else {
 								fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, yellow("merged — conflicts written, resolve manually or use --llm"))
 							}

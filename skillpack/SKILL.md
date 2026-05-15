@@ -173,13 +173,16 @@ skillpack sync   # pulls updates, publishes your local edits
 
 ### Contributing a new skill
 
-> **RULE: After publishing a brand-new skill, always install it with `--all-agents`.**
-> A publish only pushes to the repo — it does not install the skill for any agent.
+> **RULE: After publishing a brand-new skill, install it for the agent whose skill dir it came from.**
+> A publish only pushes to the repo — it does not register the skill in state.
+> Determine the owning agent by matching the skill's local path against each agent's `skill_dir` in config.
 
 ```bash
-mkdir ~/my-new-skill && echo "# My Skill" > ~/my-new-skill/SKILL.md
-skillpack publish ~/my-new-skill --repo my-skills
-skillpack install my-skills/my-new-skill --all-agents   # REQUIRED — install for every agent
+# Example: skill was created in ~/.copilot/skills/ → owning agent is "copilot"
+skillpack publish ~/.copilot/skills/my-new-skill --repo my-skills
+skillpack install my-skills/my-new-skill --agent copilot   # REQUIRED — use the agent that owns the source dir
+
+# If the skill was created outside any agent dir (e.g. ~/my-new-skill), ask the user which agent to install for.
 ```
 
 ### Check version

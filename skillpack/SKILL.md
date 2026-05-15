@@ -59,7 +59,12 @@ skillpack repo rename <old> <new>     # rename a repo (updates state, cache dir,
 
 ### Installing Skills
 
+> **IMPORTANT — skill addresses are full repo-relative paths, not just skill names.**
+> `skillpack install my-repo/diagnose` will fail if the skill lives at `my-repo/skills/engineering/diagnose`.
+> Always run `skillpack list --available --repo <name>` first to get the exact address.
+
 ```bash
+skillpack list --available --repo my-repo              # discover exact addresses BEFORE installing
 skillpack install <repo>/<path/to/skill>               # default agent
 skillpack install <addr> --agent claude-code           # specific agent
 skillpack install <addr> --all-agents                  # every configured agent

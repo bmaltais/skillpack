@@ -1,0 +1,3 @@
+skillpack_bin
+build/*
+!build/*.keep

@@ -34,9 +34,13 @@ type SyncResult struct {
 //     - Local edits + no upstream change   → publish (installed → cache, commit, push)
 //     - Local edits + upstream changed     → skip, append to conflicts
 //     - Neither                            → nothing to do
+//  3. Second-pass update for sibling agents: if a skill was published in step 2,
+//     the cache HEAD advanced. Any agent whose copy of that skill was evaluated
+//     before the publish (and marked already-current) is re-checked and updated
+//     if it is now behind. This ensures a single sync run fully converges.
 //
 // When dryRun is true, repos are still pulled (to get accurate upstream state) but
-// no installed-skill files or state records are modified.
+// no installed-skill files or state records are modified (steps 2 and 3 are skipped).
 //
 // tokenFor is called with a repo name to resolve its token; pass nil to rely on env vars only.
 //
@@ -58,6 +62,13 @@ func Sync(dryRun bool, tokenFor func(string) string, st *state.State) (results [
 	}
 
 	// Step 2: Reconcile each installed skill.
+	//
+	// publishedAddrs tracks skill addresses where a publish occurred in this
+	// pass. A publish advances the cache HEAD; sibling agents sharing the same
+	// address may have been evaluated (and marked already-current) before that
+	// new HEAD was visible, so they need a second look in step 3.
+	publishedAddrs := make(map[string]bool)
+
 	for addr, agents := range st.InstalledSkills {
 		for agentName := range agents {
 			result, checkErr := CheckUpdate(addr, agentName, st)
@@ -89,12 +100,40 @@ func Sync(dryRun bool, tokenFor func(string) string, st *state.State) (results [
 						results = append(results, SyncResult{addr, agentName, "", pubErr})
 						continue
 					}
+					publishedAddrs[addr] = true
 				}
 				results = append(results, SyncResult{addr, agentName, SyncPublished, nil})
 
 			default:
 				// Already in sync.
 				results = append(results, SyncResult{addr, agentName, SyncAlreadyCurrent, nil})
+			}
+		}
+	}
+
+	// Step 3: Second-pass update for sibling agents.
+	//
+	// When agent A's skill was published in step 2, the cache HEAD advanced.
+	// Agent B's copy of the same skill may have been evaluated before that
+	// publish and incorrectly marked already-current. Re-check every
+	// already-current result whose address was published and apply any
+	// update that is now visible.
+	if !dryRun {
+		for i, r := range results {
+			if r.Err != nil || r.Action != SyncAlreadyCurrent || !publishedAddrs[r.Addr] {
+				continue
+			}
+			recheck, checkErr := CheckUpdate(r.Addr, r.AgentName, st)
+			if checkErr != nil {
+				results[i] = SyncResult{r.Addr, r.AgentName, "", checkErr}
+				continue
+			}
+			if recheck.HasUpstream && !recheck.IsModified {
+				if applyErr := ApplyUpdate(r.Addr, r.AgentName, tokenFor(strings.SplitN(r.Addr, "/", 2)[0]), st); applyErr != nil {
+					results[i] = SyncResult{r.Addr, r.AgentName, "", applyErr}
+					continue
+				}
+				results[i] = SyncResult{r.Addr, r.AgentName, SyncUpdated, nil}
 			}
 		}
 	}

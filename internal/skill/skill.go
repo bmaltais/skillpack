@@ -129,9 +129,24 @@ func ComputeHash(dir string) (string, error) {
 		if err != nil {
 			return err
 		}
-		if !info.IsDir() {
-			files = append(files, path)
+		if info.IsDir() {
+			return nil
 		}
+		// Skip symlinks-to-directories so os.ReadFile doesn't fail with "is a directory".
+		if info.Mode()&os.ModeSymlink != 0 {
+			resolved, resolveErr := filepath.EvalSymlinks(path)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			resolvedInfo, statErr := os.Stat(resolved)
+			if statErr != nil {
+				return statErr
+			}
+			if resolvedInfo.IsDir() {
+				return nil
+			}
+		}
+		files = append(files, path)
 		return nil
 	})
 	if err != nil {
@@ -141,7 +156,10 @@ func ComputeHash(dir string) (string, error) {
 
 	h := sha256.New()
 	for _, f := range files {
-		rel, _ := filepath.Rel(realDir, f)
+		rel, err := filepath.Rel(realDir, f)
+		if err != nil {
+			return "", fmt.Errorf("computing relative path for %q: %w", f, err)
+		}
 		// Normalise path separators so hashes are consistent across platforms.
 		fmt.Fprintf(h, "%s\n", strings.ReplaceAll(rel, "\\", "/"))
 		data, err := os.ReadFile(f)
@@ -165,7 +183,10 @@ func copyDir(src, dst string) error {
 		if err != nil {
 			return err
 		}
-		rel, _ := filepath.Rel(realSrc, path)
+		rel, err := filepath.Rel(realSrc, path)
+		if err != nil {
+			return fmt.Errorf("computing relative path for %q: %w", path, err)
+		}
 		target := filepath.Join(dst, rel)
 		if info.IsDir() {
 			return os.MkdirAll(target, info.Mode())

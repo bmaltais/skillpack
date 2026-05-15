@@ -70,11 +70,12 @@ On first run, skillpack detects your installed AI agents and asks which should b
 
 | Command | Description |
 |---------|-------------|
-| `skillpack repo add <url>` | Register and clone a skill repo (name inferred from URL) |
+| `skillpack repo add <url>` | Register and clone a skill repo (name inferred as `owner-repo`) |
 | `skillpack repo add <url> --token <pat>` | Same, with a saved personal access token |
 | `skillpack repo list` | List registered repos |
 | `skillpack repo remove <name>` | Unregister a repo (cache kept on disk) |
 | `skillpack repo update [<name>]` | `git pull` one or all repos |
+| `skillpack repo rename <old> <new>` | Rename a repo (updates state, cache, and installed skill addresses) |
 
 ### Skills
 

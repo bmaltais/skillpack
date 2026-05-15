@@ -125,8 +125,18 @@ func TestComputeHash_SymlinkRoot(t *testing.T) {
 		t.Skipf("symlink not supported on this platform: %v", err)
 	}
 
-	if _, err := skill.ComputeHash(linkDir); err != nil {
+	hashViaLink, err := skill.ComputeHash(linkDir)
+	if err != nil {
 		t.Fatalf("ComputeHash via symlink: %v", err)
+	}
+
+	hashViaReal, err := skill.ComputeHash(realDir)
+	if err != nil {
+		t.Fatalf("ComputeHash via real dir: %v", err)
+	}
+
+	if hashViaLink != hashViaReal {
+		t.Errorf("hash mismatch: symlink path returned %q, real path returned %q", hashViaLink, hashViaReal)
 	}
 }
 

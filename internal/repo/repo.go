@@ -8,6 +8,7 @@ import (
 	"time"
 
 	gogit "github.com/go-git/go-git/v5"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 
 	"github.com/bernard/skillpack/internal/config"
@@ -207,6 +208,18 @@ func isSSHURL(url string) bool {
 	return strings.HasPrefix(url, "git@") || strings.HasPrefix(url, "ssh://")
 }
 
+// httpTokenAuth returns BasicAuth from SKILLPACK_GIT_TOKEN or GITHUB_TOKEN, or nil.
+func httpTokenAuth() *githttp.BasicAuth {
+	token := os.Getenv("SKILLPACK_GIT_TOKEN")
+	if token == "" {
+		token = os.Getenv("GITHUB_TOKEN")
+	}
+	if token == "" {
+		return nil
+	}
+	return &githttp.BasicAuth{Username: "x-access-token", Password: token}
+}
+
 // applyAuth sets auth on CloneOptions based on URL scheme.
 func applyAuth(url string, opts *gogit.CloneOptions) error {
 	if isSSHURL(url) {
@@ -215,9 +228,9 @@ func applyAuth(url string, opts *gogit.CloneOptions) error {
 			return fmt.Errorf("SSH agent unavailable (ensure ssh-agent is running): %w", err)
 		}
 		opts.Auth = auth
+	} else if auth := httpTokenAuth(); auth != nil {
+		opts.Auth = auth
 	}
-	// HTTPS public repos: no auth needed.
-	// HTTPS private repos: rely on system git credential store via go-git's default behaviour.
 	return nil
 }
 
@@ -227,6 +240,8 @@ func applyPullAuth(url string, opts *gogit.PullOptions) error {
 		if err != nil {
 			return fmt.Errorf("SSH agent unavailable: %w", err)
 		}
+		opts.Auth = auth
+	} else if auth := httpTokenAuth(); auth != nil {
 		opts.Auth = auth
 	}
 	return nil

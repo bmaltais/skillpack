@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	gogit "github.com/go-git/go-git/v5"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gogitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 
 	"github.com/bernard/skillpack/internal/state"
@@ -96,6 +97,10 @@ func PublishNew(localDir, repoName string, st *state.State) (string, error) {
 			return "", fmt.Errorf("SSH agent unavailable: %w", err)
 		}
 		pushOpts.Auth = auth
+	} else if token := os.Getenv("SKILLPACK_GIT_TOKEN"); token != "" {
+		pushOpts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: token}
+	} else if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+		pushOpts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: token}
 	}
 	if err := r.Push(pushOpts); err != nil && err != gogit.NoErrAlreadyUpToDate {
 		return "", fmt.Errorf("git push: %w", err)

@@ -20,7 +20,9 @@ var updateCmd = &cobra.Command{
   skillpack update --dry-run
   skillpack update --force-remote my-repo/coding/debugger
   skillpack update --force-local  my-repo/coding/debugger
-  skillpack update --merge        my-repo/coding/debugger`,
+  skillpack update --merge        my-repo/coding/debugger
+  skillpack update --merge --llm  my-repo/coding/debugger
+  skillpack update --merge --llm claude-code my-repo/coding/debugger`,
 	Long: `Check installed skills for upstream changes and apply updates.
 
 Without arguments, checks all installed skills. With a skill address,
@@ -31,13 +33,18 @@ blocked. Resolve the conflict with one of:
 
   --force-remote   upstream wins: overwrite local changes with cache
   --force-local    local wins: push your version to the remote repo
-  --merge          file-level three-way merge; conflict markers on failure`,
+  --merge          file-level three-way merge; conflict markers on failure
+  --merge --llm    three-way merge + LLM-assisted conflict resolution
+
+For forked skills, --merge uses the upstream origin as 'theirs' and
+the upstream_sha recorded at fork time as the common base.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		agentFilter, _ := cmd.Flags().GetString("agent")
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		forceRemote, _ := cmd.Flags().GetBool("force-remote")
 		forceLocal, _ := cmd.Flags().GetBool("force-local")
 		doMerge, _ := cmd.Flags().GetBool("merge")
+		llmAgent, _ := cmd.Flags().GetString("llm")
 
 		resCount := 0
 		for _, f := range []bool{forceRemote, forceLocal, doMerge} {
@@ -47,6 +54,9 @@ blocked. Resolve the conflict with one of:
 		}
 		if resCount > 1 {
 			return fmt.Errorf("specify at most one of --force-remote, --force-local, --merge")
+		}
+		if llmAgent != "" && !doMerge {
+			return fmt.Errorf("--llm requires --merge")
 		}
 
 		st, err := state.Load()
@@ -118,7 +128,7 @@ blocked. Resolve the conflict with one of:
 				switch {
 				case forceRemote:
 					if !dryRun {
-						if err := skill.ForceRemote(t.addr, t.agent, st); err != nil {
+						if err := skill.ForceRemote(t.addr, t.agent, cfg.TokenForRepo(repoNameFromAddr(t.addr)), st); err != nil {
 							return err
 						}
 						fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, green("force-remote applied"))
@@ -140,13 +150,43 @@ blocked. Resolve the conflict with one of:
 
 				case doMerge:
 					if !dryRun {
-						hadConflicts, err := skill.MergeSkill(t.addr, t.agent, st)
+						token := cfg.TokenForRepo(repoNameFromAddr(t.addr))
+						hadConflicts, err := skill.MergeSkill(t.addr, t.agent, token, st)
 						if err != nil {
 							return err
 						}
 						if hadConflicts {
-								fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, yellow("merged — conflicts written, resolve manually"))
+							if llmAgent != "" {
+								agentName := llmAgent
+								if agentName == "true" || agentName == "" {
+									agentName = cfg.DefaultAgent
+								}
+								resolver, err := skill.NewDefaultLLMResolver(agentName)
+								if err != nil {
+									return err
+								}
+								if err := skill.LLMResolveConflicts(t.addr, t.agent, resolver, st); err != nil {
+									return err
+								}
+								// Push resolved result to fork repo if applicable;
+								// otherwise snapshot state so future updates use the
+								// resolved files as the new baseline.
+								rec := st.InstalledSkills[t.addr][t.agent]
+								if rec.UpstreamAddr != "" {
+									if pushErr := skill.PushForkAfterLLM(t.addr, t.agent, token, st); pushErr != nil {
+										return pushErr
+									}
+								} else {
+									if snapErr := skill.SnapshotInstalled(t.addr, t.agent, st); snapErr != nil {
+										return snapErr
+									}
+								}
+								fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, green("merged + LLM resolved"))
+								changed = true
 							} else {
+								fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, yellow("merged — conflicts written, resolve manually or use --llm"))
+							}
+						} else {
 								fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, green("merged cleanly"))
 							changed = true
 						}
@@ -161,7 +201,7 @@ blocked. Resolve the conflict with one of:
 			} else {
 				// Safe update: not locally modified
 				if !dryRun {
-					if err := skill.ApplyUpdate(t.addr, t.agent, st); err != nil {
+					if err := skill.ApplyUpdate(t.addr, t.agent, cfg.TokenForRepo(repoNameFromAddr(t.addr)), st); err != nil {
 						return err
 					}
 					fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, green("updated"))
@@ -191,6 +231,9 @@ func init() {
 	updateCmd.Flags().Bool("force-remote", false, "Conflict resolution: upstream wins (overwrites local)")
 	updateCmd.Flags().Bool("force-local", false, "Conflict resolution: local wins (pushes to remote)")
 	updateCmd.Flags().Bool("merge", false, "Conflict resolution: three-way file-level merge")
+	updateCmd.Flags().String("llm", "", "LLM agent for conflict resolution (requires --merge); omit value to use default agent")
+	// Allow --llm without a value; sentinel "true" means "use default agent".
+	updateCmd.Flags().Lookup("llm").NoOptDefVal = "true"
 }
 
 func repoNameFromAddr(addr string) string {

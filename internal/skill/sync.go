@@ -74,7 +74,7 @@ func Sync(dryRun bool, tokenFor func(string) string, st *state.State) (results [
 			case result.HasUpstream && !result.IsModified:
 				// Safe upstream update.
 				if !dryRun {
-					if applyErr := ApplyUpdate(addr, agentName, st); applyErr != nil {
+					if applyErr := ApplyUpdate(addr, agentName, tokenFor(strings.SplitN(addr, "/", 2)[0]), st); applyErr != nil {
 						results = append(results, SyncResult{addr, agentName, "", applyErr})
 						continue
 					}

@@ -17,7 +17,7 @@ var repoCmd = &cobra.Command{
 }
 
 var repoAddCmd = &cobra.Command{
-	Use:   "add <url> [--name <name>]",
+	Use:   "add <url> [--name <name>] [--token <pat>]",
 	Short: "Clone and register a skill repository",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -32,28 +32,34 @@ var repoAddCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-
 		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
+
+		// Check for name/URL collision BEFORE touching credentials.
+		if rec, exists := st.Repos[name]; exists {
+			if rec.URL != url {
+				return fmt.Errorf("repo name %q is already used for %s — use --name to pick a different name", name, rec.URL)
+			}
+			// Same URL: just update the token (no re-clone needed).
+			if token != "" {
+				cfg.Credentials[name] = token
+				if err := config.Save(cfg); err != nil {
+					return err
+				}
+			}
+			skills, _ := repo.DiscoverSkills(name, st)
+			fmt.Printf("Repo %q already registered — token updated. %d skill(s) available.\n", name, len(skills))
+			return nil
+		}
+
+		// Save token AFTER collision check passes.
 		if token != "" {
 			cfg.Credentials[name] = token
 			if err := config.Save(cfg); err != nil {
 				return err
 			}
-		}
-
-		// If already registered with the same URL, just update the token (no re-clone needed).
-		// If registered with a different URL, fall through to the normal error so the user
-		// knows to use --name to give this repo a distinct name.
-		if rec, exists := st.Repos[name]; exists {
-			if rec.URL == url {
-				skills, _ := repo.DiscoverSkills(name, st)
-				fmt.Printf("Repo %q already registered — token updated. %d skill(s) available.\n", name, len(skills))
-				return nil
-			}
-			return fmt.Errorf("repo name %q is already used for %s — use --name to pick a different name", name, rec.URL)
 		}
 
 		fmt.Printf("Cloning %s as %q...\n", url, name)
@@ -178,28 +184,35 @@ var repoRenameCmd = &cobra.Command{
 			return fmt.Errorf("repo %q already exists", newName)
 		}
 
-		// Rename the cache directory on disk.
-		newCachePath, err := repo.RenameCache(oldName, newName)
+		// Compute the new cache path.
+		newCachePath, err := repo.NewCachePath(newName)
 		if err != nil {
 			return err
 		}
 
-		// Update state: replace the repo record key.
+		// Update in-memory state before touching disk so that if a save
+		// fails nothing on disk has changed yet.
 		rec.CachePath = newCachePath
 		delete(st.Repos, oldName)
 		st.Repos[newName] = rec
 
-		// Rekey installed skills whose address starts with "<oldName>/".
+		// Rekey installed skills. Collect first, then apply to avoid
+		// mutating the map while ranging over it.
+		type rekey struct{ oldAddr, newAddr string }
 		prefix := oldName + "/"
-		for addr, agents := range st.InstalledSkills {
+		var rekeys []rekey
+		for addr := range st.InstalledSkills {
 			if strings.HasPrefix(addr, prefix) {
-				newAddr := newName + "/" + addr[len(prefix):]
-				st.InstalledSkills[newAddr] = agents
-				delete(st.InstalledSkills, addr)
+				rekeys = append(rekeys, rekey{addr, newName + "/" + addr[len(prefix):]})
 			}
 		}
+		for _, rk := range rekeys {
+			st.InstalledSkills[rk.newAddr] = st.InstalledSkills[rk.oldAddr]
+			delete(st.InstalledSkills, rk.oldAddr)
+		}
 
-		// Move credential if present.
+		// Save state and config before renaming the directory.
+		// If either save fails, the disk is unchanged and the user can retry.
 		if token, ok := cfg.Credentials[oldName]; ok {
 			cfg.Credentials[newName] = token
 			delete(cfg.Credentials, oldName)
@@ -207,10 +220,16 @@ var repoRenameCmd = &cobra.Command{
 				return err
 			}
 		}
-
 		if err := state.Save(st); err != nil {
 			return err
 		}
+
+		// Rename the cache directory last. If this fails, report the manual
+		// fix command so the user can recover without re-cloning.
+		if err := repo.RenameCache(oldName, newName); err != nil {
+			return fmt.Errorf("%w\n  state updated; fix manually with: mv ~/.skillpack/repos/%s ~/.skillpack/repos/%s", err, oldName, newName)
+		}
+
 		fmt.Printf("Renamed %q → %q\n", oldName, newName)
 		return nil
 	},

@@ -40,11 +40,16 @@ func Add(name, url, token string, st *state.State) error {
 		return fmt.Errorf("creating repos dir: %w", err)
 	}
 
-	// A leftover cache dir from a previously failed clone would cause PlainClone
-	// to fail with "repository already exists". Wipe it so the retry is clean.
+	// If a directory exists at cachePath but is NOT a valid git repo (e.g. a
+	// partial clone from a previously-failed attempt), wipe it so PlainClone
+	// can start fresh. If PlainOpen succeeds the directory is a valid clone
+	// that the user may have intentionally kept (via `repo remove --keep`), so
+	// we leave it alone and let PlainClone return its own "already exists" error.
 	if _, statErr := os.Stat(cachePath); statErr == nil {
-		if err := os.RemoveAll(cachePath); err != nil {
-			return fmt.Errorf("removing stale cache dir %s: %w", cachePath, err)
+		if _, openErr := gogit.PlainOpen(cachePath); openErr != nil {
+			if err := os.RemoveAll(cachePath); err != nil {
+				return fmt.Errorf("removing partial cache dir %s: %w", cachePath, err)
+			}
 		}
 	}
 
@@ -77,22 +82,30 @@ func Remove(name string, st *state.State) error {
 	return nil
 }
 
-// RenameCache moves the on-disk cache directory from oldName to newName and
-// returns the new absolute cache path.
-func RenameCache(oldName, newName string) (string, error) {
+// NewCachePath returns the absolute path where a repo named name would be cached.
+func NewCachePath(name string) (string, error) {
 	reposDir, err := config.ReposDir()
 	if err != nil {
 		return "", err
 	}
+	return filepath.Join(reposDir, name), nil
+}
+
+// RenameCache moves the on-disk cache directory from oldName to newName.
+func RenameCache(oldName, newName string) error {
+	reposDir, err := config.ReposDir()
+	if err != nil {
+		return err
+	}
 	oldPath := filepath.Join(reposDir, oldName)
 	newPath := filepath.Join(reposDir, newName)
 	if _, err := os.Stat(newPath); err == nil {
-		return "", fmt.Errorf("cache directory %s already exists", newPath)
+		return fmt.Errorf("cache directory %s already exists", newPath)
 	}
 	if err := os.Rename(oldPath, newPath); err != nil {
-		return "", fmt.Errorf("renaming cache dir: %w", err)
+		return fmt.Errorf("renaming cache dir: %w", err)
 	}
-	return newPath, nil
+	return nil
 }
 
 // Update performs a git pull on the cached repo clone.
@@ -203,8 +216,8 @@ func HeadSHA(repoName string, st *state.State) (string, error) {
 //	git@github.com:bmaltais/skillpack.git     → bmaltais-skillpack
 //	https://internal.host/myrepo.git          → myrepo  (no owner segment)
 func NameFromURL(rawURL string) string {
-	s := strings.TrimSuffix(rawURL, ".git")
-	s = strings.TrimRight(s, "/")
+	s := strings.TrimRight(rawURL, "/")
+	s = strings.TrimSuffix(s, ".git")
 
 	// Normalise SSH syntax: git@host:owner/repo → host/owner/repo
 	if strings.HasPrefix(s, "git@") {
@@ -261,18 +274,8 @@ func isSSHURL(url string) bool {
 	return strings.HasPrefix(url, "git@") || strings.HasPrefix(url, "ssh://")
 }
 
-// httpToken resolves the best available token: explicit arg → SKILLPACK_GIT_TOKEN → GITHUB_TOKEN.
-func httpToken(token string) string {
-	if token != "" {
-		return token
-	}
-	if t := os.Getenv("SKILLPACK_GIT_TOKEN"); t != "" {
-		return t
-	}
-	return os.Getenv("GITHUB_TOKEN")
-}
-
 // applyAuth sets auth on CloneOptions based on URL scheme.
+// token should already be resolved by the caller (e.g. via Config.TokenForRepo).
 func applyAuth(url, token string, opts *gogit.CloneOptions) error {
 	if isSSHURL(url) {
 		auth, err := ssh.NewSSHAgentAuth("git")
@@ -280,8 +283,8 @@ func applyAuth(url, token string, opts *gogit.CloneOptions) error {
 			return fmt.Errorf("SSH agent unavailable (ensure ssh-agent is running): %w", err)
 		}
 		opts.Auth = auth
-	} else if t := httpToken(token); t != "" {
-		opts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: t}
+	} else if token != "" {
+		opts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: token}
 	}
 	return nil
 }
@@ -293,8 +296,8 @@ func applyPullAuth(url, token string, opts *gogit.PullOptions) error {
 			return fmt.Errorf("SSH agent unavailable: %w", err)
 		}
 		opts.Auth = auth
-	} else if t := httpToken(token); t != "" {
-		opts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: t}
+	} else if token != "" {
+		opts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: token}
 	}
 	return nil
 }

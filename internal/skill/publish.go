@@ -97,8 +97,8 @@ func PublishNew(localDir, repoName, token string, st *state.State) (string, erro
 			return "", fmt.Errorf("SSH agent unavailable: %w", err)
 		}
 		pushOpts.Auth = auth
-	} else if t := resolveToken(token); t != "" {
-		pushOpts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: t}
+ } else if token != "" {
+		pushOpts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: token}
 	}
 	if err := r.Push(pushOpts); err != nil && err != gogit.NoErrAlreadyUpToDate {
 		return "", fmt.Errorf("git push: %w", err)

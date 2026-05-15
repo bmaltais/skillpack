@@ -136,7 +136,11 @@ in the installed files, then run `skillpack publish <addr>` to push the result.
 
 ### First time setup
 
-```bash\nskillpack repo add https://github.com/example/my-skills.git\nskillpack list --available\nskillpack install my-skills/coding/debugger\n```
+```bash
+skillpack repo add https://github.com/example/my-skills.git
+skillpack list --available
+skillpack install my-skills/coding/debugger
+```
 
 ### Daily driver
 

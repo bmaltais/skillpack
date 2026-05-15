@@ -8,6 +8,7 @@ import (
 	"time"
 
 	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 
@@ -108,7 +109,10 @@ func RenameCache(oldName, newName string) error {
 	return nil
 }
 
-// Update performs a git pull on the cached repo clone.
+// Update fetches the latest remote state and hard-resets the cache to origin/HEAD.
+// This is safe because the cache is a read-only remote mirror — it is never
+// directly edited by the user. A hard reset recovers automatically from any
+// non-fast-forward divergence (e.g. after a force-push upstream).
 // token is optional; pass "" to rely on env vars.
 func Update(name, token string, st *state.State) error {
 	rec, ok := st.Repos[name]
@@ -125,23 +129,74 @@ func Update(name, token string, st *state.State) error {
 		return fmt.Errorf("getting worktree: %w", err)
 	}
 
-	pullOpts := &gogit.PullOptions{Progress: os.Stdout}
-	if err := applyPullAuth(rec.URL, token, pullOpts); err != nil {
+	fetchOpts := &gogit.FetchOptions{
+		RemoteName: "origin",
+		Progress:   os.Stdout,
+	}
+	if err := applyFetchAuth(rec.URL, token, fetchOpts); err != nil {
 		return err
 	}
 
-	err = w.Pull(pullOpts)
-	if err == gogit.NoErrAlreadyUpToDate {
-		fmt.Println("  Already up to date.")
-		err = nil
+	err = r.Fetch(fetchOpts)
+	if err != nil && err != gogit.NoErrAlreadyUpToDate {
+		return fmt.Errorf("fetching repo: %w", err)
 	}
+	alreadyUpToDate := err == gogit.NoErrAlreadyUpToDate
+
+	// Resolve origin/HEAD to the remote tip hash.
+	hash, err := resolveRemoteHEAD(r)
 	if err != nil {
-		return fmt.Errorf("pulling repo: %w", err)
+		return fmt.Errorf("resolving remote HEAD: %w", err)
+	}
+
+	// Capture current HEAD before reset to detect whether the worktree actually moved.
+	preResetHead, _ := r.Head()
+
+	if err := w.Reset(&gogit.ResetOptions{Commit: *hash, Mode: gogit.HardReset}); err != nil {
+		return fmt.Errorf("resetting to remote HEAD: %w", err)
+	}
+
+	// Print "Already up to date." only when the remote had nothing new AND the
+	// local HEAD was already at the remote tip (i.e. nothing actually changed).
+	if alreadyUpToDate && preResetHead != nil && preResetHead.Hash() == *hash {
+		fmt.Println("  Already up to date.")
 	}
 
 	rec.LastUpdated = time.Now()
 	st.Repos[name] = rec
 	return nil
+}
+
+// resolveRemoteHEAD returns the hash the remote tip the local worktree tracks.
+//
+// Resolution order:
+//  1. refs/remotes/origin/HEAD — set by modern git clones; resolves the symref.
+//  2. The remote-tracking ref for the currently checked-out branch
+//     (e.g. refs/remotes/origin/develop) — handles any default branch name.
+//
+// This avoids hard-coding branch names like "main" or "master".
+func resolveRemoteHEAD(r *gogit.Repository) (*plumbing.Hash, error) {
+	// 1. Try refs/remotes/origin/HEAD (resolves the upstream symref).
+	if h, err := r.ResolveRevision(plumbing.Revision("refs/remotes/origin/HEAD")); err == nil {
+		return h, nil
+	}
+
+	// 2. Derive from the checked-out branch's tracking ref.
+	head, err := r.Head()
+	if err != nil {
+		return nil, fmt.Errorf("getting HEAD: %w", err)
+	}
+	if head.Name().IsBranch() {
+		trackingRef := plumbing.NewRemoteReferenceName("origin", head.Name().Short())
+		if h, err := r.ResolveRevision(plumbing.Revision(trackingRef)); err == nil {
+			return h, nil
+		}
+	}
+
+	return nil, fmt.Errorf(
+		"could not resolve remote HEAD: refs/remotes/origin/HEAD not set and no tracking ref found for branch %q",
+		head.Name().Short(),
+	)
 }
 
 // DiscoverSkills walks the cached repo and returns all skills (dirs containing SKILL.md).
@@ -289,7 +344,7 @@ func applyAuth(url, token string, opts *gogit.CloneOptions) error {
 	return nil
 }
 
-func applyPullAuth(url, token string, opts *gogit.PullOptions) error {
+func applyFetchAuth(url, token string, opts *gogit.FetchOptions) error {
 	if isSSHURL(url) {
 		auth, err := ssh.NewSSHAgentAuth("git")
 		if err != nil {

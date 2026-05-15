@@ -4,6 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/state"
@@ -148,4 +152,86 @@ func skillAddrs(skills []repo.SkillInfo) []string {
 		out[i] = s.Address
 	}
 	return out
+}
+
+// TestUpdate_DivergedCache seeds a local cache clone that has an extra commit
+// not present on the remote, then calls Update() and asserts:
+//  1. Update() returns no error (previously it returned non-fast-forward).
+//  2. The cache HEAD matches the remote HEAD (hard reset succeeded).
+func TestUpdate_DivergedCache(t *testing.T) {
+	sig := &object.Signature{Name: "Test", Email: "test@example.com", When: time.Now()}
+
+	// --- set up "remote" (plain, non-bare) repo with one commit ---
+	remoteDir := t.TempDir()
+	remote, err := gogit.PlainInit(remoteDir, false)
+	if err != nil {
+		t.Fatalf("remote init: %v", err)
+	}
+	rw, err := remote.Worktree()
+	if err != nil {
+		t.Fatalf("remote worktree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(remoteDir, "README.md"), []byte("# remote"), 0600); err != nil {
+		t.Fatalf("remote write: %v", err)
+	}
+	if _, err := rw.Add("README.md"); err != nil {
+		t.Fatalf("remote add: %v", err)
+	}
+	remoteCommit, err := rw.Commit("initial commit", &gogit.CommitOptions{Author: sig})
+	if err != nil {
+		t.Fatalf("remote commit: %v", err)
+	}
+
+	// --- clone into cacheDir ---
+	cacheDir := t.TempDir()
+	cache, err := gogit.PlainClone(cacheDir, false, &gogit.CloneOptions{URL: remoteDir})
+	if err != nil {
+		t.Fatalf("clone: %v", err)
+	}
+
+	// --- add a diverging commit to the cache (not pushed to remote) ---
+	cw, err := cache.Worktree()
+	if err != nil {
+		t.Fatalf("cache worktree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "diverged.md"), []byte("diverged"), 0600); err != nil {
+		t.Fatalf("diverged write: %v", err)
+	}
+	if _, err := cw.Add("diverged.md"); err != nil {
+		t.Fatalf("diverged add: %v", err)
+	}
+	if _, err := cw.Commit("diverged commit", &gogit.CommitOptions{Author: sig}); err != nil {
+		t.Fatalf("diverged commit: %v", err)
+	}
+
+	// sanity check: cache HEAD ≠ remote HEAD
+	cacheHead, _ := cache.Head()
+	if cacheHead.Hash() == remoteCommit {
+		t.Fatal("precondition failed: cache HEAD should differ from remote HEAD")
+	}
+
+	// --- run Update() ---
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"test-repo": {URL: remoteDir, CachePath: cacheDir},
+		},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+	if err := repo.Update("test-repo", "", st); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	// --- assert cache HEAD == remote HEAD ---
+	cacheHead, err = cache.Head()
+	if err != nil {
+		t.Fatalf("cache head after update: %v", err)
+	}
+	if cacheHead.Hash() != remoteCommit {
+		t.Errorf("cache HEAD = %s, want %s (remote HEAD)", cacheHead.Hash(), remoteCommit)
+	}
+
+	// diverged.md must no longer exist
+	if _, err := os.Stat(filepath.Join(cacheDir, "diverged.md")); err == nil {
+		t.Error("diverged.md should have been removed by hard reset")
+	}
 }

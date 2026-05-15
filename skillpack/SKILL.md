@@ -5,7 +5,7 @@ description: >
   across multiple AI agents (Claude Code, Copilot, Hermes, Pi, etc.).
 categories: [software-development, ai-tools, cli]
 agents: [pi, hermes, claude, copilot]
-version: 1.0.0
+version: 1.1.0
 ---
 
 # skillpack
@@ -36,17 +36,24 @@ agents:
     skill_dir: ~/.claude/skills
   copilot:
     skill_dir: ~/.copilot/skills
+# Optional: per-repo tokens for private HTTPS repos
+credentials:
+  my-private-repo: ghp_yourtoken
 ```
+
+Token lookup order: `credentials` in config → `SKILLPACK_GIT_TOKEN` env var → `GITHUB_TOKEN` env var.
 
 ## Commands
 
 ### Repo Management
 
 ```bash
-skillpack repo add <name> <url>   # register + clone a skill repo
-skillpack repo list               # list registered repos
-skillpack repo remove <name>      # unregister (cache kept on disk)
-skillpack repo update [<name>]    # git pull one or all repos
+skillpack repo add <url>              # register + clone (name inferred from URL)
+skillpack repo add <url> --name <n>   # explicit name
+skillpack repo add <url> --token <t>  # private HTTPS repo — token saved to config
+skillpack repo list                   # list registered repos
+skillpack repo remove <name>          # unregister (cache kept on disk)
+skillpack repo update [<name>]        # git pull one or all repos
 ```
 
 ### Installing Skills
@@ -128,11 +135,7 @@ in the installed files, then run `skillpack publish <addr>` to push the result.
 
 ### First time setup
 
-```bash
-skillpack repo add my-skills https://github.com/example/my-skills.git
-skillpack list --available
-skillpack install my-skills/coding/debugger
-```
+```bash\nskillpack repo add https://github.com/example/my-skills.git\nskillpack list --available\nskillpack install my-skills/coding/debugger\n```
 
 ### Daily driver
 
@@ -146,6 +149,12 @@ skillpack sync   # pulls updates, publishes your local edits
 mkdir ~/my-new-skill && echo "# My Skill" > ~/my-new-skill/SKILL.md
 skillpack publish ~/my-new-skill --repo my-skills
 skillpack install my-skills/my-new-skill
+```
+
+### Check version
+
+```bash
+skillpack --version
 ```
 
 ### Editing an installed skill and pushing back

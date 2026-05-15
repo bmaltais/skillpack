@@ -47,7 +47,10 @@ go install ./cmd/skillpack/
 
 ```bash
 # 1. Register a skill repository
-skillpack repo add my-skills https://github.com/example/my-skills.git
+skillpack repo add https://github.com/example/my-skills.git
+
+# 1b. Private repo? Pass a token — saved to config for future use
+skillpack repo add https://github.com/example/private-skills.git --token ghp_xxx
 
 # 2. Browse available skills
 skillpack list --available
@@ -67,7 +70,8 @@ On first run, skillpack detects your installed AI agents and asks which should b
 
 | Command | Description |
 |---------|-------------|
-| `skillpack repo add <name> <url>` | Register and clone a skill repo |
+| `skillpack repo add <url>` | Register and clone a skill repo (name inferred from URL) |
+| `skillpack repo add <url> --token <pat>` | Same, with a saved personal access token |
 | `skillpack repo list` | List registered repos |
 | `skillpack repo remove <name>` | Unregister a repo (cache kept on disk) |
 | `skillpack repo update [<name>]` | `git pull` one or all repos |
@@ -140,9 +144,27 @@ agents:
     skill_dir: ~/.copilot/skills
   hermes:
     skill_dir: ~/.hermes/skills
+# Optional: per-repo tokens for private HTTPS repos
+credentials:
+  my-private-repo: ghp_yourtoken
 ```
 
+Tokens can also be provided via environment variables (useful in CI):
+```bash
+export SKILLPACK_GIT_TOKEN=ghp_xxx   # takes priority over GITHUB_TOKEN
+export GITHUB_TOKEN=ghp_xxx          # fallback (set automatically by GitHub Actions)
+```
+
+Token lookup order: `credentials` in config → `SKILLPACK_GIT_TOKEN` → `GITHUB_TOKEN`.
+
 Default agents detected automatically on first run: `claude-code`, `copilot`, `hermes`, `pi`, `opencode`, `openclaw`.
+
+## Other
+
+```bash
+skillpack --version   # print the installed version
+skillpack --help      # command reference
+```
 
 ## Contributing Skills
 

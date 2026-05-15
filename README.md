@@ -27,12 +27,29 @@ Skills are directories containing a `SKILL.md` file that teach AI agents how to 
 
 ## Installation
 
-### Pre-built binary
+### Pre-built binary (Linux & macOS)
 
 ```bash
-# Linux / macOS (replace VERSION and ARCH)
-curl -L https://github.com/bmaltais/skillpack/releases/latest/download/skillpack-linux-amd64 \
-  -o /usr/local/bin/skillpack && chmod +x /usr/local/bin/skillpack
+curl -fsSL https://raw.githubusercontent.com/bmaltais/skillpack/main/install.sh \
+  -o /tmp/skillpack-install.sh && sh /tmp/skillpack-install.sh
+```
+
+The script auto-detects your OS and architecture, installs to `~/.local/bin/skillpack` (no `sudo` required), creates the directory if needed, and prints a `PATH` hint if the install directory is not already on your `PATH`.
+
+**System-wide install** (requires write access to `/usr/local/bin`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bmaltais/skillpack/main/install.sh \
+  -o /tmp/skillpack-install.sh \
+  && sudo env SKILLPACK_INSTALL_DIR=/usr/local/bin sh /tmp/skillpack-install.sh
+```
+
+**Custom location:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bmaltais/skillpack/main/install.sh \
+  -o /tmp/skillpack-install.sh \
+  && SKILLPACK_INSTALL_DIR=~/bin sh /tmp/skillpack-install.sh
 ```
 
 ### From source (requires Go 1.21+)

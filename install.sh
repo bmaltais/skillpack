@@ -1,10 +1,13 @@
 #!/bin/sh
 # install.sh — download and install the skillpack binary
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/bmaltais/skillpack/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/bmaltais/skillpack/main/install.sh \
+#     -o /tmp/skillpack-install.sh && sh /tmp/skillpack-install.sh
 #
-# Override install directory:
-#   SKILLPACK_INSTALL_DIR=/usr/local/bin sudo sh install.sh
+# Override install directory (env var must be passed to sh, not curl):
+#   curl -fsSL https://raw.githubusercontent.com/bmaltais/skillpack/main/install.sh \
+#     -o /tmp/skillpack-install.sh \
+#     && sudo env SKILLPACK_INSTALL_DIR=/usr/local/bin sh /tmp/skillpack-install.sh
 #
 # Supported platforms: Linux (amd64, arm64), macOS (amd64, arm64)
 # Windows is not supported by this script.
@@ -44,9 +47,11 @@ esac
 # ── Choose install directory ───────────────────────────────────────────────────
 if [ -n "${SKILLPACK_INSTALL_DIR}" ]; then
   install_dir="${SKILLPACK_INSTALL_DIR}"
-elif [ -d "${HOME}/.local/bin" ] || mkdir -p "${HOME}/.local/bin" 2>/dev/null; then
+elif { [ -d "${HOME}/.local/bin" ] || mkdir -p "${HOME}/.local/bin" 2>/dev/null; } \
+      && [ -w "${HOME}/.local/bin" ]; then
   install_dir="${HOME}/.local/bin"
-elif [ -d "${HOME}/bin" ] || mkdir -p "${HOME}/bin" 2>/dev/null; then
+elif { [ -d "${HOME}/bin" ] || mkdir -p "${HOME}/bin" 2>/dev/null; } \
+      && [ -w "${HOME}/bin" ]; then
   install_dir="${HOME}/bin"
 else
   echo "error: could not find or create a writable install directory." >&2
@@ -62,18 +67,22 @@ asset="${BINARY}-${os}-${arch}"
 url="${BASE_URL}/${asset}"
 dest="${install_dir}/${BINARY}"
 
-# ── Download ───────────────────────────────────────────────────────────────────
+# ── Download (to a temp file, then atomically replace) ────────────────────────
+tmp_dest="${install_dir}/.${BINARY}-tmp.$$"
+trap 'rm -f "${tmp_dest}"' EXIT INT TERM
+
 echo "Downloading ${asset} → ${dest}"
 if command -v curl >/dev/null 2>&1; then
-  curl -fsSL "${url}" -o "${dest}"
+  curl -fsSL "${url}" -o "${tmp_dest}"
 elif command -v wget >/dev/null 2>&1; then
-  wget -qO "${dest}" "${url}"
+  wget -qO "${tmp_dest}" "${url}"
 else
   echo "error: neither curl nor wget is available." >&2
   exit 1
 fi
 
-chmod +x "${dest}"
+chmod +x "${tmp_dest}"
+mv "${tmp_dest}" "${dest}"
 
 echo ""
 echo "skillpack installed to ${dest}"
@@ -95,6 +104,6 @@ case ":${PATH}:" in
     echo "      echo 'export PATH=\"${install_dir}:\$PATH\"' >> ~/.zshrc"
     echo ""
     echo "      # fish"
-    echo "      fish_add_path ${install_dir}"
+    echo "      fish_add_path \"${install_dir}\""
     ;;
 esac

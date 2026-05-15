@@ -154,15 +154,36 @@ func ComputeHash(dir string) (string, error) {
 }
 
 // copyDir recursively copies the src directory tree to dst.
+// src may be a symlink to a directory; the symlink is followed so that the
+// directory contents are walked rather than the symlink entry itself.
 func copyDir(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+	realSrc, err := filepath.EvalSymlinks(src)
+	if err != nil {
+		return fmt.Errorf("resolving src path %q: %w", src, err)
+	}
+	return filepath.Walk(realSrc, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, _ := filepath.Rel(src, path)
+		rel, _ := filepath.Rel(realSrc, path)
 		target := filepath.Join(dst, rel)
 		if info.IsDir() {
 			return os.MkdirAll(target, info.Mode())
+		}
+		// If a file inside the tree is itself a symlink to a directory, skip it
+		// rather than crashing with "is a directory".
+		if info.Mode()&os.ModeSymlink != 0 {
+			resolved, resolveErr := filepath.EvalSymlinks(path)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			resolvedInfo, statErr := os.Stat(resolved)
+			if statErr != nil {
+				return statErr
+			}
+			if resolvedInfo.IsDir() {
+				return nil // skip symlinks-to-directories inside skills
+			}
 		}
 		return copyFile(path, target, info.Mode())
 	})

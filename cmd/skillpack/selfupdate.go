@@ -3,7 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -12,15 +15,15 @@ import (
 
 const (
 	githubReleaseURL    = "https://api.github.com/repos/bmaltais/skillpack/releases/latest"
-	goInstallCommand    = "go install github.com/bmaltais/skillpack/cmd/skillpack@latest"
+	githubDownloadFmt   = "https://github.com/bmaltais/skillpack/releases/download/%s/skillpack-%s-%s"
+	installOneLiner     = "curl -fsSL https://raw.githubusercontent.com/bmaltais/skillpack/main/install.sh \\\n  -o /tmp/skillpack-install.sh && sh /tmp/skillpack-install.sh"
 )
 
 var selfUpdateCmd = &cobra.Command{
 	Use:   "self-update",
-	Short: "Check for a newer version of skillpack and print upgrade instructions",
-	Long: `Fetches the latest release tag from GitHub and compares it to the
-running version. If a newer release exists, prints the install command
-so you can upgrade at your discretion.`,
+	Short: "Download and install the latest version of skillpack",
+	Long: `Fetches the latest release from GitHub and replaces the running binary.
+On Windows, prints a link to the releases page instead.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		current := strings.TrimPrefix(Version, "v")
 		if current == "dev" {
@@ -50,12 +53,95 @@ so you can upgrade at your discretion.`,
 
 		fmt.Println(yellow("A newer version is available!"))
 		fmt.Println()
-		fmt.Println("To upgrade, run:")
+
+		if runtime.GOOS == "windows" {
+			fmt.Println("Automatic update is not supported on Windows.")
+			fmt.Println("Download the latest release from:")
+			fmt.Printf("\n    https://github.com/bmaltais/skillpack/releases/tag/%s\n\n", latest)
+			return nil
+		}
+
+		fmt.Print("Downloading update... ")
+		if err := downloadAndReplace(latest); err != nil {
+			fmt.Println()
+			fmt.Println(yellow("Automatic update failed: " + err.Error()))
+			fmt.Println()
+			fmt.Println("To upgrade manually, run:")
+			fmt.Printf("\n    %s\n\n", bold(installOneLiner))
+			return nil
+		}
+		fmt.Println("done.")
 		fmt.Println()
-		fmt.Printf("    %s\n", bold(goInstallCommand))
+		fmt.Printf("%s skillpack updated to %s\n", green("✓"), bold(latest))
 		fmt.Println()
 		return nil
 	},
+}
+
+// downloadAndReplace downloads the latest release binary for the current
+// OS/arch and atomically replaces the running executable.
+func downloadAndReplace(tag string) error {
+	goos := runtime.GOOS
+	goarch := runtime.GOARCH
+
+	url := fmt.Sprintf(githubDownloadFmt, tag, goos, goarch)
+
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("could not determine executable path: %w", err)
+	}
+
+	// Download to a temp file beside the current binary.
+	tmpPath := execPath + ".new"
+	if err := downloadFile(url, tmpPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+
+	// Make it executable.
+	if err := os.Chmod(tmpPath, 0755); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("could not chmod downloaded binary: %w", err)
+	}
+
+	// Atomically replace the current binary.
+	if err := os.Rename(tmpPath, execPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("could not replace binary (try with sudo): %w", err)
+	}
+
+	return nil
+}
+
+// downloadFile fetches url and writes it to dest.
+func downloadFile(url, dest string) error {
+	client := &http.Client{Timeout: 60 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", "skillpack/"+Version)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("download failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download returned HTTP %d for %s", resp.StatusCode, url)
+	}
+
+	f, err := os.Create(dest)
+	if err != nil {
+		return fmt.Errorf("could not create temp file: %w", err)
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		return fmt.Errorf("error writing download: %w", err)
+	}
+	return nil
 }
 
 // fetchLatestTag queries the GitHub Releases API and returns the tag name of
@@ -91,5 +177,4 @@ func fetchLatestTag() (string, error) {
 	return payload.TagName, nil
 }
 
-// colorize wraps s in an ANSI escape sequence when colors are enabled.
-// Removed — use ansiWrap helpers from color.go (bold, green, yellow, etc.)
+

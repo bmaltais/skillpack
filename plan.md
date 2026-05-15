@@ -189,23 +189,22 @@ v2 (planned): `--merge --llm` delegates resolution to the agent configured to us
 
 ### Phase 1: Core Infrastructure
 
-- [ ] Config loading + first-run wizard (`~/.skillpack/config.yaml`; auto-detect agents from known defaults)
-- [ ] State management (`~/.skillpack/state.json`)
-- [ ] `repo add` / `repo list` / `repo remove` (clone to `~/.skillpack/repos/`)
-- [ ] `install` for default agent (verbatim copy, record SHA + hash in state)
-- [ ] `remove` for default agent
+- [x] Config loading + first-run wizard (`~/.skillpack/config.yaml`; auto-detect agents from known defaults)
+- [x] State management (`~/.skillpack/state.json`)
+- [x] `repo add` / `repo list` / `repo remove` / `repo update` (clone to `~/.skillpack/repos/`)
+- [x] `install` for default agent (verbatim copy, record SHA + hash in state)
+- [x] `remove` for default agent
 
-### Phase 2: Multi-Agent + Listing
+### Phase 2: Multi-Agent + Listing ✓
 
-- [ ] `install --agent` / `install --all-agents`
-- [ ] `remove --agent` / `remove --all-agents`
-- [ ] `list` (installed, with `--agent`, `--modified`, `--available` flags)
+- [x] `install --agent` / `install --all-agents`
+- [x] `remove --agent` / `remove --all-agents`
+- [x] `list` (installed, with `--agent`, `--modified`, `--available` flags)
+- [x] Unit tests: config, repo discovery, skill hash + modification detection
 
 ### Phase 3: Updates + Conflict Detection
 
-- [ ] `repo update` (git pull cached clone)
 - [ ] `update` — compare `installed_at_sha` against current cache HEAD to detect upstream changes
-- [ ] Modification detection — compare content hash against `installed_hash`
 - [ ] Abort with clear error when skill is modified; require `--force-remote|--force-local|--merge`
 - [ ] `update --force-remote` / `--force-local` / `--merge`
 

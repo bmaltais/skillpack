@@ -2,6 +2,7 @@ package repo
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -301,15 +302,17 @@ func NameFromURL(rawURL string) string {
 
 func walkSkills(repoName, cachePath string) ([]SkillInfo, error) {
 	var skills []SkillInfo
-	err := filepath.Walk(cachePath, func(path string, info os.FileInfo, err error) error {
+	// Using WalkDir instead of Walk avoids unnecessary Stat calls for every file,
+	// significantly improving performance when scanning large repositories.
+	err := filepath.WalkDir(cachePath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		// Skip hidden directories (e.g. .git)
-		if info.IsDir() && strings.HasPrefix(info.Name(), ".") {
+		if d.IsDir() && strings.HasPrefix(d.Name(), ".") {
 			return filepath.SkipDir
 		}
-		if !info.IsDir() && info.Name() == "SKILL.md" {
+		if !d.IsDir() && d.Name() == "SKILL.md" {
 			skillDir := filepath.Dir(path)
 			relPath, _ := filepath.Rel(cachePath, skillDir)
 			relPath = filepath.ToSlash(relPath)
@@ -319,6 +322,9 @@ func walkSkills(repoName, cachePath string) ([]SkillInfo, error) {
 				RelPath:  relPath,
 				FullPath: skillDir,
 			})
+			// Optimization: once a SKILL.md is found, we assume the entire directory
+			// is a single skill and skip traversing its children.
+			return filepath.SkipDir
 		}
 		return nil
 	})

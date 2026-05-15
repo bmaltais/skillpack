@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/bernard/skillpack/internal/config"
 	"github.com/bernard/skillpack/internal/skill"
 	"github.com/bernard/skillpack/internal/state"
 )
@@ -48,6 +50,10 @@ blocked. Resolve the conflict with one of:
 		}
 
 		st, err := state.Load()
+		if err != nil {
+			return err
+		}
+		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
@@ -123,7 +129,7 @@ blocked. Resolve the conflict with one of:
 
 				case forceLocal:
 					if !dryRun {
-						if err := skill.ForceLocal(t.addr, t.agent, st); err != nil {
+						if err := skill.ForceLocal(t.addr, t.agent, cfg.TokenForRepo(repoNameFromAddr(t.addr)), st); err != nil {
 							return err
 						}
 						fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, green("force-local applied (pushed to remote)"))
@@ -185,4 +191,11 @@ func init() {
 	updateCmd.Flags().Bool("force-remote", false, "Conflict resolution: upstream wins (overwrites local)")
 	updateCmd.Flags().Bool("force-local", false, "Conflict resolution: local wins (pushes to remote)")
 	updateCmd.Flags().Bool("merge", false, "Conflict resolution: three-way file-level merge")
+}
+
+func repoNameFromAddr(addr string) string {
+	if i := strings.IndexByte(addr, '/'); i >= 0 {
+		return addr[:i]
+	}
+	return addr
 }

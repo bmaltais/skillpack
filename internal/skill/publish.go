@@ -14,15 +14,15 @@ import (
 
 // Publish pushes local edits of an installed skill back to the remote repo.
 // Semantically equivalent to ForceLocal: the local copy wins unconditionally.
-func Publish(addr, agentName string, st *state.State) error {
-	return ForceLocal(addr, agentName, st)
+func Publish(addr, agentName, token string, st *state.State) error {
+	return ForceLocal(addr, agentName, token, st)
 }
 
 // PublishNew copies a local skill directory into the named repo, commits, and pushes.
 // The skill is placed at <repo-root>/<basename-of-localDir>.
 // The skill is NOT auto-installed; use `skillpack install` afterwards.
 // Returns the new skill address (e.g. "my-repo/my-new-skill") on success.
-func PublishNew(localDir, repoName string, st *state.State) (string, error) {
+func PublishNew(localDir, repoName, token string, st *state.State) (string, error) {
 	if _, err := os.Stat(localDir); err != nil {
 		return "", fmt.Errorf("local dir %q not found: %w", localDir, err)
 	}
@@ -97,10 +97,8 @@ func PublishNew(localDir, repoName string, st *state.State) (string, error) {
 			return "", fmt.Errorf("SSH agent unavailable: %w", err)
 		}
 		pushOpts.Auth = auth
-	} else if token := os.Getenv("SKILLPACK_GIT_TOKEN"); token != "" {
-		pushOpts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: token}
-	} else if token := os.Getenv("GITHUB_TOKEN"); token != "" {
-		pushOpts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: token}
+	} else if t := resolveToken(token); t != "" {
+		pushOpts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: t}
 	}
 	if err := r.Push(pushOpts); err != nil && err != gogit.NoErrAlreadyUpToDate {
 		return "", fmt.Errorf("git push: %w", err)

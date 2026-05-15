@@ -24,7 +24,8 @@ type SkillInfo struct {
 }
 
 // Add clones the remote repo to the local cache and registers it in state.
-func Add(name, url string, st *state.State) error {
+// token is optional; pass "" to rely on env vars (SKILLPACK_GIT_TOKEN, GITHUB_TOKEN).
+func Add(name, url, token string, st *state.State) error {
 	if _, exists := st.Repos[name]; exists {
 		return fmt.Errorf("repo %q is already registered", name)
 	}
@@ -43,7 +44,7 @@ func Add(name, url string, st *state.State) error {
 		URL:      url,
 		Progress: os.Stdout,
 	}
-	if err := applyAuth(url, cloneOpts); err != nil {
+	if err := applyAuth(url, token, cloneOpts); err != nil {
 		return err
 	}
 
@@ -69,7 +70,8 @@ func Remove(name string, st *state.State) error {
 }
 
 // Update performs a git pull on the cached repo clone.
-func Update(name string, st *state.State) error {
+// token is optional; pass "" to rely on env vars.
+func Update(name, token string, st *state.State) error {
 	rec, ok := st.Repos[name]
 	if !ok {
 		return fmt.Errorf("repo %q not found", name)
@@ -85,7 +87,7 @@ func Update(name string, st *state.State) error {
 	}
 
 	pullOpts := &gogit.PullOptions{Progress: os.Stdout}
-	if err := applyPullAuth(rec.URL, pullOpts); err != nil {
+	if err := applyPullAuth(rec.URL, token, pullOpts); err != nil {
 		return err
 	}
 
@@ -208,41 +210,40 @@ func isSSHURL(url string) bool {
 	return strings.HasPrefix(url, "git@") || strings.HasPrefix(url, "ssh://")
 }
 
-// httpTokenAuth returns BasicAuth from SKILLPACK_GIT_TOKEN or GITHUB_TOKEN, or nil.
-func httpTokenAuth() *githttp.BasicAuth {
-	token := os.Getenv("SKILLPACK_GIT_TOKEN")
-	if token == "" {
-		token = os.Getenv("GITHUB_TOKEN")
+// httpToken resolves the best available token: explicit arg → SKILLPACK_GIT_TOKEN → GITHUB_TOKEN.
+func httpToken(token string) string {
+	if token != "" {
+		return token
 	}
-	if token == "" {
-		return nil
+	if t := os.Getenv("SKILLPACK_GIT_TOKEN"); t != "" {
+		return t
 	}
-	return &githttp.BasicAuth{Username: "x-access-token", Password: token}
+	return os.Getenv("GITHUB_TOKEN")
 }
 
 // applyAuth sets auth on CloneOptions based on URL scheme.
-func applyAuth(url string, opts *gogit.CloneOptions) error {
+func applyAuth(url, token string, opts *gogit.CloneOptions) error {
 	if isSSHURL(url) {
 		auth, err := ssh.NewSSHAgentAuth("git")
 		if err != nil {
 			return fmt.Errorf("SSH agent unavailable (ensure ssh-agent is running): %w", err)
 		}
 		opts.Auth = auth
-	} else if auth := httpTokenAuth(); auth != nil {
-		opts.Auth = auth
+	} else if t := httpToken(token); t != "" {
+		opts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: t}
 	}
 	return nil
 }
 
-func applyPullAuth(url string, opts *gogit.PullOptions) error {
+func applyPullAuth(url, token string, opts *gogit.PullOptions) error {
 	if isSSHURL(url) {
 		auth, err := ssh.NewSSHAgentAuth("git")
 		if err != nil {
 			return fmt.Errorf("SSH agent unavailable: %w", err)
 		}
 		opts.Auth = auth
-	} else if auth := httpTokenAuth(); auth != nil {
-		opts.Auth = auth
+	} else if t := httpToken(token); t != "" {
+		opts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: t}
 	}
 	return nil
 }

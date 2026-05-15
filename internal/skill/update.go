@@ -11,6 +11,7 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	gogithttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gogitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 
 	"github.com/bernard/skillpack/internal/repo"
@@ -93,7 +94,7 @@ func ForceRemote(addr, agentName string, st *state.State) error {
 
 // ForceLocal copies the installed skill back to the repo cache, commits, pushes to main,
 // and updates state so the installed copy is considered canonical.
-func ForceLocal(addr, agentName string, st *state.State) error {
+func ForceLocal(addr, agentName, token string, st *state.State) error {
 	skillInfo, err := repo.FindSkill(addr, st)
 	if err != nil {
 		return err
@@ -160,6 +161,8 @@ func ForceLocal(addr, agentName string, st *state.State) error {
 			return fmt.Errorf("SSH agent unavailable: %w", err)
 		}
 		pushOpts.Auth = auth
+	} else if t := resolveToken(token); t != "" {
+		pushOpts.Auth = &gogithttp.BasicAuth{Username: "x-access-token", Password: t}
 	}
 	if err := r.Push(pushOpts); err != nil && err != gogit.NoErrAlreadyUpToDate {
 		return fmt.Errorf("git push: %w", err)
@@ -409,4 +412,15 @@ func defaultSignature() *object.Signature {
 
 func isSSHRemote(url string) bool {
 	return strings.HasPrefix(url, "git@") || strings.HasPrefix(url, "ssh://")
+}
+
+// resolveToken returns token if non-empty, else falls back to env vars.
+func resolveToken(token string) string {
+	if token != "" {
+		return token
+	}
+	if t := os.Getenv("SKILLPACK_GIT_TOKEN"); t != "" {
+		return t
+	}
+	return os.Getenv("GITHUB_TOKEN")
 }

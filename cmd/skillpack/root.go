@@ -154,7 +154,7 @@ func bootstrapSkillpackRepo(cfg *config.Config) error {
 	}
 
 	fmt.Printf("  Cloning %s ...\n", repoURL)
-	if addErr := repo.Add(repoName, repoURL, st); addErr != nil {
+	if addErr := repo.Add(repoName, repoURL, cfg.TokenForRepo(repoName), st); addErr != nil {
 		// Already registered is fine; any other error is fatal.
 		if !strings.Contains(addErr.Error(), "already registered") {
 			return addErr

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -28,27 +29,29 @@ Two modes:
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		agentName, _ := cmd.Flags().GetString("agent")
-		repoName, _ := cmd.Flags().GetString("repo")
+		repoFlag, _ := cmd.Flags().GetString("repo")
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 
-		// New-skill mode: --repo flag provided or path looks local
-		isNew := repoName != ""
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
 
-		if isNew {
+		// New-skill mode: --repo flag provided
+		if repoFlag != "" {
 			localDir := args[0]
 			if dryRun {
-				fmt.Printf("  [dry-run] would add %q to repo %q\n", localDir, repoName)
+				fmt.Printf("  [dry-run] would add %q to repo %q\n", localDir, repoFlag)
 				return nil
 			}
 			st, err := state.Load()
 			if err != nil {
 				return err
 			}
-			addr, err := skill.PublishNew(localDir, repoName, st)
+			addr, err := skill.PublishNew(localDir, repoFlag, cfg.TokenForRepo(repoFlag), st)
 			if err != nil {
 				return err
 			}
-			// PublishNew doesn't modify state, so no save needed.
 			fmt.Printf("  Published: %s\n", addr)
 			fmt.Printf("  Install with: skillpack install %s\n", addr)
 			return nil
@@ -56,13 +59,10 @@ Two modes:
 
 		// Existing-skill mode: publish installed edits for an address
 		addr := args[0]
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
 		if agentName == "" {
 			agentName = cfg.DefaultAgent
 		}
+		repoName := strings.SplitN(addr, "/", 2)[0]
 
 		st, err := state.Load()
 		if err != nil {
@@ -89,7 +89,7 @@ Two modes:
 			return nil
 		}
 
-		if err := skill.Publish(addr, agentName, st); err != nil {
+		if err := skill.Publish(addr, agentName, cfg.TokenForRepo(repoName), st); err != nil {
 			return err
 		}
 		if err := state.Save(st); err != nil {

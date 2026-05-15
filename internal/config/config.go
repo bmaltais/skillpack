@@ -13,6 +13,23 @@ import (
 type Config struct {
 	DefaultAgent string                 `yaml:"default_agent"`
 	Agents       map[string]AgentConfig `yaml:"agents"`
+	// Credentials maps repo name → personal access token for private HTTPS repos.
+	// Stored in plain text; config.yaml is written with mode 0600.
+	Credentials map[string]string `yaml:"credentials,omitempty"`
+}
+
+// TokenForRepo returns the best available token for repoName.
+// Priority: config credentials → SKILLPACK_GIT_TOKEN → GITHUB_TOKEN → "".
+func (c *Config) TokenForRepo(repoName string) string {
+	if c.Credentials != nil {
+		if t := c.Credentials[repoName]; t != "" {
+			return t
+		}
+	}
+	if t := os.Getenv("SKILLPACK_GIT_TOKEN"); t != "" {
+		return t
+	}
+	return os.Getenv("GITHUB_TOKEN")
 }
 
 // AgentConfig holds the configuration for a single agent.
@@ -83,6 +100,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.Agents == nil {
 		cfg.Agents = make(map[string]AgentConfig)
+	}
+	if cfg.Credentials == nil {
+		cfg.Credentials = make(map[string]string)
 	}
 	return &cfg, nil
 }

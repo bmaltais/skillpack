@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bernard/skillpack/internal/config"
 	"github.com/bernard/skillpack/internal/repo"
 	"github.com/bernard/skillpack/internal/state"
 )
@@ -22,6 +23,7 @@ var repoAddCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		url := args[0]
 		name, _ := cmd.Flags().GetString("name")
+		token, _ := cmd.Flags().GetString("token")
 		if name == "" {
 			name = repo.NameFromURL(url)
 		}
@@ -31,8 +33,19 @@ var repoAddCmd = &cobra.Command{
 			return err
 		}
 
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		if token != "" {
+			cfg.Credentials[name] = token
+			if err := config.Save(cfg); err != nil {
+				return err
+			}
+		}
+
 		fmt.Printf("Cloning %s as %q...\n", url, name)
-		if err := repo.Add(name, url, st); err != nil {
+		if err := repo.Add(name, url, cfg.TokenForRepo(name), st); err != nil {
 			return err
 		}
 		if err := state.Save(st); err != nil {
@@ -94,6 +107,10 @@ var repoUpdateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
 
 		names := args
 		if len(names) == 0 {
@@ -105,7 +122,7 @@ var repoUpdateCmd = &cobra.Command{
 		var errs []string
 		for _, name := range names {
 			fmt.Printf("Updating %s...\n", name)
-			if err := repo.Update(name, st); err != nil {
+			if err := repo.Update(name, cfg.TokenForRepo(name), st); err != nil {
 				errs = append(errs, fmt.Sprintf("  %s: %v", name, err))
 			}
 		}
@@ -121,5 +138,6 @@ var repoUpdateCmd = &cobra.Command{
 
 func init() {
 	repoAddCmd.Flags().String("name", "", "Name for the repository (default: inferred from URL)")
+	repoAddCmd.Flags().String("token", "", "Personal access token for private HTTPS repos (saved to config)")
 	repoCmd.AddCommand(repoAddCmd, repoListCmd, repoRemoveCmd, repoUpdateCmd)
 }

@@ -44,11 +44,16 @@ var repoAddCmd = &cobra.Command{
 			}
 		}
 
-		// If already registered and cache exists, just update the token (no re-clone needed).
-		if _, exists := st.Repos[name]; exists {
-			skills, _ := repo.DiscoverSkills(name, st)
-			fmt.Printf("Repo %q already registered — token updated. %d skill(s) available.\n", name, len(skills))
-			return nil
+		// If already registered with the same URL, just update the token (no re-clone needed).
+		// If registered with a different URL, fall through to the normal error so the user
+		// knows to use --name to give this repo a distinct name.
+		if rec, exists := st.Repos[name]; exists {
+			if rec.URL == url {
+				skills, _ := repo.DiscoverSkills(name, st)
+				fmt.Printf("Repo %q already registered — token updated. %d skill(s) available.\n", name, len(skills))
+				return nil
+			}
+			return fmt.Errorf("repo name %q is already used for %s — use --name to pick a different name", name, rec.URL)
 		}
 
 		fmt.Printf("Cloning %s as %q...\n", url, name)

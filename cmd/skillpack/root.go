@@ -46,6 +46,7 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(publishCmd)
 	rootCmd.AddCommand(syncCmd)
+	rootCmd.AddCommand(selfUpdateCmd)
 }
 
 // ensureConfig runs the first-run wizard if no config file exists yet.

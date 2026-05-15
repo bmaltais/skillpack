@@ -113,6 +113,33 @@ func TestIsModified_MissingDir(t *testing.T) {
 	}
 }
 
+func TestComputeHash_SymlinkRoot(t *testing.T) {
+	// Regression test: ComputeHash must not crash when dir is a symlink to a
+	// directory (filepath.Walk treats a symlink root as a non-directory via
+	// Lstat, causing os.ReadFile to fail with "is a directory").
+	realDir := t.TempDir()
+	writeFile(t, filepath.Join(realDir, "SKILL.md"), "content")
+
+	linkDir := filepath.Join(t.TempDir(), "symlinked-skill")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("symlink not supported on this platform: %v", err)
+	}
+
+	hashViaLink, err := skill.ComputeHash(linkDir)
+	if err != nil {
+		t.Fatalf("ComputeHash via symlink: %v", err)
+	}
+
+	hashViaReal, err := skill.ComputeHash(realDir)
+	if err != nil {
+		t.Fatalf("ComputeHash via real dir: %v", err)
+	}
+
+	if hashViaLink != hashViaReal {
+		t.Errorf("hash mismatch: symlink path returned %q, real path returned %q", hashViaLink, hashViaReal)
+	}
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {

@@ -322,9 +322,6 @@ func walkSkills(repoName, cachePath string) ([]SkillInfo, error) {
 				RelPath:  relPath,
 				FullPath: skillDir,
 			})
-			// Optimization: once a SKILL.md is found, we assume the entire directory
-			// is a single skill and skip traversing its children.
-			return filepath.SkipDir
 		}
 		return nil
 	})

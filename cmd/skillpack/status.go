@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -76,18 +77,29 @@ Use --no-fetch to skip the network call and report against cached state.`,
 			return rows[i].agentName < rows[j].agentName
 		})
 
+		// Compute column widths from actual data.
+		addrW := len("Skill")
+		agentW := len("Agent")
+		for _, r := range rows {
+			addrW = maxInt(addrW, len(r.addr))
+			agentW = maxInt(agentW, len(r.agentName))
+		}
+		sep := func(n int) string {
+			return strings.Repeat("─", n)
+		}
+
 		// Print header — apply bold after padding to avoid ANSI codes skewing column widths.
 		fmt.Printf("\n  %s  %s  %s\n",
-			bold(fmt.Sprintf("%-40s", "Skill")),
-			bold(fmt.Sprintf("%-14s", "Agent")),
+			bold(fmt.Sprintf("%-*s", addrW, "Skill")),
+			bold(fmt.Sprintf("%-*s", agentW, "Agent")),
 			bold("Status"),
 		)
-		fmt.Printf("  %-40s  %-14s  %s\n", "────────────────────────────────────────", "──────────────", "───────────────────")
+		fmt.Printf("  %-*s  %-*s  %s\n", addrW, sep(addrW), agentW, sep(agentW), "───────────────────")
 
 		var nCurrent, nUpdate, nModified, nConflict, nErr int
 		for _, row := range rows {
 			if row.err != nil {
-				fmt.Printf("  %-40s  %-14s  %s\n", row.addr, row.agentName, red("error: "+row.err.Error()))
+				fmt.Printf("  %-*s  %-*s  %s\n", addrW, row.addr, agentW, row.agentName, red("error: "+row.err.Error()))
 				nErr++
 				continue
 			}
@@ -106,7 +118,7 @@ Use --no-fetch to skip the network call and report against cached state.`,
 				statusStr = green("up-to-date")
 				nCurrent++
 			}
-			fmt.Printf("  %-40s  %-14s  %s\n", row.addr, row.agentName, statusStr)
+			fmt.Printf("  %-*s  %-*s  %s\n", addrW, row.addr, agentW, row.agentName, statusStr)
 		}
 
 		// Summary line

@@ -38,3 +38,10 @@ func ansiWrap(code, s string) string {
 	}
 	return code + s + ansiReset
 }
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}

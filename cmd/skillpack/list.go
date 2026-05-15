@@ -49,25 +49,39 @@ var listCmd = &cobra.Command{
 		}
 		sort.Strings(addrs)
 
+		// Collect entries for width computation.
+		type entry struct {
+			addr, agentName, localPath string
+			modified                   bool
+		}
+		var entries []entry
 		for _, addr := range addrs {
 			agents := st.InstalledSkills[addr]
 			for agentName, rec := range agents {
 				if agentFilter != "" && agentName != agentFilter {
 					continue
 				}
-				if modifiedOnly {
-					modified, err := skill.IsModified(rec)
-					if err != nil || !modified {
-						continue
-					}
+				mod, _ := skill.IsModified(rec)
+				if modifiedOnly && !mod {
+					continue
 				}
-				modified, _ := skill.IsModified(rec)
-				flag := ""
-				if modified {
-					flag = "  " + yellow("[modified]")
-				}
-				fmt.Printf("%-40s  %-16s  %s%s\n", addr, agentName, rec.LocalPath, flag)
+				entries = append(entries, entry{addr, agentName, rec.LocalPath, mod})
 			}
+		}
+
+		addrW := 5
+		agentW := 5
+		for _, e := range entries {
+			addrW = maxInt(addrW, len(e.addr))
+			agentW = maxInt(agentW, len(e.agentName))
+		}
+
+		for _, e := range entries {
+			flag := ""
+			if e.modified {
+				flag = "  " + yellow("[modified]")
+			}
+			fmt.Printf("%-*s  %-*s  %s%s\n", addrW, e.addr, agentW, e.agentName, e.localPath, flag)
 		}
 		return nil
 	},

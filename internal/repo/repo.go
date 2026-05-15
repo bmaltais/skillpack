@@ -141,7 +141,6 @@ func Update(name, token string, st *state.State) error {
 	if err != nil && err != gogit.NoErrAlreadyUpToDate {
 		return fmt.Errorf("fetching repo: %w", err)
 	}
-	alreadyUpToDate := err == gogit.NoErrAlreadyUpToDate
 
 	// Resolve origin/HEAD to the remote tip hash.
 	hash, err := resolveRemoteHEAD(r)
@@ -149,17 +148,8 @@ func Update(name, token string, st *state.State) error {
 		return fmt.Errorf("resolving remote HEAD: %w", err)
 	}
 
-	// Capture current HEAD before reset to detect whether the worktree actually moved.
-	preResetHead, _ := r.Head()
-
 	if err := w.Reset(&gogit.ResetOptions{Commit: *hash, Mode: gogit.HardReset}); err != nil {
 		return fmt.Errorf("resetting to remote HEAD: %w", err)
-	}
-
-	// Print "Already up to date." only when the remote had nothing new AND the
-	// local HEAD was already at the remote tip (i.e. nothing actually changed).
-	if alreadyUpToDate && preResetHead != nil && preResetHead.Hash() == *hash {
-		fmt.Println("  Already up to date.")
 	}
 
 	rec.LastUpdated = time.Now()

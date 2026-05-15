@@ -14,10 +14,17 @@ func TestNameFromURL(t *testing.T) {
 		url  string
 		want string
 	}{
-		{"https://github.com/owner/awesome-skills.git", "awesome-skills"},
-		{"https://github.com/owner/awesome-skills", "awesome-skills"},
-		{"git@github.com:owner/awesome-skills.git", "awesome-skills"},
-		{"https://github.com/owner/repo/", "repo"},
+		// Standard HTTPS GitHub URLs
+		{"https://github.com/owner/awesome-skills.git", "owner-awesome-skills"},
+		{"https://github.com/owner/awesome-skills", "owner-awesome-skills"},
+		{"https://github.com/owner/repo/", "owner-repo"},
+		// SSH syntax
+		{"git@github.com:owner/awesome-skills.git", "owner-awesome-skills"},
+		{"git@gitlab.com:org/repo.git", "org-repo"},
+		// No owner segment (host/repo only)
+		{"https://internal.company.com/myrepo.git", "myrepo"},
+		// Trailing slash after .git-stripped path
+		{"https://github.com/owner/repo.git/", "owner-repo"},
 	}
 	for _, tc := range cases {
 		got := repo.NameFromURL(tc.url)

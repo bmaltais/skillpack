@@ -24,7 +24,8 @@ type SkillInfo struct {
 }
 
 // Add clones the remote repo to the local cache and registers it in state.
-func Add(name, url string, st *state.State) error {
+// token is optional; pass "" to rely on env vars (SKILLPACK_GIT_TOKEN, GITHUB_TOKEN).
+func Add(name, url, token string, st *state.State) error {
 	if _, exists := st.Repos[name]; exists {
 		return fmt.Errorf("repo %q is already registered", name)
 	}
@@ -39,11 +40,24 @@ func Add(name, url string, st *state.State) error {
 		return fmt.Errorf("creating repos dir: %w", err)
 	}
 
+	// If a directory exists at cachePath but is NOT a valid git repo (e.g. a
+	// partial clone from a previously-failed attempt), wipe it so PlainClone
+	// can start fresh. If PlainOpen succeeds the directory is a valid clone
+	// that the user may have intentionally kept (via `repo remove --keep`), so
+	// we leave it alone and let PlainClone return its own "already exists" error.
+	if _, statErr := os.Stat(cachePath); statErr == nil {
+		if _, openErr := gogit.PlainOpen(cachePath); openErr != nil {
+			if err := os.RemoveAll(cachePath); err != nil {
+				return fmt.Errorf("removing partial cache dir %s: %w", cachePath, err)
+			}
+		}
+	}
+
 	cloneOpts := &gogit.CloneOptions{
 		URL:      url,
 		Progress: os.Stdout,
 	}
-	if err := applyAuth(url, cloneOpts); err != nil {
+	if err := applyAuth(url, token, cloneOpts); err != nil {
 		return err
 	}
 
@@ -68,8 +82,35 @@ func Remove(name string, st *state.State) error {
 	return nil
 }
 
+// NewCachePath returns the absolute path where a repo named name would be cached.
+func NewCachePath(name string) (string, error) {
+	reposDir, err := config.ReposDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(reposDir, name), nil
+}
+
+// RenameCache moves the on-disk cache directory from oldName to newName.
+func RenameCache(oldName, newName string) error {
+	reposDir, err := config.ReposDir()
+	if err != nil {
+		return err
+	}
+	oldPath := filepath.Join(reposDir, oldName)
+	newPath := filepath.Join(reposDir, newName)
+	if _, err := os.Stat(newPath); err == nil {
+		return fmt.Errorf("cache directory %s already exists", newPath)
+	}
+	if err := os.Rename(oldPath, newPath); err != nil {
+		return fmt.Errorf("renaming cache dir: %w", err)
+	}
+	return nil
+}
+
 // Update performs a git pull on the cached repo clone.
-func Update(name string, st *state.State) error {
+// token is optional; pass "" to rely on env vars.
+func Update(name, token string, st *state.State) error {
 	rec, ok := st.Repos[name]
 	if !ok {
 		return fmt.Errorf("repo %q not found", name)
@@ -85,7 +126,7 @@ func Update(name string, st *state.State) error {
 	}
 
 	pullOpts := &gogit.PullOptions{Progress: os.Stdout}
-	if err := applyPullAuth(rec.URL, pullOpts); err != nil {
+	if err := applyPullAuth(rec.URL, token, pullOpts); err != nil {
 		return err
 	}
 
@@ -168,14 +209,39 @@ func HeadSHA(repoName string, st *state.State) (string, error) {
 	return ref.Hash().String(), nil
 }
 
-// NameFromURL infers a repo name from its URL (last path component, .git stripped).
-func NameFromURL(url string) string {
-	url = strings.TrimSuffix(url, ".git")
-	url = strings.TrimRight(url, "/")
-	if idx := strings.LastIndexAny(url, "/:\\"); idx >= 0 {
-		url = url[idx+1:]
+// NameFromURL infers a repo name from its URL as "<owner>-<repo>".
+// Examples:
+//
+//	https://github.com/mattpocock/skills.git  → mattpocock-skills
+//	git@github.com:bmaltais/skillpack.git     → bmaltais-skillpack
+//	https://internal.host/myrepo.git          → myrepo  (no owner segment)
+func NameFromURL(rawURL string) string {
+	s := strings.TrimRight(rawURL, "/")
+	s = strings.TrimSuffix(s, ".git")
+
+	// Normalise SSH syntax: git@host:owner/repo → host/owner/repo
+	if strings.HasPrefix(s, "git@") {
+		s = strings.TrimPrefix(s, "git@")
+		s = strings.Replace(s, ":", "/", 1)
 	}
-	return url
+
+	// Strip scheme (https://, ssh://, etc.)
+	if i := strings.Index(s, "://"); i >= 0 {
+		s = s[i+3:]
+	}
+
+	// s is now "host/owner/repo" or "host/repo"
+	parts := strings.Split(s, "/")
+	path := parts[1:] // drop host
+	switch len(path) {
+	case 0:
+		return s
+	case 1:
+		return path[0]
+	default:
+		// Use last two segments: owner + repo
+		return path[len(path)-2] + "-" + path[len(path)-1]
+	}
 }
 
 func walkSkills(repoName, cachePath string) ([]SkillInfo, error) {
@@ -208,41 +274,30 @@ func isSSHURL(url string) bool {
 	return strings.HasPrefix(url, "git@") || strings.HasPrefix(url, "ssh://")
 }
 
-// httpTokenAuth returns BasicAuth from SKILLPACK_GIT_TOKEN or GITHUB_TOKEN, or nil.
-func httpTokenAuth() *githttp.BasicAuth {
-	token := os.Getenv("SKILLPACK_GIT_TOKEN")
-	if token == "" {
-		token = os.Getenv("GITHUB_TOKEN")
-	}
-	if token == "" {
-		return nil
-	}
-	return &githttp.BasicAuth{Username: "x-access-token", Password: token}
-}
-
 // applyAuth sets auth on CloneOptions based on URL scheme.
-func applyAuth(url string, opts *gogit.CloneOptions) error {
+// token should already be resolved by the caller (e.g. via Config.TokenForRepo).
+func applyAuth(url, token string, opts *gogit.CloneOptions) error {
 	if isSSHURL(url) {
 		auth, err := ssh.NewSSHAgentAuth("git")
 		if err != nil {
 			return fmt.Errorf("SSH agent unavailable (ensure ssh-agent is running): %w", err)
 		}
 		opts.Auth = auth
-	} else if auth := httpTokenAuth(); auth != nil {
-		opts.Auth = auth
+	} else if token != "" {
+		opts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: token}
 	}
 	return nil
 }
 
-func applyPullAuth(url string, opts *gogit.PullOptions) error {
+func applyPullAuth(url, token string, opts *gogit.PullOptions) error {
 	if isSSHURL(url) {
 		auth, err := ssh.NewSSHAgentAuth("git")
 		if err != nil {
 			return fmt.Errorf("SSH agent unavailable: %w", err)
 		}
 		opts.Auth = auth
-	} else if auth := httpTokenAuth(); auth != nil {
-		opts.Auth = auth
+	} else if token != "" {
+		opts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: token}
 	}
 	return nil
 }

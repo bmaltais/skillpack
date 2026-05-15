@@ -2,6 +2,7 @@ package skill
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/bernard/skillpack/internal/repo"
 	"github.com/bernard/skillpack/internal/state"
@@ -37,14 +38,19 @@ type SyncResult struct {
 // When dryRun is true, repos are still pulled (to get accurate upstream state) but
 // no installed-skill files or state records are modified.
 //
+// tokenFor is called with a repo name to resolve its token; pass nil to rely on env vars only.
+//
 // Returns all results and a separate slice for conflicts.
-func Sync(dryRun bool, st *state.State) (results []SyncResult, conflicts []SyncResult, err error) {
+func Sync(dryRun bool, tokenFor func(string) string, st *state.State) (results []SyncResult, conflicts []SyncResult, err error) {
+	if tokenFor == nil {
+		tokenFor = func(string) string { return "" }
+	}
 	// Step 1: Pull all registered repos so we have fresh upstream state.
 	for name := range st.Repos {
 		if dryRun {
 			fmt.Printf("  would pull repo %s (skipped in dry-run)\n", name)
 		} else {
-			if pullErr := repo.Update(name, st); pullErr != nil {
+			if pullErr := repo.Update(name, tokenFor(name), st); pullErr != nil {
 				// Non-fatal: report but keep going with stale cache.
 				fmt.Printf("  warning: could not pull %s: %v\n", name, pullErr)
 			}
@@ -78,7 +84,8 @@ func Sync(dryRun bool, st *state.State) (results []SyncResult, conflicts []SyncR
 			case result.IsModified && !result.HasUpstream:
 				// Local edits, nothing upstream — publish.
 				if !dryRun {
-					if pubErr := Publish(addr, agentName, st); pubErr != nil {
+					repoName := strings.SplitN(addr, "/", 2)[0]
+					if pubErr := Publish(addr, agentName, tokenFor(repoName), st); pubErr != nil {
 						results = append(results, SyncResult{addr, agentName, "", pubErr})
 						continue
 					}

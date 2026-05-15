@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bernard/skillpack/internal/config"
 	"github.com/bernard/skillpack/internal/skill"
 	"github.com/bernard/skillpack/internal/state"
 )
@@ -32,6 +33,11 @@ Resolve conflicts with:
 			return err
 		}
 
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+
 		if len(st.InstalledSkills) == 0 {
 			fmt.Println("No installed skills to sync.")
 			return nil
@@ -43,7 +49,7 @@ Resolve conflicts with:
 		}
 		fmt.Printf("%sSyncing %d installed skill(s)...\n", prefix, countInstalled(st))
 
-		results, conflicts, err := skill.Sync(dryRun, st)
+		results, conflicts, err := skill.Sync(dryRun, cfg.TokenForRepo, st)
 		if err != nil {
 			return err
 		}

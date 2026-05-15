@@ -213,15 +213,15 @@ var repoRenameCmd = &cobra.Command{
 
 		// Save state and config before renaming the directory.
 		// If either save fails, the disk is unchanged and the user can retry.
+		if err := state.Save(st); err != nil {
+			return err
+		}
 		if token, ok := cfg.Credentials[oldName]; ok {
 			cfg.Credentials[newName] = token
 			delete(cfg.Credentials, oldName)
 			if err := config.Save(cfg); err != nil {
 				return err
 			}
-		}
-		if err := state.Save(st); err != nil {
-			return err
 		}
 
 		// Rename the cache directory last. If this fails, report the manual

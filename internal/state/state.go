@@ -30,6 +30,12 @@ type InstalledSkillRecord struct {
 	InstalledAtSHA string `json:"installed_at_sha"`
 	InstalledHash  string `json:"installed_hash"` // SHA-256 of installed dir contents
 	LocalPath      string `json:"local_path"`
+	// UpstreamAddr is non-empty for forked skills. It holds the original skill
+	// address before forking (e.g. "matt-pocock-skills/debugger").
+	UpstreamAddr string `json:"upstream_addr,omitempty"`
+	// UpstreamSHA is the upstream repo HEAD SHA at the moment the fork was cut.
+	// Used as the three-way merge base when reconciling upstream changes.
+	UpstreamSHA string `json:"upstream_sha,omitempty"`
 }
 
 // Load reads state from ~/.skillpack/state.json.

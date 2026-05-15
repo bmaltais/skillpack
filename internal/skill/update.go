@@ -56,13 +56,36 @@ func CheckUpdate(addr, agentName string, st *state.State) (*UpdateResult, error)
 }
 
 // ApplyUpdate copies the current cache version of a skill to the installed dir.
+// For forked skills it copies from the upstream origin, then commits and pushes to the fork repo.
 // The caller must confirm there is no conflict before calling this.
-func ApplyUpdate(addr, agentName string, st *state.State) error {
+func ApplyUpdate(addr, agentName, token string, st *state.State) error {
+	rec := st.InstalledSkills[addr][agentName]
+
+	if rec.UpstreamAddr != "" {
+		// Forked skill: take files from the upstream origin, then push to fork.
+		upstreamInfo, err := repo.FindSkill(rec.UpstreamAddr, st)
+		if err != nil {
+			return fmt.Errorf("finding upstream skill %q: %w", rec.UpstreamAddr, err)
+		}
+		upstreamRepoName := strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
+		upstreamHeadSHA, err := repo.HeadSHA(upstreamRepoName, st)
+		if err != nil {
+			return err
+		}
+
+		if err := os.RemoveAll(rec.LocalPath); err != nil {
+			return fmt.Errorf("removing old install: %w", err)
+		}
+		if err := copyDir(upstreamInfo.FullPath, rec.LocalPath); err != nil {
+			return fmt.Errorf("copying upstream skill: %w", err)
+		}
+		return pushForkAfterMerge(addr, agentName, token, upstreamHeadSHA, st)
+	}
+
 	skillInfo, err := repo.FindSkill(addr, st)
 	if err != nil {
 		return err
 	}
-	rec := st.InstalledSkills[addr][agentName]
 
 	if err := os.RemoveAll(rec.LocalPath); err != nil {
 		return fmt.Errorf("removing old install: %w", err)
@@ -88,8 +111,8 @@ func ApplyUpdate(addr, agentName string, st *state.State) error {
 }
 
 // ForceRemote overwrites the installed skill with the cache (upstream) version, discarding local changes.
-func ForceRemote(addr, agentName string, st *state.State) error {
-	return ApplyUpdate(addr, agentName, st)
+func ForceRemote(addr, agentName, token string, st *state.State) error {
+	return ApplyUpdate(addr, agentName, token, st)
 }
 
 // ForceLocal copies the installed skill back to the repo cache, commits, pushes to main,
@@ -172,24 +195,45 @@ func ForceLocal(addr, agentName, token string, st *state.State) error {
 	if err != nil {
 		return err
 	}
-	st.InstalledSkills[addr][agentName] = state.InstalledSkillRecord{
+	newRec := state.InstalledSkillRecord{
 		InstalledAtSHA: commitHash.String(),
 		InstalledHash:  hash,
 		LocalPath:      rec.LocalPath,
+		UpstreamAddr:   rec.UpstreamAddr,
+		UpstreamSHA:    rec.UpstreamSHA,
 	}
+	// For forked skills, acknowledge that upstream changes have been dealt with
+	// by updating UpstreamSHA to the current upstream HEAD.
+	if rec.UpstreamAddr != "" {
+		upstreamRepoName := strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
+		if upstreamSHA, shaErr := repo.HeadSHA(upstreamRepoName, st); shaErr == nil {
+			newRec.UpstreamSHA = upstreamSHA
+		}
+	}
+	st.InstalledSkills[addr][agentName] = newRec
 	return nil
 }
 
 // MergeSkill performs a file-level three-way merge between the installed skill (ours)
-// and the upstream cache (theirs), using the version at installed_at_sha as the common base.
+// and the upstream (theirs), using an appropriate base commit.
+//
+// For normal skills: base = installed_at_sha in the skill repo; theirs = repo HEAD.
+// For forked skills: base = upstream_sha in the upstream origin; theirs = upstream HEAD.
+//
 // Returns true if any file had a conflict (conflict markers written to installed files).
-// On a clean merge, state is updated to reflect the new HEAD.
-func MergeSkill(addr, agentName string, st *state.State) (hasConflicts bool, err error) {
+// On a clean merge, state is updated. For forked skills, the merged result is also
+// committed and pushed to the fork repo.
+func MergeSkill(addr, agentName, token string, st *state.State) (hasConflicts bool, err error) {
+	rec := st.InstalledSkills[addr][agentName]
+
+	if rec.UpstreamAddr != "" {
+		return mergeForkSkill(addr, agentName, token, rec, st)
+	}
+
 	skillInfo, err := repo.FindSkill(addr, st)
 	if err != nil {
 		return false, err
 	}
-	rec := st.InstalledSkills[addr][agentName]
 	repoRec := st.Repos[skillInfo.RepoName]
 
 	r, err := gogit.PlainOpen(repoRec.CachePath)
@@ -243,9 +287,89 @@ func MergeSkill(addr, agentName string, st *state.State) (hasConflicts bool, err
 	return hasConflicts, nil
 }
 
-// hasUpstreamChange returns true if the skill's content changed in the repo
-// between installed_at_sha and the current cache HEAD.
+// mergeForkSkill performs a three-way merge for a forked skill.
+// base = upstream origin at UpstreamSHA; ours = installed; theirs = upstream HEAD.
+// On a clean merge it commits and pushes to the fork repo.
+func mergeForkSkill(addr, agentName, token string, rec state.InstalledSkillRecord, st *state.State) (bool, error) {
+	upstreamParts := strings.SplitN(rec.UpstreamAddr, "/", 2)
+	if len(upstreamParts) != 2 {
+		return false, fmt.Errorf("invalid upstream addr: %s", rec.UpstreamAddr)
+	}
+	upstreamRepoName, upstreamRelPath := upstreamParts[0], upstreamParts[1]
+
+	upstreamRepoRec, ok := st.Repos[upstreamRepoName]
+	if !ok {
+		return false, fmt.Errorf("upstream repo %q not found", upstreamRepoName)
+	}
+
+	upstreamRepo, err := gogit.PlainOpen(upstreamRepoRec.CachePath)
+	if err != nil {
+		return false, fmt.Errorf("opening upstream repo: %w", err)
+	}
+
+	baseFiles, err := listFilesAtCommit(upstreamRepo, rec.UpstreamSHA, upstreamRelPath)
+	if err != nil {
+		return false, fmt.Errorf("reading upstream base at %s: %w", rec.UpstreamSHA[:8], err)
+	}
+
+	// Upstream HEAD files come from the cache dir (already fetched by update/sync)
+	upstreamInfo, err := repo.FindSkill(rec.UpstreamAddr, st)
+	if err != nil {
+		return false, fmt.Errorf("finding upstream skill: %w", err)
+	}
+
+	upstreamHeadSHA, err := repo.HeadSHA(upstreamRepoName, st)
+	if err != nil {
+		return false, err
+	}
+
+	oursFiles := listFilesOnDisk(rec.LocalPath)
+	theirsFiles := listFilesOnDisk(upstreamInfo.FullPath)
+	allFiles := union(keys(baseFiles), keys(oursFiles), keys(theirsFiles))
+
+	hasConflicts := false
+	for _, relFile := range allFiles {
+		base := baseFiles[relFile]
+		ours := oursFiles[relFile]
+		theirs := theirsFiles[relFile]
+		targetPath := filepath.Join(rec.LocalPath, filepath.FromSlash(relFile))
+
+		switch {
+		case base == ours:
+			if err := writeStringToFile(targetPath, theirs); err != nil {
+				return false, err
+			}
+		case base == theirs:
+			// keep ours
+		case ours == theirs:
+			// both converged — keep ours
+		default:
+			hasConflicts = true
+			if err := writeStringToFile(targetPath, conflictBlock(ours, theirs)); err != nil {
+				return false, err
+			}
+		}
+	}
+
+	if !hasConflicts {
+		// Clean merge: commit+push to fork repo and update state.
+		if err := pushForkAfterMerge(addr, agentName, token, upstreamHeadSHA, st); err != nil {
+			return false, err
+		}
+	}
+	return hasConflicts, nil
+}
+
+// hasUpstreamChange returns true if the skill's content changed in the relevant repo
+// since the baseline SHA recorded in state.
+//
+// For normal skills: checks between installed_at_sha and repo HEAD.
+// For forked skills: checks upstream origin between upstream_sha and upstream HEAD.
 func hasUpstreamChange(addr string, rec state.InstalledSkillRecord, st *state.State) (bool, error) {
+	if rec.UpstreamAddr != "" {
+		return hasUpstreamOriginChange(rec, st)
+	}
+
 	parts := strings.SplitN(addr, "/", 2)
 	if len(parts) != 2 {
 		return false, fmt.Errorf("invalid skill address: %s", addr)
@@ -272,6 +396,62 @@ func hasUpstreamChange(addr string, rec state.InstalledSkillRecord, st *state.St
 	oldCommit, err := r.CommitObject(plumbing.NewHash(rec.InstalledAtSHA))
 	if err != nil {
 		return false, fmt.Errorf("resolving installed SHA %s: %w", rec.InstalledAtSHA[:8], err)
+	}
+	newCommit, err := r.CommitObject(headRef.Hash())
+	if err != nil {
+		return false, err
+	}
+
+	oldTree, err := oldCommit.Tree()
+	if err != nil {
+		return false, err
+	}
+	newTree, err := newCommit.Tree()
+	if err != nil {
+		return false, err
+	}
+
+	changes, err := object.DiffTree(oldTree, newTree)
+	if err != nil {
+		return false, err
+	}
+	for _, change := range changes {
+		if pathUnderSkill(change.From.Name, skillRelPath) || pathUnderSkill(change.To.Name, skillRelPath) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// hasUpstreamOriginChange checks whether the upstream origin repo has new commits
+// to the skill dir beyond the upstream_sha recorded at fork time.
+func hasUpstreamOriginChange(rec state.InstalledSkillRecord, st *state.State) (bool, error) {
+	parts := strings.SplitN(rec.UpstreamAddr, "/", 2)
+	if len(parts) != 2 {
+		return false, fmt.Errorf("invalid upstream addr: %s", rec.UpstreamAddr)
+	}
+	upstreamRepoName, skillRelPath := parts[0], parts[1]
+
+	repoRec, ok := st.Repos[upstreamRepoName]
+	if !ok {
+		return false, fmt.Errorf("upstream repo %q not found — re-add it with: skillpack repo add %s <url>", upstreamRepoName, upstreamRepoName)
+	}
+
+	r, err := gogit.PlainOpen(repoRec.CachePath)
+	if err != nil {
+		return false, err
+	}
+	headRef, err := r.Head()
+	if err != nil {
+		return false, err
+	}
+	if headRef.Hash().String() == rec.UpstreamSHA {
+		return false, nil // upstream has not moved
+	}
+
+	oldCommit, err := r.CommitObject(plumbing.NewHash(rec.UpstreamSHA))
+	if err != nil {
+		return false, fmt.Errorf("resolving upstream SHA %s: %w", rec.UpstreamSHA[:8], err)
 	}
 	newCommit, err := r.CommitObject(headRef.Hash())
 	if err != nil {

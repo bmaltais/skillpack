@@ -255,9 +255,40 @@ skillpack/
 └── plan.md
 ```
 
+## Platform Support
+
+| Platform | Status | Notes |
+|----------|--------|-------|
+| Linux (amd64, arm64) | v1 | Primary development platform |
+| Windows (amd64) | v1 | HTTPS auth only; SSH push not supported in v1 |
+| macOS (amd64, arm64) | future | Same as Linux; trivial to add |
+
+### Cross-Platform Rules
+
+- **Always use `os.UserHomeDir()`** to resolve the home directory. Never shell-expand `~` directly.
+- **Always use `filepath.Join()`** for path construction. Never concatenate with `/`.
+- **HTTPS auth on Windows:** rely on the system git credential store (populated by `git credential-manager`, `gh auth`, etc.). go-git uses this transparently.
+- **SSH push on Windows:** not supported in v1. Document the limitation. Users needing SSH can set `GIT_SSH_COMMAND`.
+
+## CI / Release (GitHub Actions + GoReleaser)
+
+`.github/workflows/release.yml` — triggered on git tag push (`v*`):
+
+1. Run `go test ./...` and `go vet ./...`
+2. GoReleaser cross-compiles and produces archives for:
+   - `linux/amd64`, `linux/arm64`
+   - `windows/amd64`
+   - `darwin/amd64`, `darwin/arm64`
+3. Publishes binaries + checksums to GitHub Releases automatically
+
+A separate `.github/workflows/ci.yml` runs tests + vet on every push and PR.
+
 ## Out of Scope for v1
 
 - `SKILL.md.sig` integrity/signing
 - LLM-assisted merge (`--merge --llm`)
 - Version pinning (`install @<sha>`)
 - GitHub/GitLab PR workflow on publish (push directly to main only)
+- SSH push on Windows
+- macOS release builds (cross-compile target exists but untested)
+- Project-level skills (`.claude/skills/` inside a repo) — global user skills only

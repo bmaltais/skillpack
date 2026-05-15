@@ -93,6 +93,13 @@ The first-run wizard uses this list to auto-detect installed agents:
 
 Detection logic: expand `~`, check if the directory exists on disk. If it does, offer to add it to config.
 
+## Cross-Platform Rules
+
+- Use `os.UserHomeDir()` to resolve home directory. **Never hardcode `~` or use `os.Expand` with `~`.**
+- Use `filepath.Join()` for all path construction. Never concatenate paths with `/`.
+- HTTPS auth on Windows relies on the system git credential store — go-git handles this transparently.
+- SSH push on Windows is not supported in v1.
+
 ## Conflict Resolution Flags
 
 When a skill has local modifications AND upstream changes, `update` and `sync` require one of:

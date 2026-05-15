@@ -12,7 +12,16 @@ import (
 // LLMResolver sends a prompt to an LLM and returns the response text.
 type LLMResolver func(prompt string) (string, error)
 
+// hasConflictMarkers reports whether content contains any git conflict marker.
+// Checks all three markers so a partial resolution cannot pass validation.
+func hasConflictMarkers(content string) bool {
+	return strings.Contains(content, "<<<<<<<") ||
+		strings.Contains(content, "=======") ||
+		strings.Contains(content, ">>>>>>>")
+}
+
 // NewDefaultLLMResolver returns a resolver that invokes the named agent's CLI binary.
+// The prompt is sent via stdin to avoid argv length limits and process-listing leaks.
 // Supported agents: claude-code (→ claude --print --no-markdown).
 // For other agents the agent name itself is tried as a binary.
 func NewDefaultLLMResolver(agentName string) (LLMResolver, error) {
@@ -21,12 +30,11 @@ func NewDefaultLLMResolver(agentName string) (LLMResolver, error) {
 		return nil, fmt.Errorf("agent %q: binary %q not found in PATH — install the agent CLI to use --llm", agentName, bin)
 	}
 	return func(prompt string) (string, error) {
-		cmdArgs := make([]string, len(args)+1)
-		copy(cmdArgs, args)
-		cmdArgs[len(args)] = prompt
-		out, err := exec.Command(bin, cmdArgs...).Output() //nolint:gosec
+		cmd := exec.Command(bin, args...) //nolint:gosec
+		cmd.Stdin = strings.NewReader(prompt)
+		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return "", fmt.Errorf("LLM call (%s) failed: %w", bin, err)
+			return "", fmt.Errorf("LLM call (%s) failed: %w\noutput: %s", bin, err, string(out))
 		}
 		return string(out), nil
 	}, nil
@@ -61,7 +69,7 @@ func LLMResolveConflicts(addr, agentName string, resolver LLMResolver, st *state
 
 	filesOnDisk := listFilesOnDisk(rec.LocalPath)
 	for relPath, content := range filesOnDisk {
-		if !strings.Contains(content, "<<<<<<<") {
+		if !hasConflictMarkers(content) {
 			continue
 		}
 
@@ -71,7 +79,7 @@ func LLMResolveConflicts(addr, agentName string, resolver LLMResolver, st *state
 			return fmt.Errorf("LLM resolution for %s: %w", relPath, err)
 		}
 
-		if strings.Contains(resolved, "<<<<<<<") {
+		if hasConflictMarkers(resolved) {
 			return fmt.Errorf(
 				"LLM resolution for %s still contains conflict markers — manual review required; file not overwritten",
 				relPath,

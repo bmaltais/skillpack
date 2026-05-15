@@ -26,8 +26,8 @@ var rootCmd = &cobra.Command{
 Skills live in git repositories and are installed as directories into
 each agent's skill folder (e.g. ~/.claude/skills/, ~/.copilot/skills/).`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// self-update is config-independent; skip wizard to avoid side effects.
-		if cmd.Name() == "self-update" {
+		// self-update and status are config-independent; skip wizard to avoid side effects.
+		if cmd.Name() == "self-update" || cmd.Name() == "status" {
 			return nil
 		}
 		return ensureConfig()
@@ -50,6 +50,7 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(publishCmd)
 	rootCmd.AddCommand(syncCmd)
+	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(forkCmd)
 	rootCmd.AddCommand(selfUpdateCmd)
 }

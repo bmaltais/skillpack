@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	githubReleaseURL   = "https://api.github.com/repos/bmaltais/skillpack/releases/latest"
-	githubDownloadBase = "https://github.com/bmaltais/skillpack/releases/latest/download"
-	installOneLiner    = "curl -fsSL https://raw.githubusercontent.com/bmaltais/skillpack/main/install.sh \\\n  -o /tmp/skillpack-install.sh && sh /tmp/skillpack-install.sh"
+	githubReleaseURL    = "https://api.github.com/repos/bmaltais/skillpack/releases/latest"
+	githubDownloadFmt   = "https://github.com/bmaltais/skillpack/releases/download/%s/skillpack-%s-%s"
+	installOneLiner     = "curl -fsSL https://raw.githubusercontent.com/bmaltais/skillpack/main/install.sh \\\n  -o /tmp/skillpack-install.sh && sh /tmp/skillpack-install.sh"
 )
 
 var selfUpdateCmd = &cobra.Command{
@@ -84,8 +84,7 @@ func downloadAndReplace(tag string) error {
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
 
-	asset := fmt.Sprintf("skillpack-%s-%s", goos, goarch)
-	url := fmt.Sprintf("%s/%s", githubDownloadBase, asset)
+	url := fmt.Sprintf(githubDownloadFmt, tag, goos, goarch)
 
 	execPath, err := os.Executable()
 	if err != nil {

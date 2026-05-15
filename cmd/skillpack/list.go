@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path"
 	"sort"
 
 	"github.com/spf13/cobra"
@@ -13,11 +14,17 @@ import (
 
 var listCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List installed skills",
+	Short: "List installed skills (or browse available skills with --available)",
+	Example: `  skillpack list
+  skillpack list --agent claude-code
+  skillpack list --modified
+  skillpack list --available
+  skillpack list --available --repo my-repo`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		agentFilter, _ := cmd.Flags().GetString("agent")
 		modifiedOnly, _ := cmd.Flags().GetBool("modified")
-		available, _ := cmd.Flags().GetString("available")
+		available, _ := cmd.Flags().GetBool("available")
+		repoFilter, _ := cmd.Flags().GetString("repo")
 
 		st, err := state.Load()
 		if err != nil {
@@ -25,8 +32,8 @@ var listCmd = &cobra.Command{
 		}
 
 		// --available: browse skills in registered repos
-		if cmd.Flags().Changed("available") {
-			return listAvailable(available, st)
+		if available {
+			return listAvailable(repoFilter, st)
 		}
 
 		// Default: list installed skills
@@ -57,7 +64,7 @@ var listCmd = &cobra.Command{
 				modified, _ := skill.IsModified(rec)
 				flag := ""
 				if modified {
-					flag = " [modified]"
+					flag = "  " + yellow("[modified]")
 				}
 				fmt.Printf("%-40s  %-16s  %s%s\n", addr, agentName, rec.LocalPath, flag)
 			}
@@ -80,24 +87,48 @@ func listAvailable(repoFilter string, st *state.State) error {
 	}
 
 	if len(skills) == 0 {
-		fmt.Println("No skills found. Register a repo with: skillpack repo add <url>")
+		fmt.Println("No skills found. Register a repo with: skillpack repo add <name> <url>")
 		return nil
 	}
 
 	sort.Slice(skills, func(i, j int) bool { return skills[i].Address < skills[j].Address })
-	for _, s := range skills {
-		installed := ""
-		if _, ok := st.InstalledSkills[s.Address]; ok {
-			installed = " [installed]"
-		}
-		fmt.Printf("%-50s%s\n", s.Address, installed)
+
+	// Group skills by their parent path (repo + category prefix)
+	type group struct {
+		prefix string
+		items  []repo.SkillInfo
 	}
+	var groups []group
+	curPrefix := ""
+	for _, s := range skills {
+		prefix := path.Dir(s.Address) // e.g. "my-repo/coding" or "my-repo"
+		if prefix != curPrefix {
+			groups = append(groups, group{prefix: prefix})
+			curPrefix = prefix
+		}
+		groups[len(groups)-1].items = append(groups[len(groups)-1].items, s)
+	}
+
+	total := 0
+	for _, g := range groups {
+		fmt.Printf("%s/\n", bold(g.prefix))
+		for _, s := range g.items {
+			name := path.Base(s.Address)
+			installed := ""
+			if _, ok := st.InstalledSkills[s.Address]; ok {
+				installed = "  " + green("[installed]")
+			}
+			fmt.Printf("  %-38s%s\n", name, installed)
+			total++
+		}
+	}
+	fmt.Printf("\n%s available\n", bold(fmt.Sprintf("%d skill(s)", total)))
 	return nil
 }
 
 func init() {
 	listCmd.Flags().String("agent", "", "Filter by agent name")
 	listCmd.Flags().Bool("modified", false, "Show only locally-modified skills")
-	listCmd.Flags().String("available", "", "Browse skills in registered repos (use repo name or omit for all)")
-	listCmd.Flags().Lookup("available").NoOptDefVal = "" // allow --available without a value
+	listCmd.Flags().Bool("available", false, "Browse skills available in registered repos")
+	listCmd.Flags().String("repo", "", "Filter available skills by repo name (used with --available)")
 }

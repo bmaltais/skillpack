@@ -215,13 +215,13 @@ v2 (planned): `--merge --llm` delegates resolution to the agent configured to us
 - [x] `sync` (two-way reconciliation)
 - [x] `--dry-run` on `update`, `publish`, `sync`
 
-### Phase 5: Polish
+### Phase 5: Polish ✓
 
-- [ ] Color output / formatting
-- [ ] Help text and examples
-- [ ] `list --available` with category grouping
-- [ ] Write `skillpack/SKILL.md` — the self-describing skill for AI agents
-- [ ] First-run wizard offers to register the skillpack repo and install `skillpack/skillpack` automatically
+- [x] Color output / formatting
+- [x] Help text and examples
+- [x] `list --available` with category grouping
+- [x] Write `skillpack/SKILL.md` — the self-describing skill for AI agents
+- [x] First-run wizard offers to register the skillpack repo and install `skillpack/skillpack` automatically
 
 ## Tech Stack
 

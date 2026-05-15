@@ -13,6 +13,10 @@ import (
 var removeCmd = &cobra.Command{
 	Use:   "remove <repo>/<path/to/skill>",
 	Short: "Remove an installed skill from an agent's skill directory",
+	Example: `  skillpack remove my-repo/coding/debugger
+  skillpack remove my-repo/coding/debugger --agent claude-code
+  skillpack remove my-repo/coding/debugger --all-agents
+  skillpack remove my-repo/coding/debugger --force`,
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		addr := args[0]

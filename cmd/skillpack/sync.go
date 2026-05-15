@@ -64,14 +64,14 @@ Resolve conflicts with:
 				fmt.Printf("  %-40s  %-14s  error: %v\n", r.Addr, r.AgentName, r.Err)
 				errCount++
 			case r.Action == skill.SyncUpdated:
-				tag := "updated"
+				tag := green("updated")
 				if dryRun {
 					tag = "[dry-run] would update"
 				}
 				fmt.Printf("  %-40s  %-14s  %s\n", r.Addr, r.AgentName, tag)
 				updated++
 			case r.Action == skill.SyncPublished:
-				tag := "published"
+				tag := green("published")
 				if dryRun {
 					tag = "[dry-run] would publish"
 				}
@@ -82,7 +82,7 @@ Resolve conflicts with:
 			}
 		}
 		for _, c := range conflicts {
-			fmt.Printf("  %-40s  %-14s  CONFLICT — resolve manually\n", c.Addr, c.AgentName)
+			fmt.Printf("  %-40s  %-14s  %s\n", c.Addr, c.AgentName, red("CONFLICT — resolve manually"))
 		}
 
 		// Summary line

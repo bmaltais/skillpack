@@ -13,6 +13,12 @@ import (
 var updateCmd = &cobra.Command{
 	Use:   "update [<repo>/<path/to/skill>]",
 	Short: "Check for and apply upstream updates to installed skills",
+	Example: `  skillpack update
+  skillpack update my-repo/coding/debugger
+  skillpack update --dry-run
+  skillpack update --force-remote my-repo/coding/debugger
+  skillpack update --force-local  my-repo/coding/debugger
+  skillpack update --merge        my-repo/coding/debugger`,
 	Long: `Check installed skills for upstream changes and apply updates.
 
 Without arguments, checks all installed skills. With a skill address,
@@ -97,7 +103,7 @@ blocked. Resolve the conflict with one of:
 			if !result.HasUpstream {
 				// Nothing to do — but report if locally modified
 				if result.IsModified {
-					fmt.Printf("  %-40s  %-14s  locally modified (no upstream change)\n", t.addr, t.agent)
+					fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, yellow("locally modified (no upstream change)"))
 				}
 				continue
 			}
@@ -109,7 +115,7 @@ blocked. Resolve the conflict with one of:
 						if err := skill.ForceRemote(t.addr, t.agent, st); err != nil {
 							return err
 						}
-						fmt.Printf("  %-40s  %-14s  force-remote applied\n", t.addr, t.agent)
+						fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, green("force-remote applied"))
 						changed = true
 					} else {
 						fmt.Printf("  %-40s  %-14s  [dry-run] would force-remote\n", t.addr, t.agent)
@@ -120,7 +126,7 @@ blocked. Resolve the conflict with one of:
 						if err := skill.ForceLocal(t.addr, t.agent, st); err != nil {
 							return err
 						}
-						fmt.Printf("  %-40s  %-14s  force-local applied (pushed to remote)\n", t.addr, t.agent)
+						fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, green("force-local applied (pushed to remote)"))
 						changed = true
 					} else {
 						fmt.Printf("  %-40s  %-14s  [dry-run] would force-local (push to remote)\n", t.addr, t.agent)
@@ -133,9 +139,9 @@ blocked. Resolve the conflict with one of:
 							return err
 						}
 						if hadConflicts {
-							fmt.Printf("  %-40s  %-14s  merged — conflicts written, resolve manually\n", t.addr, t.agent)
-						} else {
-							fmt.Printf("  %-40s  %-14s  merged cleanly\n", t.addr, t.agent)
+								fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, yellow("merged — conflicts written, resolve manually"))
+							} else {
+								fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, green("merged cleanly"))
 							changed = true
 						}
 					} else {
@@ -143,7 +149,7 @@ blocked. Resolve the conflict with one of:
 					}
 
 				default:
-					fmt.Printf("  %-40s  %-14s  CONFLICT: local modified + upstream changed — use --force-remote, --force-local, or --merge\n", t.addr, t.agent)
+					fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, red("CONFLICT: local modified + upstream changed — use --force-remote, --force-local, or --merge"))
 					conflictCount++
 				}
 			} else {
@@ -152,7 +158,7 @@ blocked. Resolve the conflict with one of:
 					if err := skill.ApplyUpdate(t.addr, t.agent, st); err != nil {
 						return err
 					}
-					fmt.Printf("  %-40s  %-14s  updated\n", t.addr, t.agent)
+					fmt.Printf("  %-40s  %-14s  %s\n", t.addr, t.agent, green("updated"))
 					changed = true
 				} else {
 					fmt.Printf("  %-40s  %-14s  [dry-run] would update\n", t.addr, t.agent)

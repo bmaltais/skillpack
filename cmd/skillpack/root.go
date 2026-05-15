@@ -9,6 +9,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bernard/skillpack/internal/config"
+	"github.com/bernard/skillpack/internal/repo"
+	"github.com/bernard/skillpack/internal/skill"
+	"github.com/bernard/skillpack/internal/state"
 )
 
 var rootCmd = &cobra.Command{
@@ -102,6 +105,24 @@ func runWizard(cfg *config.Config) error {
 		return fmt.Errorf("saving config: %w", err)
 	}
 	fmt.Printf("\nDefault agent: %q — config saved to ~/.skillpack/config.yaml\n\n", cfg.DefaultAgent)
+
+	// Offer to bootstrap the skillpack skill itself.
+	if isInteractive() {
+		fmt.Print("Register the skillpack repo? (provides a self-describing skill for AI agents) [Y/n]: ")
+		reader2 := bufio.NewReader(os.Stdin)
+		answer, _ := reader2.ReadString('\n')
+		answer = strings.ToLower(strings.TrimSpace(answer))
+		if answer == "" || answer == "y" || answer == "yes" {
+			if err := bootstrapSkillpackRepo(cfg); err != nil {
+				fmt.Printf("  warning: could not bootstrap skillpack repo: %v\n", err)
+				fmt.Println("  You can do this manually later:")
+				fmt.Println("    skillpack repo add skillpack https://github.com/bmaltais/skillpack.git")
+				fmt.Printf("    skillpack install skillpack/skillpack\n")
+			} else {
+				fmt.Printf("  Installed: skillpack/skillpack → %s\n", cfg.Agents[cfg.DefaultAgent].SkillDir)
+			}
+		}
+	}
 	return nil
 }
 
@@ -112,4 +133,33 @@ func isInteractive() bool {
 		return false
 	}
 	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+// bootstrapSkillpackRepo registers the skillpack repo and installs skillpack/skillpack
+// for the default agent. Called from the first-run wizard when the user opts in.
+func bootstrapSkillpackRepo(cfg *config.Config) error {
+	const (
+		repoName = "skillpack"
+		repoURL  = "https://github.com/bmaltais/skillpack.git"
+		skillAddr = "skillpack/skillpack"
+	)
+
+	st, err := state.Load()
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("  Cloning %s ...\n", repoURL)
+	if addErr := repo.Add(repoName, repoURL, st); addErr != nil {
+		// Already registered is fine; any other error is fatal.
+		if !strings.Contains(addErr.Error(), "already registered") {
+			return addErr
+		}
+	}
+
+	if err := skill.Install(skillAddr, cfg.DefaultAgent, cfg, st, true /* skipExisting */); err != nil {
+		return err
+	}
+
+	return state.Save(st)
 }

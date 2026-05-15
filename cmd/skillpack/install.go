@@ -13,6 +13,10 @@ import (
 var installCmd = &cobra.Command{
 	Use:   "install <repo>/<path/to/skill>",
 	Short: "Install a skill into an agent's skill directory",
+	Example: `  skillpack install my-repo/coding/debugger
+  skillpack install my-repo/coding/debugger --agent claude-code
+  skillpack install my-repo/coding/debugger --all-agents
+  skillpack install my-repo/coding/debugger --skip-existing`,
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		addr := args[0]

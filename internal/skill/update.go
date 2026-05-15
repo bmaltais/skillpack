@@ -18,6 +18,40 @@ import (
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
+// safeShortSHA returns the first 8 characters of a SHA, or the full string if
+// it is shorter than 8 — prevents a slice-bounds panic on empty/corrupted state.
+func safeShortSHA(sha string) string {
+	if len(sha) <= 8 {
+		return sha
+	}
+	return sha[:8]
+}
+
+// SnapshotInstalled refreshes InstalledHash and InstalledAtSHA in state to
+// reflect the current on-disk contents of the installed skill directory.
+// Call this after a successful merge or LLM conflict resolution on a
+// non-forked skill so that subsequent update/sync commands use the resolved
+// files as the new baseline.
+func SnapshotInstalled(addr, agentName string, st *state.State) error {
+	rec, ok := st.InstalledSkills[addr][agentName]
+	if !ok {
+		return fmt.Errorf("skill %q not installed for agent %q", addr, agentName)
+	}
+	hash, err := ComputeHash(rec.LocalPath)
+	if err != nil {
+		return fmt.Errorf("computing installed hash: %w", err)
+	}
+	repoName := strings.SplitN(addr, "/", 2)[0]
+	headSHA, err := repo.HeadSHA(repoName, st)
+	if err != nil {
+		return fmt.Errorf("reading repo HEAD SHA: %w", err)
+	}
+	rec.InstalledHash = hash
+	rec.InstalledAtSHA = headSHA
+	st.InstalledSkills[addr][agentName] = rec
+	return nil
+}
+
 // UpdateResult describes the state of an installed skill relative to upstream.
 type UpdateResult struct {
 	Addr        string
@@ -309,7 +343,7 @@ func mergeForkSkill(addr, agentName, token string, rec state.InstalledSkillRecor
 
 	baseFiles, err := listFilesAtCommit(upstreamRepo, rec.UpstreamSHA, upstreamRelPath)
 	if err != nil {
-		return false, fmt.Errorf("reading upstream base at %s: %w", rec.UpstreamSHA[:8], err)
+		return false, fmt.Errorf("reading upstream base at %s: %w", safeShortSHA(rec.UpstreamSHA), err)
 	}
 
 	// Upstream HEAD files come from the cache dir (already fetched by update/sync)
@@ -451,7 +485,7 @@ func hasUpstreamOriginChange(rec state.InstalledSkillRecord, st *state.State) (b
 
 	oldCommit, err := r.CommitObject(plumbing.NewHash(rec.UpstreamSHA))
 	if err != nil {
-		return false, fmt.Errorf("resolving upstream SHA %s: %w", rec.UpstreamSHA[:8], err)
+		return false, fmt.Errorf("resolving upstream SHA %s: %w", safeShortSHA(rec.UpstreamSHA), err)
 	}
 	newCommit, err := r.CommitObject(headRef.Hash())
 	if err != nil {

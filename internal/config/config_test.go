@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bernard/skillpack/internal/config"
+	"github.com/bmaltais/skillpack/internal/config"
 )
 
 func TestExpandPath_Home(t *testing.T) {

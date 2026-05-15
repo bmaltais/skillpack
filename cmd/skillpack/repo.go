@@ -6,9 +6,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bernard/skillpack/internal/config"
-	"github.com/bernard/skillpack/internal/repo"
-	"github.com/bernard/skillpack/internal/state"
+	"github.com/bmaltais/skillpack/internal/config"
+	"github.com/bmaltais/skillpack/internal/repo"
+	"github.com/bmaltais/skillpack/internal/state"
 )
 
 var repoCmd = &cobra.Command{

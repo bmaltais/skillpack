@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/bernard/skillpack/internal/config"
+	"github.com/bmaltais/skillpack/internal/config"
 )
 
 // resolveAgents returns the list of agent names targeted by a command.

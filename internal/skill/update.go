@@ -14,8 +14,8 @@ import (
 	gogithttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gogitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 
-	"github.com/bernard/skillpack/internal/repo"
-	"github.com/bernard/skillpack/internal/state"
+	"github.com/bmaltais/skillpack/internal/repo"
+	"github.com/bmaltais/skillpack/internal/state"
 )
 
 // UpdateResult describes the state of an installed skill relative to upstream.

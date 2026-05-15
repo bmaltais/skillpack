@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bernard/skillpack/internal/skill"
-	"github.com/bernard/skillpack/internal/state"
+	"github.com/bmaltais/skillpack/internal/skill"
+	"github.com/bmaltais/skillpack/internal/state"
 )
 
 // TestCheckUpdate_NotInstalled verifies a useful error when the skill isn't in state.

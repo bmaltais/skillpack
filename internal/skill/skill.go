@@ -9,9 +9,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bernard/skillpack/internal/config"
-	"github.com/bernard/skillpack/internal/repo"
-	"github.com/bernard/skillpack/internal/state"
+	"github.com/bmaltais/skillpack/internal/config"
+	"github.com/bmaltais/skillpack/internal/repo"
+	"github.com/bmaltais/skillpack/internal/state"
 )
 
 // Install copies a skill from the repo cache into an agent's skill dir and records it in state.

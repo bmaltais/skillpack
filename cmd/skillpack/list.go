@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bernard/skillpack/internal/repo"
-	"github.com/bernard/skillpack/internal/skill"
-	"github.com/bernard/skillpack/internal/state"
+	"github.com/bmaltais/skillpack/internal/repo"
+	"github.com/bmaltais/skillpack/internal/skill"
+	"github.com/bmaltais/skillpack/internal/state"
 )
 
 var listCmd = &cobra.Command{

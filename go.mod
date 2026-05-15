@@ -1,4 +1,4 @@
-module github.com/bernard/skillpack
+module github.com/bmaltais/skillpack
 
 go 1.25.0
 

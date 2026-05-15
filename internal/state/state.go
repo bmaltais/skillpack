@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/bernard/skillpack/internal/config"
+	"github.com/bmaltais/skillpack/internal/config"
 )
 
 // State is persisted to ~/.skillpack/state.json.

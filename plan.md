@@ -208,12 +208,12 @@ v2 (planned): `--merge --llm` delegates resolution to the agent configured to us
 - [x] Abort with clear error when skill is modified; require `--force-remote|--force-local|--merge`
 - [x] `update --force-remote` / `--force-local` / `--merge`
 
-### Phase 4: Publishing + Sync
+### Phase 4: Publishing + Sync ✓
 
-- [ ] `publish` (copy from agent dir → cache, git commit auto-message, git push to main)
-- [ ] `publish ./new-skill --repo <name>` for new skills
-- [ ] `sync` (two-way reconciliation)
-- [ ] `--dry-run` on `update`, `publish`, `sync`
+- [x] `publish` (copy from agent dir → cache, git commit auto-message, git push to main)
+- [x] `publish ./new-skill --repo <name>` for new skills
+- [x] `sync` (two-way reconciliation)
+- [x] `--dry-run` on `update`, `publish`, `sync`
 
 ### Phase 5: Polish
 

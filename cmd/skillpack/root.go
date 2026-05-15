@@ -36,6 +36,7 @@ func init() {
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(removeCmd)
 	rootCmd.AddCommand(listCmd)
+	rootCmd.AddCommand(updateCmd)
 }
 
 // ensureConfig runs the first-run wizard if no config file exists yet.

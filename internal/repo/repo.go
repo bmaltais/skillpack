@@ -308,12 +308,18 @@ func walkSkills(repoName, cachePath string) ([]SkillInfo, error) {
 		if err != nil {
 			return err
 		}
+		if !d.IsDir() {
+			return nil
+		}
 		// Skip hidden directories (e.g. .git)
-		if d.IsDir() && strings.HasPrefix(d.Name(), ".") {
+		if strings.HasPrefix(d.Name(), ".") {
 			return filepath.SkipDir
 		}
-		if !d.IsDir() && d.Name() == "SKILL.md" {
-			skillDir := filepath.Dir(path)
+
+		// Detect SKILL.md while visiting the directory itself so pruning is
+		// order-independent and does not rely on sibling traversal order.
+		if _, statErr := os.Stat(filepath.Join(path, "SKILL.md")); statErr == nil {
+			skillDir := path
 			relPath, _ := filepath.Rel(cachePath, skillDir)
 			relPath = filepath.ToSlash(relPath)
 			skills = append(skills, SkillInfo{
@@ -322,6 +328,9 @@ func walkSkills(repoName, cachePath string) ([]SkillInfo, error) {
 				RelPath:  relPath,
 				FullPath: skillDir,
 			})
+			return filepath.SkipDir
+		} else if !os.IsNotExist(statErr) {
+			return statErr
 		}
 		return nil
 	})

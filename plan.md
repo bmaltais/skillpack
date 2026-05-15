@@ -202,11 +202,11 @@ v2 (planned): `--merge --llm` delegates resolution to the agent configured to us
 - [x] `list` (installed, with `--agent`, `--modified`, `--available` flags)
 - [x] Unit tests: config, repo discovery, skill hash + modification detection
 
-### Phase 3: Updates + Conflict Detection
+### Phase 3: Updates + Conflict Detection ✓
 
-- [ ] `update` — compare `installed_at_sha` against current cache HEAD to detect upstream changes
-- [ ] Abort with clear error when skill is modified; require `--force-remote|--force-local|--merge`
-- [ ] `update --force-remote` / `--force-local` / `--merge`
+- [x] `update` — compare `installed_at_sha` against current cache HEAD to detect upstream changes
+- [x] Abort with clear error when skill is modified; require `--force-remote|--force-local|--merge`
+- [x] `update --force-remote` / `--force-local` / `--merge`
 
 ### Phase 4: Publishing + Sync
 

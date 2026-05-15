@@ -112,6 +112,35 @@ func TestDiscoverSkills_SkipsHiddenDirs(t *testing.T) {
 	}
 }
 
+func TestDiscoverSkills_PrunesNestedTraversalOrderIndependently(t *testing.T) {
+	root := t.TempDir()
+	mkSkill(t, root, "parent-skill")
+	// "Examples" sorts before "SKILL.md" and would be walked first if pruning
+	// occurred only when visiting SKILL.md as a file.
+	mkSkill(t, root, filepath.Join("parent-skill", "Examples", "nested"))
+
+	st := &state.State{
+		Repos:           map[string]state.RepoRecord{"r": {CachePath: root}},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+
+	skills, err := repo.DiscoverSkills("r", st)
+	if err != nil {
+		t.Fatalf("DiscoverSkills: %v", err)
+	}
+
+	addrSet := make(map[string]bool)
+	for _, s := range skills {
+		addrSet[s.Address] = true
+	}
+	if len(skills) != 1 {
+		t.Fatalf("expected only parent skill due to pruning, got %d: %v", len(skills), skillAddrs(skills))
+	}
+	if !addrSet["r/parent-skill"] {
+		t.Fatalf("missing parent skill; got %v", skillAddrs(skills))
+	}
+}
+
 func TestFindSkill_NotFound(t *testing.T) {
 	root := t.TempDir()
 	st := &state.State{

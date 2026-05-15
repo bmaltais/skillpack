@@ -14,9 +14,13 @@ import (
 	"github.com/bernard/skillpack/internal/state"
 )
 
+// Version is set at build time via -ldflags.
+var Version = "dev"
+
 var rootCmd = &cobra.Command{
-	Use:   "skillpack",
-	Short: "Manage AI agent skills across multiple agents",
+	Use:     "skillpack",
+	Short:   "Manage AI agent skills across multiple agents",
+	Version: Version,
 	Long: `skillpack — install, update, publish and sync AI agent skills.
 
 Skills live in git repositories and are installed as directories into

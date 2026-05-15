@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bernard/skillpack/internal/repo"
-	"github.com/bernard/skillpack/internal/state"
+	"github.com/bmaltais/skillpack/internal/repo"
+	"github.com/bmaltais/skillpack/internal/state"
 )
 
 func TestNameFromURL(t *testing.T) {

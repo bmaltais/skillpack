@@ -9,7 +9,7 @@ import (
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gogitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 
-	"github.com/bernard/skillpack/internal/state"
+	"github.com/bmaltais/skillpack/internal/state"
 )
 
 // Publish pushes local edits of an installed skill back to the remote repo.

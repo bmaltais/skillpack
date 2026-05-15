@@ -8,10 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bernard/skillpack/internal/config"
-	"github.com/bernard/skillpack/internal/repo"
-	"github.com/bernard/skillpack/internal/skill"
-	"github.com/bernard/skillpack/internal/state"
+	"github.com/bmaltais/skillpack/internal/config"
+	"github.com/bmaltais/skillpack/internal/repo"
+	"github.com/bmaltais/skillpack/internal/skill"
+	"github.com/bmaltais/skillpack/internal/state"
 )
 
 // Version is set at build time via -ldflags.
@@ -26,6 +26,10 @@ var rootCmd = &cobra.Command{
 Skills live in git repositories and are installed as directories into
 each agent's skill folder (e.g. ~/.claude/skills/, ~/.copilot/skills/).`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// self-update is config-independent; skip wizard to avoid side effects.
+		if cmd.Name() == "self-update" {
+			return nil
+		}
 		return ensureConfig()
 	},
 	SilenceUsage: true,
@@ -46,6 +50,7 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(publishCmd)
 	rootCmd.AddCommand(syncCmd)
+	rootCmd.AddCommand(selfUpdateCmd)
 }
 
 // ensureConfig runs the first-run wizard if no config file exists yet.

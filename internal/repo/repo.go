@@ -11,8 +11,8 @@ import (
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 
-	"github.com/bernard/skillpack/internal/config"
-	"github.com/bernard/skillpack/internal/state"
+	"github.com/bmaltais/skillpack/internal/config"
+	"github.com/bmaltais/skillpack/internal/state"
 )
 
 // SkillInfo describes a discovered skill inside a repo clone.

@@ -44,6 +44,13 @@ var repoAddCmd = &cobra.Command{
 			}
 		}
 
+		// If already registered and cache exists, just update the token (no re-clone needed).
+		if _, exists := st.Repos[name]; exists {
+			skills, _ := repo.DiscoverSkills(name, st)
+			fmt.Printf("Repo %q already registered — token updated. %d skill(s) available.\n", name, len(skills))
+			return nil
+		}
+
 		fmt.Printf("Cloning %s as %q...\n", url, name)
 		if err := repo.Add(name, url, cfg.TokenForRepo(name), st); err != nil {
 			return err

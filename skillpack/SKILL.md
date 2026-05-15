@@ -173,10 +173,13 @@ skillpack sync   # pulls updates, publishes your local edits
 
 ### Contributing a new skill
 
+> **RULE: After publishing a brand-new skill, always install it with `--all-agents`.**
+> A publish only pushes to the repo — it does not install the skill for any agent.
+
 ```bash
 mkdir ~/my-new-skill && echo "# My Skill" > ~/my-new-skill/SKILL.md
 skillpack publish ~/my-new-skill --repo my-skills
-skillpack install my-skills/my-new-skill
+skillpack install my-skills/my-new-skill --all-agents   # REQUIRED — install for every agent
 ```
 
 ### Check version

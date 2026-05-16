@@ -14,16 +14,15 @@ import (
 )
 
 const (
-	githubReleaseURL    = "https://api.github.com/repos/bmaltais/skillpack/releases/latest"
-	githubDownloadFmt   = "https://github.com/bmaltais/skillpack/releases/download/%s/skillpack-%s-%s"
-	installOneLiner     = "curl -fsSL https://raw.githubusercontent.com/bmaltais/skillpack/main/install.sh \\\n  -o /tmp/skillpack-install.sh && sh /tmp/skillpack-install.sh"
+	githubReleaseURL  = "https://api.github.com/repos/bmaltais/skillpack/releases/latest"
+	githubDownloadFmt = "https://github.com/bmaltais/skillpack/releases/download/%s/skillpack-%s-%s%s"
+	installOneLiner   = "curl -fsSL https://raw.githubusercontent.com/bmaltais/skillpack/main/install.sh \\\n  -o /tmp/skillpack-install.sh && sh /tmp/skillpack-install.sh"
 )
 
 var selfUpdateCmd = &cobra.Command{
 	Use:   "self-update",
 	Short: "Download and install the latest version of skillpack",
-	Long: `Fetches the latest release from GitHub and replaces the running binary.
-On Windows, prints a link to the releases page instead.`,
+	Long: `Fetches the latest release from GitHub and replaces the running binary.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		current := strings.TrimPrefix(Version, "v")
 		if current == "dev" {
@@ -54,13 +53,6 @@ On Windows, prints a link to the releases page instead.`,
 		fmt.Println(yellow("A newer version is available!"))
 		fmt.Println()
 
-		if runtime.GOOS == "windows" {
-			fmt.Println("Automatic update is not supported on Windows.")
-			fmt.Println("Download the latest release from:")
-			fmt.Printf("\n    https://github.com/bmaltais/skillpack/releases/tag/%s\n\n", latest)
-			return nil
-		}
-
 		fmt.Print("Downloading update... ")
 		if err := downloadAndReplace(latest); err != nil {
 			fmt.Println()
@@ -79,12 +71,18 @@ On Windows, prints a link to the releases page instead.`,
 }
 
 // downloadAndReplace downloads the latest release binary for the current
-// OS/arch and atomically replaces the running executable.
+// OS/arch and replaces the running executable.
 func downloadAndReplace(tag string) error {
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
 
-	url := fmt.Sprintf(githubDownloadFmt, tag, goos, goarch)
+	// Windows releases are uploaded with a .exe suffix.
+	exeSuffix := ""
+	if goos == "windows" {
+		exeSuffix = ".exe"
+	}
+
+	url := fmt.Sprintf(githubDownloadFmt, tag, goos, goarch, exeSuffix)
 
 	execPath, err := os.Executable()
 	if err != nil {
@@ -98,13 +96,35 @@ func downloadAndReplace(tag string) error {
 		return err
 	}
 
-	// Make it executable.
-	if err := os.Chmod(tmpPath, 0755); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("could not chmod downloaded binary: %w", err)
+	// Make it executable (no-op on Windows).
+	if goos != "windows" {
+		if err := os.Chmod(tmpPath, 0755); err != nil {
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("could not chmod downloaded binary: %w", err)
+		}
 	}
 
-	// Atomically replace the current binary.
+	// On Windows, os.Rename cannot overwrite the running executable directly.
+	// Rename the current binary to .old first, then move the new one into place.
+	if goos == "windows" {
+		oldPath := execPath + ".old"
+		_ = os.Remove(oldPath) // clean up any leftover from a previous update
+		if err := os.Rename(execPath, oldPath); err != nil {
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("could not rename current binary: %w", err)
+		}
+		if err := os.Rename(tmpPath, execPath); err != nil {
+			// Try to restore the original binary before returning the error.
+			_ = os.Rename(oldPath, execPath)
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("could not replace binary: %w", err)
+		}
+		// Best-effort cleanup of the old binary; ignore errors.
+		_ = os.Remove(oldPath)
+		return nil
+	}
+
+	// Unix: atomic replace via rename.
 	if err := os.Rename(tmpPath, execPath); err != nil {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("could not replace binary (try with sudo): %w", err)

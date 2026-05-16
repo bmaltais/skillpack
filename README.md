@@ -198,7 +198,7 @@ Default agents detected automatically on first run: `claude-code`, `copilot`, `h
 
 ```bash
 skillpack --version    # print the installed version
-skillpack self-update  # check for a newer release and print the upgrade command
+skillpack self-update  # download and install the latest release (all platforms)
 skillpack --help       # command reference
 ```
 

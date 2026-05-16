@@ -1,6 +1,6 @@
 # install.ps1 — download and install the skillpack binary on Windows
 # Usage:
-#   powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/bmaltais/skillpack/main/install.ps1' -OutFile skillpack-install.ps1; if ($?) { .\skillpack-install.ps1 }"
+#   powershell -NoProfile -ExecutionPolicy Bypass -Command '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri ''https://raw.githubusercontent.com/bmaltais/skillpack/main/install.ps1'' -OutFile skillpack-install.ps1; if ($?) { .\skillpack-install.ps1 }'
 
 $ErrorActionPreference = "Stop"
 

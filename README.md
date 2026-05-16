@@ -55,7 +55,7 @@ curl -fsSL https://raw.githubusercontent.com/bmaltais/skillpack/main/install.sh 
 ### Windows (PowerShell)
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/bmaltais/skillpack/main/install.bat' -OutFile skillpack-install.bat; cmd /c skillpack-install.bat"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/bmaltais/skillpack/main/install.bat' -OutFile skillpack-install.bat; if ($?) { cmd /c skillpack-install.bat }"
 ```
 
 The script auto-detects your architecture, installs to `%USERPROFILE%\.local\bin\skillpack.exe` (no admin required), and attempts to add the install directory to your PATH.

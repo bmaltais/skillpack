@@ -9,7 +9,7 @@
 #     -o /tmp/skillpack-install.sh \
 #     && sudo env SKILLPACK_INSTALL_DIR=/usr/local/bin sh /tmp/skillpack-install.sh
 #
-# Supported platforms: Linux (amd64, arm64), macOS (amd64, arm64), Windows (amd64, arm64)
+# Supported platforms: Linux (amd64, arm64), macOS (amd64, arm64)
 # Windows: use install.bat instead of this script.
 
 set -e
@@ -27,7 +27,7 @@ case "${OS}" in
     echo "error: unsupported operating system: ${OS}" >&2
     echo "       This script supports Linux and macOS only." >&2
     echo "       For Windows, run:" >&2
-    echo "       curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.bat -o skillpack-install.bat && skillpack-install.bat" >&2
+    echo "       curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.bat -o skillpack-install.bat && cmd /c skillpack-install.bat" >&2
     exit 1
     ;;
 esac

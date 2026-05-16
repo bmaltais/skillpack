@@ -1,6 +1,6 @@
 # install.ps1 — download and install the skillpack binary on Windows
 # Usage:
-#   powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/bmaltais/skillpack/main/install.ps1' -OutFile skillpack-install.ps1; .\skillpack-install.ps1"
+#   powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/bmaltais/skillpack/main/install.ps1' -OutFile skillpack-install.ps1; if ($?) { .\skillpack-install.ps1 }"
 
 $ErrorActionPreference = "Stop"
 
@@ -10,14 +10,27 @@ $BASE_URL = "https://github.com/$REPO/releases/latest/download"
 
 # ── Detect arch ──────────────────────────────────────────────────────────────────
 $arch = "amd64"
-if ([Environment]::Is64BitOperatingSystem -and (Get-CimInstance -ClassName Win32_Processor -Property Architecture -ErrorAction SilentlyContinue).Architecture -eq 12) {
+$proc = Get-CimInstance -ClassName Win32_Processor -Property Architecture -ErrorAction SilentlyContinue
+if ($proc.Architecture -eq 12) {
     $arch = "arm64"
-} elseif ([Environment]::Is64BitOperatingSystem -eq $false) {
-    $arch = "amd64"
+} elseif ($proc.Architecture -eq 9) {
+    # 64-bit x86 (could be WoW64 on ARM64) — check registry
+    $hwKey = "HKLM:HARDWARE\DESCRIPTION\System\CentralProcessor\0"
+    if (Test-Path $hwKey) {
+        $vendor = (Get-ItemProperty -Path $hwKey -Name "ProcessorNameString" -ErrorAction SilentlyContinue)."ProcessorNameString"
+        if ($vendor -match "ARM64") {
+            $arch = "arm64"
+        }
+    }
 }
 
 # ── Choose install directory ────────────────────────────────────────────────────
-$installDir = Join-Path $env:USERPROFILE ".local\bin"
+$home = $env:USERPROFILE
+if (-not $home) {
+    Write-Error "USERPROFILE environment variable is not set."
+    exit 1
+}
+$installDir = Join-Path $home ".local\bin"
 if (-not (Test-Path $installDir)) {
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 }
@@ -46,8 +59,9 @@ Move-Item -Path $tmpDest -Destination $dest -Force
 
 # ── Try to add install_dir to PATH ───────────────────────────────────────────────
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (-not $userPath) { $userPath = "" }
 $pathUpdated = $true
-if ($userPath -notlike "*$installDir*") {
+if ($userPath.Split(';') -notcontains $installDir) {
     try {
         [Environment]::SetEnvironmentVariable("Path", "$userPath;$installDir", "User")
     } catch {
@@ -63,7 +77,8 @@ if ($pathUpdated) {
     Write-Host "`nNOTE: PATH was not updated automatically." -ForegroundColor Yellow
     Write-Host "      Add it manually by running:" -ForegroundColor Yellow
     Write-Host "" -ForegroundColor Yellow
-    Write-Host "        $env:PATH = '$installDir;$env:PATH'" -ForegroundColor Yellow
+    $manualCmd = '        $env:PATH = "' + $installDir + ';$env:PATH"'
+    Write-Host $manualCmd -ForegroundColor Yellow
     Write-Host "" -ForegroundColor Yellow
     Write-Host "      Then restart your terminal." -ForegroundColor Yellow
 }

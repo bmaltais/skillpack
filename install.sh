@@ -27,7 +27,8 @@ case "${OS}" in
     echo "error: unsupported operating system: ${OS}" >&2
     echo "       This script supports Linux and macOS only." >&2
     echo "       For Windows, run:" >&2
-    echo "       curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.bat -o skillpack-install.bat && cmd /c skillpack-install.bat" >&2
+    echo "       1) Download: curl -fsSL https://raw.githubusercontent.com/\${REPO}/main/install.ps1 -o skillpack-install.ps1" >&2
+    echo "       2) Run:      powershell -NoProfile -ExecutionPolicy Bypass -File skillpack-install.ps1" >&2
     exit 1
     ;;
 esac

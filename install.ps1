@@ -25,12 +25,12 @@ if ($proc.Architecture -eq 12) {
 }
 
 # ── Choose install directory ────────────────────────────────────────────────────
-$home = $env:USERPROFILE
-if (-not $home) {
+$userProfile = $env:USERPROFILE
+if (-not $userProfile) {
     Write-Error "USERPROFILE environment variable is not set."
     exit 1
 }
-$installDir = Join-Path $home ".local\bin"
+$installDir = Join-Path $userProfile ".local\bin"
 if (-not (Test-Path $installDir)) {
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 }

@@ -53,6 +53,7 @@ var listCmd = &cobra.Command{
 		type entry struct {
 			addr, agentName, localPath string
 			modified                   bool
+			upstreamAddr               string
 		}
 		var entries []entry
 		for _, addr := range addrs {
@@ -65,7 +66,7 @@ var listCmd = &cobra.Command{
 				if modifiedOnly && !mod {
 					continue
 				}
-				entries = append(entries, entry{addr, agentName, rec.LocalPath, mod})
+				entries = append(entries, entry{addr, agentName, rec.LocalPath, mod, rec.UpstreamAddr})
 			}
 		}
 
@@ -80,6 +81,9 @@ var listCmd = &cobra.Command{
 			flag := ""
 			if e.modified {
 				flag = "  " + yellow("[modified]")
+			}
+			if e.upstreamAddr != "" {
+				flag += "  [fork of " + e.upstreamAddr + "]"
 			}
 			fmt.Printf("%-*s  %-*s  %s%s\n", addrW, e.addr, agentW, e.agentName, e.localPath, flag)
 		}

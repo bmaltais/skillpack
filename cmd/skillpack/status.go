@@ -56,17 +56,18 @@ Use --no-fetch to skip the network call and report against cached state.`,
 		}
 
 		type row struct {
-			addr      string
-			agentName string
-			result    *skill.UpdateResult
-			err       error
+			addr         string
+			agentName    string
+			upstreamAddr string
+			result       *skill.UpdateResult
+			err          error
 		}
 
 		var rows []row
 		for addr, agents := range st.InstalledSkills {
-			for agentName := range agents {
+			for agentName, rec := range agents {
 				r, checkErr := skill.CheckUpdate(addr, agentName, st)
-				rows = append(rows, row{addr, agentName, r, checkErr})
+				rows = append(rows, row{addr, agentName, rec.UpstreamAddr, r, checkErr})
 			}
 		}
 
@@ -117,6 +118,9 @@ Use --no-fetch to skip the network call and report against cached state.`,
 			default:
 				statusStr = green("up-to-date")
 				nCurrent++
+			}
+			if row.upstreamAddr != "" {
+				statusStr += "  [fork of " + row.upstreamAddr + "]"
 			}
 			fmt.Printf("  %-*s  %-*s  %s\n", addrW, row.addr, agentW, row.agentName, statusStr)
 		}

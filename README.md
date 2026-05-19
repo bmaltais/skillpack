@@ -141,6 +141,22 @@ On first run, skillpack detects your installed AI agents and asks which should b
 | `skillpack fork <addr> <my-repo>` | Copy an installed skill into your own repo, tracking upstream origin |
 | `skillpack fork <addr> <my-repo> --agent <name>` | Fork from a specific agent's installed copy |
 
+`skillpack fork` now handles existing destination skills gracefully:
+- If `<my-repo>/<skill-name>` already exists and is tracked as a fork of the same upstream, skillpack re-forks in place (overwrites fork cache, updates upstream tracking SHA).
+- If it exists but is tracked to a different upstream, skillpack returns a collision error naming that upstream.
+- If it exists on disk with no fork provenance in state, skillpack returns an unknown-provenance error.
+
+Forked skills include a `.skillpack-fork` metadata file:
+
+```json
+{
+  "upstream_addr": "source-repo/path/to/skill",
+  "upstream_sha": "<upstream HEAD SHA at fork time>"
+}
+```
+
+When installing a forked skill, this metadata is imported so upstream drift is tracked automatically by `update`/`sync`.
+
 ### Sync
 
 ```bash

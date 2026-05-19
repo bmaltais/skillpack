@@ -54,19 +54,57 @@ func Fork(addr, forkRepo, agentName, token string, st *state.State) (newAddr str
 
 	// Skill name = basename component (last path segment of addr)
 	skillName := filepath.Base(addr)
+	newAddr = forkRepo + "/" + skillName
 	forkDestPath := filepath.Join(forkRec.CachePath, skillName)
 
-	// Refuse if that skill already exists in the fork repo cache
+	destExists := false
 	if _, statErr := os.Stat(forkDestPath); statErr == nil {
-		return "", fmt.Errorf(
-			"skill %q already exists in repo %q — use `skillpack publish %s/%s` to update it",
-			skillName, forkRepo, forkRepo, skillName,
-		)
+		destExists = true
+	} else if !os.IsNotExist(statErr) {
+		return "", fmt.Errorf("checking fork destination path: %w", statErr)
+	}
+	if destExists {
+		forkAgents, ok := st.InstalledSkills[newAddr]
+		if !ok {
+			return "", fmt.Errorf(
+				"skill %q already exists in repo %q but has unknown fork provenance in state; install and register %q first or remove it from the destination repo",
+				skillName, forkRepo, newAddr,
+			)
+		}
+		forkStateRec, ok := forkAgents[agentName]
+		if !ok {
+			return "", fmt.Errorf(
+				"skill %q already exists in repo %q but has unknown fork provenance for agent %q; install and register %q for that agent first or remove it from the destination repo",
+				skillName, forkRepo, agentName, newAddr,
+			)
+		}
+		if forkStateRec.UpstreamAddr != addr {
+			conflictingUpstream := forkStateRec.UpstreamAddr
+			if conflictingUpstream == "" {
+				conflictingUpstream = "(not tracked as a fork)"
+			}
+			return "", fmt.Errorf(
+				"skill %q already exists in repo %q and is tracked as a fork of %q, not %q",
+				skillName, forkRepo, conflictingUpstream, addr,
+			)
+		}
+	}
+
+	if destExists {
+		if err := os.RemoveAll(forkDestPath); err != nil {
+			return "", fmt.Errorf("clearing existing skill in fork repo: %w", err)
+		}
 	}
 
 	// Copy installed files → fork repo cache
 	if err := copyDir(rec.LocalPath, forkDestPath); err != nil {
 		return "", fmt.Errorf("copying skill to fork repo: %w", err)
+	}
+	if err := writeForkMetadata(forkDestPath, addr, upstreamSHA); err != nil {
+		return "", fmt.Errorf("writing fork provenance metadata in fork repo: %w", err)
+	}
+	if err := writeForkMetadata(rec.LocalPath, addr, upstreamSHA); err != nil {
+		return "", fmt.Errorf("writing fork provenance metadata in installed skill: %w", err)
 	}
 
 	// Open fork repo git object
@@ -79,45 +117,61 @@ func Fork(addr, forkRepo, agentName, token string, st *state.State) (newAddr str
 		return "", err
 	}
 
-	// Stage all new files
+	// Stage all changes for this skill path
 	wStatus, err := w.Status()
 	if err != nil {
 		return "", fmt.Errorf("git status: %w", err)
 	}
 	staged := false
-	for path := range wStatus {
-		if strings.HasPrefix(path, skillName+"/") || path == skillName {
+	for path, fs := range wStatus {
+		if !pathUnderSkill(path, skillName) {
+			continue
+		}
+		if fs.Worktree == gogit.Deleted {
+			if _, rmErr := w.Remove(path); rmErr != nil {
+				return "", fmt.Errorf("git rm %s: %w", path, rmErr)
+			}
+		} else {
 			if _, addErr := w.Add(path); addErr != nil {
 				return "", fmt.Errorf("git add %s: %w", path, addErr)
 			}
-			staged = true
 		}
-	}
-	if !staged {
-		return "", fmt.Errorf("no files staged — is %q empty?", rec.LocalPath)
+		staged = true
 	}
 
-	sig := defaultSignature()
-	commitHash, err := w.Commit(
-		fmt.Sprintf("skillpack: fork %s from %s", skillName, addr),
-		&gogit.CommitOptions{Author: sig, Committer: sig},
-	)
-	if err != nil {
-		return "", fmt.Errorf("git commit: %w", err)
+	var commitHash string
+	if staged {
+		sig := defaultSignature()
+		ch, commitErr := w.Commit(
+			fmt.Sprintf("skillpack: fork %s from %s", skillName, addr),
+			&gogit.CommitOptions{Author: sig, Committer: sig},
+		)
+		if commitErr != nil {
+			return "", fmt.Errorf("git commit: %w", commitErr)
+		}
+		commitHash = ch.String()
+	} else {
+		ref, headErr := r.Head()
+		if headErr != nil {
+			return "", fmt.Errorf("reading fork repo HEAD: %w", headErr)
+		}
+		commitHash = ref.Hash().String()
 	}
 
-	pushOpts := &gogit.PushOptions{Progress: os.Stdout}
-	if isSSHRemote(forkRec.URL) {
-		auth, err := gogitssh.NewSSHAgentAuth("git")
-		if err != nil {
-			return "", fmt.Errorf("SSH agent unavailable: %w", err)
+	if staged {
+		pushOpts := &gogit.PushOptions{Progress: os.Stdout}
+		if isSSHRemote(forkRec.URL) {
+			auth, err := gogitssh.NewSSHAgentAuth("git")
+			if err != nil {
+				return "", fmt.Errorf("SSH agent unavailable: %w", err)
+			}
+			pushOpts.Auth = auth
+		} else if token != "" {
+			pushOpts.Auth = &gogithttp.BasicAuth{Username: "x-access-token", Password: token}
 		}
-		pushOpts.Auth = auth
-	} else if token != "" {
-		pushOpts.Auth = &gogithttp.BasicAuth{Username: "x-access-token", Password: token}
-	}
-	if err := r.Push(pushOpts); err != nil && err != gogit.NoErrAlreadyUpToDate {
-		return "", fmt.Errorf("git push: %w", err)
+		if err := r.Push(pushOpts); err != nil && err != gogit.NoErrAlreadyUpToDate {
+			return "", fmt.Errorf("git push: %w", err)
+		}
 	}
 
 	// Compute new hash from installed dir (unchanged on disk)
@@ -126,14 +180,12 @@ func Fork(addr, forkRepo, agentName, token string, st *state.State) (newAddr str
 		return "", fmt.Errorf("computing installed hash: %w", err)
 	}
 
-	newAddr = forkRepo + "/" + skillName
-
 	// Register the fork in state
 	if st.InstalledSkills[newAddr] == nil {
 		st.InstalledSkills[newAddr] = make(map[string]state.InstalledSkillRecord)
 	}
 	st.InstalledSkills[newAddr][agentName] = state.InstalledSkillRecord{
-		InstalledAtSHA: commitHash.String(),
+		InstalledAtSHA: commitHash,
 		InstalledHash:  hash,
 		LocalPath:      rec.LocalPath,
 		UpstreamAddr:   addr,
@@ -167,6 +219,7 @@ func PushForkAfterLLM(addr, agentName, token string, st *state.State) error {
 	}
 	return pushForkAfterMerge(addr, agentName, token, upstreamHeadSHA, st)
 }
+
 // commits, pushes, and updates state with the new fork SHA and upstream SHA.
 // Called after a clean merge or successful LLM resolution on a forked skill.
 func pushForkAfterMerge(addr, agentName, token string, upstreamHeadSHA string, st *state.State) error {

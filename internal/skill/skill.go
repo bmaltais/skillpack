@@ -51,6 +51,11 @@ func Install(addr, agentName string, cfg *config.Config, st *state.State, skipEx
 		return fmt.Errorf("copying skill files: %w", err)
 	}
 
+	meta, err := readForkMetadata(targetDir)
+	if err != nil {
+		return fmt.Errorf("reading fork provenance metadata: %w", err)
+	}
+
 	hash, err := ComputeHash(targetDir)
 	if err != nil {
 		return fmt.Errorf("computing installed hash: %w", err)
@@ -67,6 +72,15 @@ func Install(addr, agentName string, cfg *config.Config, st *state.State, skipEx
 		InstalledAtSHA: sha,
 		InstalledHash:  hash,
 		LocalPath:      targetDir,
+	}
+	if meta != nil {
+		st.InstalledSkills[addr][agentName] = state.InstalledSkillRecord{
+			InstalledAtSHA: sha,
+			InstalledHash:  hash,
+			LocalPath:      targetDir,
+			UpstreamAddr:   meta.UpstreamAddr,
+			UpstreamSHA:    meta.UpstreamSHA,
+		}
 	}
 	return nil
 }
@@ -130,6 +144,9 @@ func ComputeHash(dir string) (string, error) {
 			return err
 		}
 		if info.IsDir() {
+			return nil
+		}
+		if filepath.Base(path) == forkMetadataFilename {
 			return nil
 		}
 		// Skip symlinks-to-directories so os.ReadFile doesn't fail with "is a directory".

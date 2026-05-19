@@ -126,6 +126,22 @@ skillpack fork <addr> <my-repo>              # copy skill into your own repo, tr
 skillpack fork <addr> <my-repo> --agent <n>  # fork from a specific agent's installed copy
 ```
 
+If `<my-repo>/<skill-name>` already exists, `fork` handles it gracefully:
+- same tracked upstream → re-fork in place (overwrite cache copy + refresh upstream SHA)
+- different tracked upstream → clear collision error with conflicting upstream
+- exists on disk but no tracked fork provenance → clear unknown-provenance error
+
+Forked skills carry provenance metadata in `.skillpack-fork`:
+
+```json
+{
+  "upstream_addr": "source-repo/path/to/skill",
+  "upstream_sha": "<upstream HEAD SHA at fork time>"
+}
+```
+
+On install, this metadata is imported into state so `update` and `sync` can track upstream drift automatically.
+
 After forking, `skillpack update` detects upstream changes as conflicts.
 Use `skillpack update --merge <addr>` (or `--merge --llm`) to pull them in.
 

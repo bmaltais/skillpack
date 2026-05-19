@@ -57,6 +57,32 @@ func TestComputeHash_ChangesOnNewFile(t *testing.T) {
 	}
 }
 
+func TestComputeHash_IgnoresForkMetadataFile(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "SKILL.md"), "content")
+
+	h1, err := skill.ComputeHash(dir)
+	if err != nil {
+		t.Fatalf("first hash: %v", err)
+	}
+
+	writeFile(t, filepath.Join(dir, ".skillpack-fork"), `{"upstream_addr":"source/skill","upstream_sha":"abc123"}`)
+	h2, err := skill.ComputeHash(dir)
+	if err != nil {
+		t.Fatalf("second hash: %v", err)
+	}
+
+	writeFile(t, filepath.Join(dir, ".skillpack-fork"), `{"upstream_addr":"source/skill","upstream_sha":"def456"}`)
+	h3, err := skill.ComputeHash(dir)
+	if err != nil {
+		t.Fatalf("third hash: %v", err)
+	}
+
+	if h1 != h2 || h2 != h3 {
+		t.Error("hash should ignore .skillpack-fork metadata file")
+	}
+}
+
 func TestIsModified_NotModified(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "SKILL.md"), "content")

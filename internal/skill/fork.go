@@ -101,7 +101,10 @@ func Fork(addr, forkRepo, agentName, token string, st *state.State) (newAddr str
 		return "", fmt.Errorf("copying skill to fork repo: %w", err)
 	}
 	if err := writeForkMetadata(forkDestPath, addr, upstreamSHA); err != nil {
-		return "", fmt.Errorf("writing fork provenance metadata: %w", err)
+		return "", fmt.Errorf("writing fork provenance metadata in fork repo: %w", err)
+	}
+	if err := writeForkMetadata(rec.LocalPath, addr, upstreamSHA); err != nil {
+		return "", fmt.Errorf("writing fork provenance metadata in installed skill: %w", err)
 	}
 
 	// Open fork repo git object

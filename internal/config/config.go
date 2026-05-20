@@ -39,18 +39,19 @@ type AgentConfig struct {
 
 // KnownAgent is an agent bundled with the binary for auto-detection.
 type KnownAgent struct {
-	Name     string
-	SkillDir string
+	Name      string
+	SkillDir  string
+	DetectDir string // if set, check this dir for presence instead of SkillDir
 }
 
 // DefaultAgents is the list of known agents the first-run wizard checks for.
 var DefaultAgents = []KnownAgent{
-	{"claude-code", "~/.claude/skills"},
-	{"copilot", "~/.copilot/skills"},
-	{"hermes", "~/.hermes/skills"},
-	{"opencode", "~/.config/opencode/skills"},
-	{"openclaw", "~/.openclaw/skills"},
-	{"pi", "~/.pi/agent/skills"},
+	{"claude-code", "~/.claude/skills", ""},
+	{"copilot", "~/.copilot/skills", ""},
+	{"hermes", "~/.hermes/skills", ""},
+	{"opencode", "~/.config/opencode/skills", ""},
+	{"openclaw", "~/.openclaw/skills", ""},
+	{"pi", "~/.pi/agent/skills", "~/.pi/agent"},
 }
 
 // Dir returns the path to the ~/.skillpack directory.
@@ -89,7 +90,11 @@ func Load() (*Config, error) {
 	}
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return &Config{Agents: make(map[string]AgentConfig)}, nil
+		cfg := &Config{Agents: make(map[string]AgentConfig)}
+		if DetectAgents(cfg) {
+			_ = Save(cfg) // best-effort persist
+		}
+		return cfg, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading config: %w", err)
@@ -104,6 +109,12 @@ func Load() (*Config, error) {
 	if cfg.Credentials == nil {
 		cfg.Credentials = make(map[string]string)
 	}
+
+	// Auto-detect agents on every load
+	if DetectAgents(&cfg) {
+		_ = Save(&cfg) // best-effort save
+	}
+
 	return &cfg, nil
 }
 
@@ -122,6 +133,34 @@ func Save(cfg *Config) error {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
 	return os.WriteFile(path, data, 0600)
+}
+
+// DetectAgents scans the system for known agents and adds any newly found
+// agents to the config. Returns true if the config was modified.
+func DetectAgents(cfg *Config) bool {
+	modified := false
+
+	// Add newly detected agents
+	for _, agent := range DefaultAgents {
+		if _, exists := cfg.Agents[agent.Name]; exists {
+			continue
+		}
+		checkDir := agent.SkillDir
+		if agent.DetectDir != "" {
+			checkDir = agent.DetectDir
+		}
+		expanded, err := ExpandPath(checkDir)
+		if err != nil {
+			continue
+		}
+		info, err := os.Stat(expanded)
+		if err == nil && info.IsDir() {
+			cfg.Agents[agent.Name] = AgentConfig{SkillDir: agent.SkillDir}
+			modified = true
+		}
+	}
+
+	return modified
 }
 
 // ExpandPath expands a path starting with ~/ using os.UserHomeDir.

@@ -27,7 +27,7 @@ Skills live in git repositories and are installed as directories into
 each agent's skill folder (e.g. ~/.claude/skills/, ~/.copilot/skills/).`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// self-update and status are config-independent; skip wizard to avoid side effects.
-		if cmd.Name() == "self-update" || cmd.Name() == "status" {
+		if cmd.Name() == "self-update" || cmd.Name() == "status" || cmd.Name() == "tui" {
 			return nil
 		}
 		return ensureConfig()
@@ -75,11 +75,16 @@ func runWizard(cfg *config.Config) error {
 
 	var detected []string
 	for _, agent := range config.DefaultAgents {
-		expanded, err := config.ExpandPath(agent.SkillDir)
+		checkDir := agent.SkillDir
+		if agent.DetectDir != "" {
+			checkDir = agent.DetectDir
+		}
+		expanded, err := config.ExpandPath(checkDir)
 		if err != nil {
 			continue
 		}
-		if _, err := os.Stat(expanded); err == nil {
+		info, statErr := os.Stat(expanded)
+		if statErr == nil && info.IsDir() {
 			detected = append(detected, agent.Name)
 			cfg.Agents[agent.Name] = config.AgentConfig{SkillDir: agent.SkillDir}
 			fmt.Printf("  detected: %s (%s)\n", agent.Name, agent.SkillDir)

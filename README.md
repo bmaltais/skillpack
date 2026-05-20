@@ -12,6 +12,7 @@
 <p align="center">
   <a href="#installation">Installation</a> ·
   <a href="#quick-start">Quick Start</a> ·
+  <a href="#interactive-tui">TUI</a> ·
   <a href="#commands">Commands</a> ·
   <a href="#concepts">Concepts</a> ·
   <a href="#configuration">Configuration</a>
@@ -88,6 +89,61 @@ skillpack sync
 ```
 
 On first run, skillpack detects your installed AI agents and asks which should be the default.
+
+## Interactive TUI
+
+```bash
+skillpack tui
+```
+
+Launch a full interactive terminal UI with three panels:
+
+| Panel | Purpose |
+|-------|---------|
+| **Skills** | Browse repos, install/remove skills per agent |
+| **Status** | View installed skill states, update, sync |
+| **Repos** | Add/remove skill repositories |
+
+Press **Tab** to switch between panels.
+
+### Skills Panel
+
+```
+ SkillPack  [Skills]   Status    Repos
+
+ Type to filter…
+
+ SKILL                          claude-code  copilot   pi
+ ─────────────────────────────  ───────────  ────────  ───────
+▼ awesome-skills
+     coding/debugger              [✓]          [ ]       [✓]
+     coding/refactor              [ ]          [ ]       [ ]
+▶ community-skills
+```
+
+- **↑/↓** navigate • **←/→** switch agents • **Space/Enter** toggle install/remove or expand/collapse
+- **f** fork a skill • **Type** to filter • **Esc** clear filter • **q** quit
+
+### Status Panel
+
+Shows all installed skills with their state:
+
+| Indicator | Meaning |
+|-----------|---------|
+| ✓ up-to-date | No changes anywhere |
+| ↑ update available | Upstream has new commits |
+| ~ locally modified | You’ve edited the installed copy |
+| ! conflict | Both local and upstream changes |
+
+- **u/Enter** update selected skill • **S** sync all • **r** refresh • **U** self-update binary
+
+### Repos Panel
+
+- **a** add a repo (prompts for name + URL) • **d** remove selected repo
+
+### Update Banner
+
+On startup, the TUI checks GitHub for a newer release. If found, a yellow banner appears with **[Update]** / **[Skip]** buttons — navigate with ←/→ and confirm with Enter.
 
 ## Commands
 
@@ -197,6 +253,7 @@ Default agents detected automatically on first run: `claude-code`, `copilot`, `h
 ## Other
 
 ```bash
+skillpack tui          # interactive terminal UI (browse, install, status, sync)
 skillpack --version    # print the installed version
 skillpack self-update  # download and install the latest release (all platforms)
 skillpack --help       # command reference

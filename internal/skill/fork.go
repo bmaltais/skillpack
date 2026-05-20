@@ -152,8 +152,11 @@ func Fork(addr, forkRepo, agentName, token string, st *state.State) (newAddr str
 		}
 	}
 
-	// Remove original state entry (all agents moved to fork address)
-	delete(st.InstalledSkills, addr)
+	// Remove original state entry only when the fork address differs.
+	// If newAddr == addr, deleting addr would also delete the records we just wrote.
+	if newAddr != addr {
+		delete(st.InstalledSkills, addr)
+	}
 
 	return newAddr, nil
 }

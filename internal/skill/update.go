@@ -6,14 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
-	gogit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
-	gogithttp "github.com/go-git/go-git/v5/plumbing/transport/http"
-	gogitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
-
+	"github.com/bmaltais/skillpack/internal/gitops"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/state"
 )
@@ -167,62 +161,26 @@ func ForceLocal(addr, agentName, token string, st *state.State) error {
 		return fmt.Errorf("copying installed to cache: %w", err)
 	}
 
-	r, err := gogit.PlainOpen(repoRec.CachePath)
-	if err != nil {
-		return fmt.Errorf("opening repo cache: %w", err)
-	}
-	w, err := r.Worktree()
+	result, err := gitops.CommitAndPush(
+		repoRec.CachePath,
+		skillInfo.RelPath,
+		fmt.Sprintf("skillpack: update %s", skillInfo.RelPath),
+		repoRec.URL,
+		token,
+	)
 	if err != nil {
 		return err
 	}
 
-	// Stage all changes under the skill path (additions, modifications, deletions)
-	status, err := w.Status()
-	if err != nil {
-		return fmt.Errorf("git status: %w", err)
-	}
-	staged := false
-	for path, fs := range status {
-		if !pathUnderSkill(path, skillInfo.RelPath) {
-			continue
-		}
-		if fs.Worktree == gogit.Deleted {
-			if _, err := w.Remove(path); err != nil {
-				return fmt.Errorf("git rm %s: %w", path, err)
-			}
-		} else {
-			if _, err := w.Add(path); err != nil {
-				return fmt.Errorf("git add %s: %w", path, err)
-			}
-		}
-		staged = true
-	}
-	if !staged {
+	var commitSHA string
+	if !result.Committed {
 		fmt.Println("  Nothing to commit — skill is identical to cache.")
-		return updateStateAfterPush(addr, agentName, rec.LocalPath, r, st)
-	}
-
-	sig := defaultSignature()
-	commitHash, err := w.Commit(
-		fmt.Sprintf("skillpack: update %s", skillInfo.RelPath),
-		&gogit.CommitOptions{Author: sig, Committer: sig},
-	)
-	if err != nil {
-		return fmt.Errorf("git commit: %w", err)
-	}
-
-	pushOpts := &gogit.PushOptions{Progress: os.Stdout}
-	if isSSHRemote(repoRec.URL) {
-		auth, err := gogitssh.NewSSHAgentAuth("git")
+		commitSHA, err = gitops.HeadSHA(repoRec.CachePath)
 		if err != nil {
-			return fmt.Errorf("SSH agent unavailable: %w", err)
+			return err
 		}
-		pushOpts.Auth = auth
- } else if token != "" {
-		pushOpts.Auth = &gogithttp.BasicAuth{Username: "x-access-token", Password: token}
-	}
-	if err := r.Push(pushOpts); err != nil && err != gogit.NoErrAlreadyUpToDate {
-		return fmt.Errorf("git push: %w", err)
+	} else {
+		commitSHA = result.CommitHash
 	}
 
 	hash, err := ComputeHash(rec.LocalPath)
@@ -230,7 +188,7 @@ func ForceLocal(addr, agentName, token string, st *state.State) error {
 		return err
 	}
 	newRec := state.InstalledSkillRecord{
-		InstalledAtSHA: commitHash.String(),
+		InstalledAtSHA: commitSHA,
 		InstalledHash:  hash,
 		LocalPath:      rec.LocalPath,
 		UpstreamAddr:   rec.UpstreamAddr,
@@ -270,14 +228,9 @@ func MergeSkill(addr, agentName, token string, st *state.State) (hasConflicts bo
 	}
 	repoRec := st.Repos[skillInfo.RepoName]
 
-	r, err := gogit.PlainOpen(repoRec.CachePath)
+	baseFiles, err := gitops.ListFilesAtCommit(repoRec.CachePath, rec.InstalledAtSHA, skillInfo.RelPath)
 	if err != nil {
-		return false, fmt.Errorf("opening repo cache: %w", err)
-	}
-
-	baseFiles, err := listFilesAtCommit(r, rec.InstalledAtSHA, skillInfo.RelPath)
-	if err != nil {
-		return false, fmt.Errorf("reading base at %s: %w", rec.InstalledAtSHA[:8], err)
+		return false, fmt.Errorf("reading base at %s: %w", safeShortSHA(rec.InstalledAtSHA), err)
 	}
 	oursFiles := listFilesOnDisk(rec.LocalPath)
 	theirsFiles := listFilesOnDisk(skillInfo.FullPath)
@@ -336,12 +289,7 @@ func mergeForkSkill(addr, agentName, token string, rec state.InstalledSkillRecor
 		return false, fmt.Errorf("upstream repo %q not found", upstreamRepoName)
 	}
 
-	upstreamRepo, err := gogit.PlainOpen(upstreamRepoRec.CachePath)
-	if err != nil {
-		return false, fmt.Errorf("opening upstream repo: %w", err)
-	}
-
-	baseFiles, err := listFilesAtCommit(upstreamRepo, rec.UpstreamSHA, upstreamRelPath)
+	baseFiles, err := gitops.ListFilesAtCommit(upstreamRepoRec.CachePath, rec.UpstreamSHA, upstreamRelPath)
 	if err != nil {
 		return false, fmt.Errorf("reading upstream base at %s: %w", safeShortSHA(rec.UpstreamSHA), err)
 	}
@@ -415,46 +363,15 @@ func hasUpstreamChange(addr string, rec state.InstalledSkillRecord, st *state.St
 		return false, fmt.Errorf("repo %q not found", repoName)
 	}
 
-	r, err := gogit.PlainOpen(repoRec.CachePath)
+	headSHA, err := gitops.HeadSHA(repoRec.CachePath)
 	if err != nil {
 		return false, err
 	}
-	headRef, err := r.Head()
-	if err != nil {
-		return false, err
-	}
-	if headRef.Hash().String() == rec.InstalledAtSHA {
+	if headSHA == rec.InstalledAtSHA {
 		return false, nil // repo has not moved at all
 	}
 
-	oldCommit, err := r.CommitObject(plumbing.NewHash(rec.InstalledAtSHA))
-	if err != nil {
-		return false, fmt.Errorf("resolving installed SHA %s: %w", rec.InstalledAtSHA[:8], err)
-	}
-	newCommit, err := r.CommitObject(headRef.Hash())
-	if err != nil {
-		return false, err
-	}
-
-	oldTree, err := oldCommit.Tree()
-	if err != nil {
-		return false, err
-	}
-	newTree, err := newCommit.Tree()
-	if err != nil {
-		return false, err
-	}
-
-	changes, err := object.DiffTree(oldTree, newTree)
-	if err != nil {
-		return false, err
-	}
-	for _, change := range changes {
-		if pathUnderSkill(change.From.Name, skillRelPath) || pathUnderSkill(change.To.Name, skillRelPath) {
-			return true, nil
-		}
-	}
-	return false, nil
+	return gitops.DiffSkillChanged(repoRec.CachePath, rec.InstalledAtSHA, headSHA, skillRelPath)
 }
 
 // hasUpstreamOriginChange checks whether the upstream origin repo has new commits
@@ -471,74 +388,15 @@ func hasUpstreamOriginChange(rec state.InstalledSkillRecord, st *state.State) (b
 		return false, fmt.Errorf("upstream repo %q not found — re-add it with: skillpack repo add %s <url>", upstreamRepoName, upstreamRepoName)
 	}
 
-	r, err := gogit.PlainOpen(repoRec.CachePath)
+	headSHA, err := gitops.HeadSHA(repoRec.CachePath)
 	if err != nil {
 		return false, err
 	}
-	headRef, err := r.Head()
-	if err != nil {
-		return false, err
-	}
-	if headRef.Hash().String() == rec.UpstreamSHA {
+	if headSHA == rec.UpstreamSHA {
 		return false, nil // upstream has not moved
 	}
 
-	oldCommit, err := r.CommitObject(plumbing.NewHash(rec.UpstreamSHA))
-	if err != nil {
-		return false, fmt.Errorf("resolving upstream SHA %s: %w", safeShortSHA(rec.UpstreamSHA), err)
-	}
-	newCommit, err := r.CommitObject(headRef.Hash())
-	if err != nil {
-		return false, err
-	}
-
-	oldTree, err := oldCommit.Tree()
-	if err != nil {
-		return false, err
-	}
-	newTree, err := newCommit.Tree()
-	if err != nil {
-		return false, err
-	}
-
-	changes, err := object.DiffTree(oldTree, newTree)
-	if err != nil {
-		return false, err
-	}
-	for _, change := range changes {
-		if pathUnderSkill(change.From.Name, skillRelPath) || pathUnderSkill(change.To.Name, skillRelPath) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// listFilesAtCommit returns a map of relPath→content for all files under skillRelPath
-// in the repo at the given commit SHA.
-func listFilesAtCommit(r *gogit.Repository, commitSHA, skillRelPath string) (map[string]string, error) {
-	commit, err := r.CommitObject(plumbing.NewHash(commitSHA))
-	if err != nil {
-		return nil, err
-	}
-	tree, err := commit.Tree()
-	if err != nil {
-		return nil, err
-	}
-
-	files := make(map[string]string)
-	err = tree.Files().ForEach(func(f *object.File) error {
-		if !pathUnderSkill(f.Name, skillRelPath) {
-			return nil
-		}
-		rel := strings.TrimPrefix(f.Name, skillRelPath+"/")
-		content, err := f.Contents()
-		if err != nil {
-			return err
-		}
-		files[rel] = content
-		return nil
-	})
-	return files, err
+	return gitops.DiffSkillChanged(repoRec.CachePath, rec.UpstreamSHA, headSHA, skillRelPath)
 }
 
 // listFilesOnDisk returns a map of relPath→content for all files in dir.
@@ -555,14 +413,6 @@ func listFilesOnDisk(dir string) map[string]string {
 		return nil
 	})
 	return files
-}
-
-// pathUnderSkill returns true if filePath is the skill root or a file within it.
-func pathUnderSkill(filePath, skillRelPath string) bool {
-	if filePath == "" || skillRelPath == "" {
-		return false
-	}
-	return filePath == skillRelPath || strings.HasPrefix(filePath, skillRelPath+"/")
 }
 
 func keys(m map[string]string) []string {
@@ -599,31 +449,4 @@ func writeStringToFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0600)
 }
 
-func updateStateAfterPush(addr, agentName, localPath string, r *gogit.Repository, st *state.State) error {
-	hash, err := ComputeHash(localPath)
-	if err != nil {
-		return err
-	}
-	ref, err := r.Head()
-	if err != nil {
-		return err
-	}
-	st.InstalledSkills[addr][agentName] = state.InstalledSkillRecord{
-		InstalledAtSHA: ref.Hash().String(),
-		InstalledHash:  hash,
-		LocalPath:      localPath,
-	}
-	return nil
-}
 
-func defaultSignature() *object.Signature {
-	return &object.Signature{
-		Name:  "skillpack",
-		Email: "skillpack@local",
-		When:  time.Now(),
-	}
-}
-
-func isSSHRemote(url string) bool {
-	return strings.HasPrefix(url, "git@") || strings.HasPrefix(url, "ssh://")
-}

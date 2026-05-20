@@ -6,10 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	gogit "github.com/go-git/go-git/v5"
-	gogithttp "github.com/go-git/go-git/v5/plumbing/transport/http"
-	gogitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
-
+	"github.com/bmaltais/skillpack/internal/gitops"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/state"
 )
@@ -107,70 +104,25 @@ func Fork(addr, forkRepo, agentName, token string, st *state.State) (newAddr str
 		return "", fmt.Errorf("writing fork provenance metadata in installed skill: %w", err)
 	}
 
-	// Open fork repo git object
-	r, err := gogit.PlainOpen(forkRec.CachePath)
-	if err != nil {
-		return "", fmt.Errorf("opening fork repo cache: %w", err)
-	}
-	w, err := r.Worktree()
+	// Commit and push the fork
+	result, err := gitops.CommitAndPush(
+		forkRec.CachePath,
+		skillName,
+		fmt.Sprintf("skillpack: fork %s from %s", skillName, addr),
+		forkRec.URL,
+		token,
+	)
 	if err != nil {
 		return "", err
 	}
 
-	// Stage all changes for this skill path
-	wStatus, err := w.Status()
-	if err != nil {
-		return "", fmt.Errorf("git status: %w", err)
-	}
-	staged := false
-	for path, fs := range wStatus {
-		if !pathUnderSkill(path, skillName) {
-			continue
-		}
-		if fs.Worktree == gogit.Deleted {
-			if _, rmErr := w.Remove(path); rmErr != nil {
-				return "", fmt.Errorf("git rm %s: %w", path, rmErr)
-			}
-		} else {
-			if _, addErr := w.Add(path); addErr != nil {
-				return "", fmt.Errorf("git add %s: %w", path, addErr)
-			}
-		}
-		staged = true
-	}
-
 	var commitHash string
-	if staged {
-		sig := defaultSignature()
-		ch, commitErr := w.Commit(
-			fmt.Sprintf("skillpack: fork %s from %s", skillName, addr),
-			&gogit.CommitOptions{Author: sig, Committer: sig},
-		)
-		if commitErr != nil {
-			return "", fmt.Errorf("git commit: %w", commitErr)
-		}
-		commitHash = ch.String()
+	if result.Committed {
+		commitHash = result.CommitHash
 	} else {
-		ref, headErr := r.Head()
-		if headErr != nil {
-			return "", fmt.Errorf("reading fork repo HEAD: %w", headErr)
-		}
-		commitHash = ref.Hash().String()
-	}
-
-	if staged {
-		pushOpts := &gogit.PushOptions{Progress: os.Stdout}
-		if isSSHRemote(forkRec.URL) {
-			auth, err := gogitssh.NewSSHAgentAuth("git")
-			if err != nil {
-				return "", fmt.Errorf("SSH agent unavailable: %w", err)
-			}
-			pushOpts.Auth = auth
-		} else if token != "" {
-			pushOpts.Auth = &gogithttp.BasicAuth{Username: "x-access-token", Password: token}
-		}
-		if err := r.Push(pushOpts); err != nil && err != gogit.NoErrAlreadyUpToDate {
-			return "", fmt.Errorf("git push: %w", err)
+		commitHash, err = gitops.HeadSHA(forkRec.CachePath)
+		if err != nil {
+			return "", fmt.Errorf("reading fork repo HEAD: %w", err)
 		}
 	}
 
@@ -239,84 +191,35 @@ func pushForkAfterMerge(addr, agentName, token string, upstreamHeadSHA string, s
 		return fmt.Errorf("copying installed to fork cache: %w", err)
 	}
 
-	r, err := gogit.PlainOpen(forkRec.CachePath)
-	if err != nil {
-		return fmt.Errorf("opening fork repo cache: %w", err)
-	}
-	w, err := r.Worktree()
-	if err != nil {
-		return err
-	}
-
-	wStatus, err := w.Status()
-	if err != nil {
-		return fmt.Errorf("git status: %w", err)
-	}
-	staged := false
-	for path, fs := range wStatus {
-		if !pathUnderSkill(path, skillInfo.RelPath) {
-			continue
-		}
-		if fs.Worktree == gogit.Deleted {
-			if _, rmErr := w.Remove(path); rmErr != nil {
-				return fmt.Errorf("git rm %s: %w", path, rmErr)
-			}
-		} else {
-			if _, addErr := w.Add(path); addErr != nil {
-				return fmt.Errorf("git add %s: %w", path, addErr)
-			}
-		}
-		staged = true
-	}
-	if !staged {
-		// No changes to commit — update state without pushing
-		hash, hashErr := ComputeHash(rec.LocalPath)
-		if hashErr != nil {
-			return fmt.Errorf("computing installed hash: %w", hashErr)
-		}
-		ref, headErr := r.Head()
-		if headErr != nil {
-			return fmt.Errorf("reading fork repo HEAD: %w", headErr)
-		}
-		st.InstalledSkills[addr][agentName] = state.InstalledSkillRecord{
-			InstalledAtSHA: ref.Hash().String(),
-			InstalledHash:  hash,
-			LocalPath:      rec.LocalPath,
-			UpstreamAddr:   rec.UpstreamAddr,
-			UpstreamSHA:    upstreamHeadSHA,
-		}
-		return nil
-	}
-
-	sig := defaultSignature()
-	commitHash, err := w.Commit(
+	result, err := gitops.CommitAndPush(
+		forkRec.CachePath,
+		skillInfo.RelPath,
 		fmt.Sprintf("skillpack: merge upstream changes into %s", skillInfo.RelPath),
-		&gogit.CommitOptions{Author: sig, Committer: sig},
+		forkRec.URL,
+		token,
 	)
 	if err != nil {
-		return fmt.Errorf("git commit: %w", err)
-	}
-
-	pushOpts := &gogit.PushOptions{Progress: os.Stdout}
-	if isSSHRemote(forkRec.URL) {
-		auth, sshErr := gogitssh.NewSSHAgentAuth("git")
-		if sshErr != nil {
-			return fmt.Errorf("SSH agent unavailable: %w", sshErr)
-		}
-		pushOpts.Auth = auth
-	} else if token != "" {
-		pushOpts.Auth = &gogithttp.BasicAuth{Username: "x-access-token", Password: token}
-	}
-	if err := r.Push(pushOpts); err != nil && err != gogit.NoErrAlreadyUpToDate {
-		return fmt.Errorf("git push fork: %w", err)
+		return err
 	}
 
 	hash, err := ComputeHash(rec.LocalPath)
 	if err != nil {
 		return err
 	}
+
+	var commitSHA string
+	if !result.Committed {
+		// No changes to commit — use current HEAD
+		commitSHA, err = gitops.HeadSHA(forkRec.CachePath)
+		if err != nil {
+			return fmt.Errorf("reading fork repo HEAD: %w", err)
+		}
+	} else {
+		commitSHA = result.CommitHash
+	}
+
 	st.InstalledSkills[addr][agentName] = state.InstalledSkillRecord{
-		InstalledAtSHA: commitHash.String(),
+		InstalledAtSHA: commitSHA,
 		InstalledHash:  hash,
 		LocalPath:      rec.LocalPath,
 		UpstreamAddr:   rec.UpstreamAddr,

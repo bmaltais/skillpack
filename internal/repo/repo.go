@@ -10,10 +10,9 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
-	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 
 	"github.com/bmaltais/skillpack/internal/config"
+	"github.com/bmaltais/skillpack/internal/gitops"
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
@@ -59,9 +58,11 @@ func Add(name, url, token string, st *state.State) error {
 		URL:      url,
 		Progress: os.Stdout,
 	}
-	if err := applyAuth(url, token, cloneOpts); err != nil {
+	auth, err := gitops.Auth(url, token)
+	if err != nil {
 		return err
 	}
+	cloneOpts.Auth = auth
 
 	if _, err := gogit.PlainClone(cachePath, false, cloneOpts); err != nil {
 		return fmt.Errorf("cloning %s: %w", url, err)
@@ -134,9 +135,11 @@ func Update(name, token string, st *state.State) error {
 		RemoteName: "origin",
 		Progress:   os.Stdout,
 	}
-	if err := applyFetchAuth(rec.URL, token, fetchOpts); err != nil {
+	auth, err := gitops.Auth(rec.URL, token)
+	if err != nil {
 		return err
 	}
+	fetchOpts.Auth = auth
 
 	err = r.Fetch(fetchOpts)
 	if err != nil && err != gogit.NoErrAlreadyUpToDate {
@@ -327,34 +330,4 @@ func walkSkills(repoName, cachePath string) ([]SkillInfo, error) {
 	return skills, err
 }
 
-func isSSHURL(url string) bool {
-	return strings.HasPrefix(url, "git@") || strings.HasPrefix(url, "ssh://")
-}
 
-// applyAuth sets auth on CloneOptions based on URL scheme.
-// token should already be resolved by the caller (e.g. via Config.TokenForRepo).
-func applyAuth(url, token string, opts *gogit.CloneOptions) error {
-	if isSSHURL(url) {
-		auth, err := ssh.NewSSHAgentAuth("git")
-		if err != nil {
-			return fmt.Errorf("SSH agent unavailable (ensure ssh-agent is running): %w", err)
-		}
-		opts.Auth = auth
-	} else if token != "" {
-		opts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: token}
-	}
-	return nil
-}
-
-func applyFetchAuth(url, token string, opts *gogit.FetchOptions) error {
-	if isSSHURL(url) {
-		auth, err := ssh.NewSSHAgentAuth("git")
-		if err != nil {
-			return fmt.Errorf("SSH agent unavailable: %w", err)
-		}
-		opts.Auth = auth
-	} else if token != "" {
-		opts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: token}
-	}
-	return nil
-}

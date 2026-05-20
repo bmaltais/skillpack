@@ -1170,37 +1170,68 @@ func (m model) viewSkills(b *strings.Builder) {
 	}
 	b.WriteString("\n\n")
 
-	// Column widths
-	nameColW := 34
-	agentColW := 12
+	// Column widths — dynamic based on terminal width
+	agentColW := 7
+	for _, a := range m.agents {
+		if len(a)+2 > agentColW {
+			agentColW = len(a) + 2
+		}
+	}
 
-	// Compute dynamic name column width based on longest visible skill
+	// Ensure agent columns fit within terminal; shrink agentColW if needed
+	nAgents := len(m.agents)
+	if nAgents > 0 {
+		maxAgentW := (m.width - 12) / nAgents // reserve 12 for name col minimum + padding
+		if maxAgentW < 5 {
+			maxAgentW = 5
+		}
+		if agentColW > maxAgentW {
+			agentColW = maxAgentW
+		}
+	}
+
+	// Available width for the name column: total - agent columns - leading space
+	totalAgentW := agentColW * nAgents
+	nameColW := m.width - totalAgentW - 2
+	if nameColW < 10 {
+		nameColW = 10
+	}
+	// Hard clamp: total must not exceed terminal width
+	if nameColW+totalAgentW+2 > m.width {
+		nameColW = m.width - totalAgentW - 2
+		if nameColW < 5 {
+			nameColW = 5
+		}
+	}
+
+	// Compute dynamic name column width based on longest visible skill (don't exceed available)
 	vis := m.visibleRows()
+	contentW := 34 // minimum default
 	for _, idx := range vis {
 		row := m.rows[idx]
 		if row.kind == skillRow {
 			w := len(row.relPath) + 6 // indent + padding
-			if w > nameColW {
-				nameColW = w
+			if w > contentW {
+				contentW = w
 			}
 		}
 	}
-	if nameColW > 50 {
-		nameColW = 50
+	if contentW < nameColW {
+		nameColW = contentW
 	}
 
 	// Header row
 	header := fmt.Sprintf(" %-*s", nameColW, "SKILL")
 	for _, a := range m.agents {
 		name := a
-		if len(name) > agentColW-2 {
-			name = name[:agentColW-2]
+		if len(name) > agentColW-1 {
+			name = name[:agentColW-2] + "…"
 		}
 		header += fmt.Sprintf(" %-*s", agentColW-1, name)
 	}
 	b.WriteString(dimStyle.Render(header))
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render(" " + strings.Repeat("─", tuiMin(m.width-2, len(header)))))
+	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
 
 	// Scrolling
@@ -1318,7 +1349,7 @@ func (m model) viewSkills(b *strings.Builder) {
 
 	// Footer
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render(" " + strings.Repeat("─", tuiMin(m.width-2, 74))))
+	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
 	b.WriteString(helpStyle.Render(" ↑↓ navigate  ←→ agents  Space/Enter toggle  f fork  Tab switch  q quit"))
 	b.WriteString("\n")
@@ -1360,15 +1391,30 @@ func (m model) viewStatus(b *strings.Builder) {
 				agentW = len(row.agentName)
 			}
 		}
-		if addrW > 40 {
-			addrW = 40
+		// Cap addrW to half the terminal width
+		if addrW > m.width/2 {
+			addrW = m.width / 2
+		}
+		// Enforce minimum only if terminal is wide enough
+		if addrW < 10 && m.width >= 30 {
+			addrW = 10
+		} else if addrW < 5 {
+			addrW = 5
+		}
+		// Ensure total columns fit: addrW + agentW + status(~20) + padding(5)
+		maxAddr := m.width - agentW - 25
+		if maxAddr < 5 {
+			maxAddr = 5
+		}
+		if addrW > maxAddr {
+			addrW = maxAddr
 		}
 
 		// Header
 		header := fmt.Sprintf(" %-*s  %-*s  %s", addrW, "SKILL", agentW, "AGENT", "STATUS")
 		b.WriteString(dimStyle.Render(header))
 		b.WriteString("\n")
-		b.WriteString(dimStyle.Render(" " + strings.Repeat("─", tuiMin(m.width-2, len(header)+10))))
+		b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 		b.WriteString("\n")
 
 		// Scrolling
@@ -1450,7 +1496,7 @@ func (m model) viewStatus(b *strings.Builder) {
 
 	// Footer
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render(" " + strings.Repeat("─", tuiMin(m.width-2, 74))))
+	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
 	b.WriteString(helpStyle.Render(" ↑↓ navigate  u update selected  S sync all  r refresh  U self-update  Tab switch  q quit"))
 	b.WriteString("\n")
@@ -1492,11 +1538,40 @@ func (m model) viewRepos(b *strings.Builder) {
 		b.WriteString("\n")
 	}
 
+	// Compute dynamic NAME column width from longest repo name
+	repoNameColW := 10
+	for _, entry := range m.repoList {
+		if len(entry.name) > repoNameColW {
+			repoNameColW = len(entry.name)
+		}
+	}
+	repoNameColW += 2 // padding
+	if repoNameColW > m.width/2 {
+		repoNameColW = m.width / 2
+	}
+
+	// URL column gets the remaining width
+	urlColW := m.width - repoNameColW - 4 // leading space + gap
+
+	// Ensure both columns fit within terminal; shrink proportionally if needed
+	overhead := 4 // leading space + gap between columns
+	if repoNameColW+urlColW+overhead > m.width {
+		urlColW = m.width - repoNameColW - overhead
+	}
+	if urlColW < 5 {
+		// Shrink name column to give URL more room
+		urlColW = 5
+		repoNameColW = m.width - urlColW - overhead
+		if repoNameColW < 5 {
+			repoNameColW = 5
+		}
+	}
+
 	// Header
-	header := fmt.Sprintf(" %-20s  %s", "NAME", "URL")
+	header := fmt.Sprintf(" %-*s  %s", repoNameColW, "NAME", "URL")
 	b.WriteString(dimStyle.Render(header))
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render(" " + strings.Repeat("─", tuiMin(m.width-2, 70))))
+	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
 
 	// Repo list
@@ -1515,10 +1590,15 @@ func (m model) viewRepos(b *strings.Builder) {
 		if displayed >= maxRows {
 			break
 		}
-		line := fmt.Sprintf(" %-20s  %s", entry.name, entry.url)
-		if len(line) > m.width-2 {
-			line = line[:m.width-3] + "…"
+		name := entry.name
+		if len(name) > repoNameColW {
+			name = name[:repoNameColW-1] + "…"
 		}
+		url := entry.url
+		if len(url) > urlColW {
+			url = url[:urlColW-1] + "…"
+		}
+		line := fmt.Sprintf(" %-*s  %s", repoNameColW, name, url)
 		if i == m.repoCursor {
 			b.WriteString(selectedStyle.Render(fmt.Sprintf("%-*s", m.width-1, line)))
 		} else {
@@ -1535,7 +1615,7 @@ func (m model) viewRepos(b *strings.Builder) {
 
 	// Footer
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render(" " + strings.Repeat("─", tuiMin(m.width-2, 70))))
+	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
 	b.WriteString(helpStyle.Render(" ↑↓ navigate  a add  d remove  Tab skills  q quit"))
 	b.WriteString("\n")
@@ -1568,11 +1648,12 @@ func runTUI() error {
 	return err
 }
 
-func tuiMin(a, b int) int {
-	if a < b {
-		return a
+// safeRepeat returns a string of n repetitions of s, or empty if n <= 0.
+func safeRepeat(s string, n int) string {
+	if n <= 0 {
+		return ""
 	}
-	return b
+	return strings.Repeat(s, n)
 }
 
 // cloneState creates a deep copy of State to avoid data races

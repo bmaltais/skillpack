@@ -73,7 +73,7 @@ func Fork(addr, forkRepo, agentName, token string, st *state.State) (newAddr str
 				skillName, forkRepo, newAddr,
 			)
 		}
-		for forkAgentName, forkStateRec := range forkAgents {
+		for _, forkStateRec := range forkAgents {
 			if forkStateRec.UpstreamAddr != addr {
 				conflictingUpstream := forkStateRec.UpstreamAddr
 				if conflictingUpstream == "" {
@@ -83,9 +83,6 @@ func Fork(addr, forkRepo, agentName, token string, st *state.State) (newAddr str
 					"skill %q already exists in repo %q and is tracked as a fork of %q, not %q",
 					skillName, forkRepo, conflictingUpstream, addr,
 				)
-			}
-			if forkAgentName == agentName {
-				continue
 			}
 		}
 	}
@@ -134,22 +131,28 @@ func Fork(addr, forkRepo, agentName, token string, st *state.State) (newAddr str
 		}
 	}
 
-	// Register the fork in state
-	if st.InstalledSkills[newAddr] == nil {
-		st.InstalledSkills[newAddr] = make(map[string]state.InstalledSkillRecord)
-	}
+	// Compute all hashes before touching state to avoid partial migration on error.
+	newRecords := make(map[string]state.InstalledSkillRecord, len(agents))
 	for sourceAgentName, sourceRec := range agents {
 		hash, hashErr := ComputeHash(sourceRec.LocalPath)
 		if hashErr != nil {
 			return "", fmt.Errorf("computing installed hash for agent %q: %w", sourceAgentName, hashErr)
 		}
-		st.InstalledSkills[newAddr][sourceAgentName] = state.InstalledSkillRecord{
+		newRecords[sourceAgentName] = state.InstalledSkillRecord{
 			InstalledAtSHA: commitHash,
 			InstalledHash:  hash,
 			LocalPath:      sourceRec.LocalPath,
 			UpstreamAddr:   addr,
 			UpstreamSHA:    upstreamSHA,
 		}
+	}
+
+	// All hashes succeeded — apply state rewrite.
+	if st.InstalledSkills[newAddr] == nil {
+		st.InstalledSkills[newAddr] = make(map[string]state.InstalledSkillRecord)
+	}
+	for sourceAgentName, rec := range newRecords {
+		st.InstalledSkills[newAddr][sourceAgentName] = rec
 	}
 
 	// Remove original state entry only when the fork address differs.

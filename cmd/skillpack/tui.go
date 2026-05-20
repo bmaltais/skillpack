@@ -1177,15 +1177,31 @@ func (m model) viewSkills(b *strings.Builder) {
 			agentColW = len(a) + 2
 		}
 	}
-	if agentColW < 7 {
-		agentColW = 7
+
+	// Ensure agent columns fit within terminal; shrink agentColW if needed
+	nAgents := len(m.agents)
+	if nAgents > 0 {
+		maxAgentW := (m.width - 12) / nAgents // reserve 12 for name col minimum + padding
+		if maxAgentW < 5 {
+			maxAgentW = 5
+		}
+		if agentColW > maxAgentW {
+			agentColW = maxAgentW
+		}
 	}
 
 	// Available width for the name column: total - agent columns - leading space
-	totalAgentW := agentColW * len(m.agents)
+	totalAgentW := agentColW * nAgents
 	nameColW := m.width - totalAgentW - 2
-	if nameColW < 20 {
-		nameColW = 20
+	if nameColW < 10 {
+		nameColW = 10
+	}
+	// Hard clamp: total must not exceed terminal width
+	if nameColW+totalAgentW+2 > m.width {
+		nameColW = m.width - totalAgentW - 2
+		if nameColW < 5 {
+			nameColW = 5
+		}
 	}
 
 	// Compute dynamic name column width based on longest visible skill (don't exceed available)
@@ -1375,11 +1391,23 @@ func (m model) viewStatus(b *strings.Builder) {
 				agentW = len(row.agentName)
 			}
 		}
+		// Cap addrW to half the terminal width
 		if addrW > m.width/2 {
 			addrW = m.width / 2
 		}
-		if addrW < 10 {
+		// Enforce minimum only if terminal is wide enough
+		if addrW < 10 && m.width >= 30 {
 			addrW = 10
+		} else if addrW < 5 {
+			addrW = 5
+		}
+		// Ensure total columns fit: addrW + agentW + status(~20) + padding(5)
+		maxAddr := m.width - agentW - 25
+		if maxAddr < 5 {
+			maxAddr = 5
+		}
+		if addrW > maxAddr {
+			addrW = maxAddr
 		}
 
 		// Header
@@ -1521,14 +1549,22 @@ func (m model) viewRepos(b *strings.Builder) {
 	if repoNameColW > m.width/2 {
 		repoNameColW = m.width / 2
 	}
-	if repoNameColW < 10 {
-		repoNameColW = 10
-	}
 
 	// URL column gets the remaining width
 	urlColW := m.width - repoNameColW - 4 // leading space + gap
-	if urlColW < 10 {
-		urlColW = 10
+
+	// Ensure both columns fit within terminal; shrink proportionally if needed
+	overhead := 4 // leading space + gap between columns
+	if repoNameColW+urlColW+overhead > m.width {
+		urlColW = m.width - repoNameColW - overhead
+	}
+	if urlColW < 5 {
+		// Shrink name column to give URL more room
+		urlColW = 5
+		repoNameColW = m.width - urlColW - overhead
+		if repoNameColW < 5 {
+			repoNameColW = 5
+		}
 	}
 
 	// Header

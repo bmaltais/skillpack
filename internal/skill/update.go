@@ -363,15 +363,8 @@ func hasUpstreamChange(addr string, rec state.InstalledSkillRecord, st *state.St
 		return false, fmt.Errorf("repo %q not found", repoName)
 	}
 
-	headSHA, err := gitops.HeadSHA(repoRec.CachePath)
-	if err != nil {
-		return false, err
-	}
-	if headSHA == rec.InstalledAtSHA {
-		return false, nil // repo has not moved at all
-	}
-
-	return gitops.DiffSkillChanged(repoRec.CachePath, rec.InstalledAtSHA, headSHA, skillRelPath)
+	_, changed, err := gitops.DiffSkillChangedFromHEAD(repoRec.CachePath, rec.InstalledAtSHA, skillRelPath)
+	return changed, err
 }
 
 // hasUpstreamOriginChange checks whether the upstream origin repo has new commits
@@ -388,15 +381,8 @@ func hasUpstreamOriginChange(rec state.InstalledSkillRecord, st *state.State) (b
 		return false, fmt.Errorf("upstream repo %q not found — re-add it with: skillpack repo add %s <url>", upstreamRepoName, upstreamRepoName)
 	}
 
-	headSHA, err := gitops.HeadSHA(repoRec.CachePath)
-	if err != nil {
-		return false, err
-	}
-	if headSHA == rec.UpstreamSHA {
-		return false, nil // upstream has not moved
-	}
-
-	return gitops.DiffSkillChanged(repoRec.CachePath, rec.UpstreamSHA, headSHA, skillRelPath)
+	_, changed, err := gitops.DiffSkillChangedFromHEAD(repoRec.CachePath, rec.UpstreamSHA, skillRelPath)
+	return changed, err
 }
 
 // listFilesOnDisk returns a map of relPath→content for all files in dir.

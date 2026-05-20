@@ -23,7 +23,8 @@ func IsSSHURL(url string) bool {
 }
 
 // Auth resolves the appropriate transport.AuthMethod for a remote URL.
-// token is optional; pass "" for SSH-only or env-based auth.
+// token is optional; pass "" to skip HTTPS auth (callers are responsible for
+// resolving tokens from config/env before calling this function).
 func Auth(url, token string) (transport.AuthMethod, error) {
 	if IsSSHURL(url) {
 		auth, err := gitssh.NewSSHAgentAuth("git")
@@ -81,7 +82,11 @@ func CommitAndPush(cachePath, skillRelPath, message, remoteURL, token string) (*
 		if !pathUnderPrefix(path, skillRelPath) {
 			continue
 		}
-		if fs.Worktree == gogit.Deleted || fs.Staging == gogit.Deleted {
+		// Decide add vs remove based on worktree state: if the file is
+		// deleted from the working tree, remove it from the index.
+		// Otherwise add it (even if the index has a stale staged-delete,
+		// w.Add will reflect the current worktree state).
+		if fs.Worktree == gogit.Deleted {
 			if _, err := w.Remove(path); err != nil {
 				return nil, fmt.Errorf("git rm %s: %w", path, err)
 			}
@@ -130,6 +135,31 @@ func DiffSkillChanged(cachePath, oldSHA, newSHA, skillRelPath string) (bool, err
 	if err != nil {
 		return false, fmt.Errorf("opening repo at %s: %w", cachePath, err)
 	}
+	return diffSkillInRepo(r, oldSHA, newSHA, skillRelPath)
+}
+
+// DiffSkillChangedFromHEAD is like DiffSkillChanged but resolves HEAD internally,
+// avoiding a redundant repo open when the caller needs both HEAD SHA and a diff check.
+// Returns (headSHA, changed, error).
+func DiffSkillChangedFromHEAD(cachePath, oldSHA, skillRelPath string) (string, bool, error) {
+	r, err := gogit.PlainOpen(cachePath)
+	if err != nil {
+		return "", false, fmt.Errorf("opening repo at %s: %w", cachePath, err)
+	}
+	ref, err := r.Head()
+	if err != nil {
+		return "", false, fmt.Errorf("getting HEAD: %w", err)
+	}
+	headSHA := ref.Hash().String()
+	if headSHA == oldSHA {
+		return headSHA, false, nil
+	}
+	changed, err := diffSkillInRepo(r, oldSHA, headSHA, skillRelPath)
+	return headSHA, changed, err
+}
+
+// diffSkillInRepo performs the actual tree diff on an already-open repository.
+func diffSkillInRepo(r *gogit.Repository, oldSHA, newSHA, skillRelPath string) (bool, error) {
 
 	oldCommit, err := r.CommitObject(plumbing.NewHash(oldSHA))
 	if err != nil {

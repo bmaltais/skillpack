@@ -75,7 +75,11 @@ func runWizard(cfg *config.Config) error {
 
 	var detected []string
 	for _, agent := range config.DefaultAgents {
-		expanded, err := config.ExpandPath(agent.SkillDir)
+		checkDir := agent.SkillDir
+		if agent.DetectDir != "" {
+			checkDir = agent.DetectDir
+		}
+		expanded, err := config.ExpandPath(checkDir)
 		if err != nil {
 			continue
 		}

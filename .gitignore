@@ -1,3 +1,2 @@
-skillpack_bin
 build/*
-!build/*.keep
+!build/.gitkeep

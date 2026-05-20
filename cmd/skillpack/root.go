@@ -27,7 +27,7 @@ Skills live in git repositories and are installed as directories into
 each agent's skill folder (e.g. ~/.claude/skills/, ~/.copilot/skills/).`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// self-update and status are config-independent; skip wizard to avoid side effects.
-		if cmd.Name() == "self-update" || cmd.Name() == "status" {
+		if cmd.Name() == "self-update" || cmd.Name() == "status" || cmd.Name() == "tui" {
 			return nil
 		}
 		return ensureConfig()

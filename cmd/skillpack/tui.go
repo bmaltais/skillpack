@@ -1,15 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"os"
-	"runtime"
 	"sort"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -173,11 +167,6 @@ func initialModel(cfg *config.Config, st *state.State) model {
 	}
 	sort.Strings(m.agents)
 
-	// Fallback if no agents configured
-	if len(m.agents) == 0 {
-		m.agents = []string{"claude-code", "copilot", "pi", "hermes"}
-	}
-
 	m.refreshSkills()
 	m.refreshRepos()
 
@@ -260,6 +249,7 @@ type statusDoneMsg struct {
 
 type syncDoneMsg struct {
 	summary string
+	st      *state.State // updated state after sync
 }
 
 type selfUpdateDoneMsg struct {
@@ -284,7 +274,7 @@ func cmdCheckForUpdate() tea.Cmd {
 		if current == "dev" {
 			return updateCheckMsg{}
 		}
-		latest, err := tuiFetchLatestTag()
+		latest, err := fetchLatestTag()
 		if err != nil {
 			return updateCheckMsg{err: err}
 		}
@@ -333,6 +323,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case syncDoneMsg:
 		m.busy = ""
 		m.message = msg.summary
+		// Swap in the state that was mutated by the sync goroutine
+		if msg.st != nil {
+			*m.st = *msg.st
+		}
 		// Refresh installed state after sync
 		m.installed = make(map[string]map[string]bool)
 		for addr, agents := range m.st.InstalledSkills {
@@ -448,7 +442,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.handleAction()
 		case tea.KeySpace:
 			if m.activePanel == panelSkills {
-				m.handleSkillToggle()
+				m.handleEnter()
 			}
 		case tea.KeyDelete:
 			if m.activePanel == panelRepos {
@@ -867,18 +861,19 @@ func (m *model) updateSelectedSkill() {
 
 func (m *model) cmdCheckStatus() tea.Cmd {
 	cfg := m.cfg
-	st := m.st
+	// Deep-copy state to avoid data races with UI reads
+	stCopy := cloneState(m.st)
 	return func() tea.Msg {
 		// Fetch repos first
-		for name := range st.Repos {
-			_ = repo.Update(name, cfg.TokenForRepo(name), st)
+		for name := range stCopy.Repos {
+			_ = repo.Update(name, cfg.TokenForRepo(name), stCopy)
 		}
 
 		info := make(map[string]map[string]string)
-		for addr, agents := range st.InstalledSkills {
+		for addr, agents := range stCopy.InstalledSkills {
 			info[addr] = make(map[string]string)
 			for agentName := range agents {
-				r, err := skill.CheckUpdate(addr, agentName, st)
+				r, err := skill.CheckUpdate(addr, agentName, stCopy)
 				if err != nil {
 					info[addr][agentName] = "error"
 					continue
@@ -901,11 +896,12 @@ func (m *model) cmdCheckStatus() tea.Cmd {
 
 func (m *model) cmdSync() tea.Cmd {
 	cfg := m.cfg
-	st := m.st
+	// Deep-copy state to avoid data races with UI reads
+	stCopy := cloneState(m.st)
 	return func() tea.Msg {
-		results, conflicts, err := skill.Sync(false, cfg.TokenForRepo, st)
+		results, conflicts, err := skill.Sync(false, cfg.TokenForRepo, stCopy)
 		if err != nil {
-			return syncDoneMsg{summary: fmt.Sprintf("✗ Sync error: %v", err)}
+			return syncDoneMsg{summary: fmt.Sprintf("✗ Sync error: %v", err), st: stCopy}
 		}
 
 		var updated, published, current, errCount int
@@ -923,7 +919,7 @@ func (m *model) cmdSync() tea.Cmd {
 		}
 
 		if updated > 0 || published > 0 {
-			_ = state.Save(st)
+			_ = state.Save(stCopy)
 		}
 
 		parts := []string{}
@@ -946,7 +942,7 @@ func (m *model) cmdSync() tea.Cmd {
 		if len(parts) == 0 {
 			summary = "✓ Nothing to sync"
 		}
-		return syncDoneMsg{summary: summary}
+		return syncDoneMsg{summary: summary, st: stCopy}
 	}
 }
 
@@ -957,7 +953,7 @@ func cmdSelfUpdate() tea.Cmd {
 			return selfUpdateDoneMsg{summary: "Running dev build — skipping update"}
 		}
 
-		latest, err := tuiFetchLatestTag()
+		latest, err := fetchLatestTag()
 		if err != nil {
 			return selfUpdateDoneMsg{summary: fmt.Sprintf("✗ Could not check: %v", err)}
 		}
@@ -968,124 +964,12 @@ func cmdSelfUpdate() tea.Cmd {
 		}
 
 		// Perform the update
-		if err := tuiDownloadAndReplace(latest); err != nil {
+		if err := downloadAndReplace(latest); err != nil {
 			return selfUpdateDoneMsg{summary: fmt.Sprintf("✗ Update failed: %v", err)}
 		}
 
 		return selfUpdateDoneMsg{summary: fmt.Sprintf("✓ Updated: v%s → %s (restart to use new version)", current, latest)}
 	}
-}
-
-// tuiFetchLatestTag queries GitHub for the latest release tag.
-func tuiFetchLatestTag() (string, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequest(http.MethodGet, githubReleaseURL, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "skillpack/"+Version)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
-	}
-
-	var payload struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return "", err
-	}
-	if payload.TagName == "" {
-		return "", fmt.Errorf("no tag_name in response")
-	}
-	return payload.TagName, nil
-}
-
-// tuiDownloadAndReplace downloads and replaces the running binary.
-func tuiDownloadAndReplace(tag string) error {
-	goos := runtime.GOOS
-	goarch := runtime.GOARCH
-	exeSuffix := ""
-	if goos == "windows" {
-		exeSuffix = ".exe"
-	}
-
-	url := fmt.Sprintf(githubDownloadFmt, tag, goos, goarch, exeSuffix)
-
-	execPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("could not determine executable path: %w", err)
-	}
-
-	tmpPath := execPath + ".new"
-	if err := tuiDownloadFile(url, tmpPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
-
-	if goos != "windows" {
-		if err := os.Chmod(tmpPath, 0755); err != nil {
-			_ = os.Remove(tmpPath)
-			return err
-		}
-	}
-
-	if goos == "windows" {
-		oldPath := execPath + ".old"
-		_ = os.Remove(oldPath)
-		if err := os.Rename(execPath, oldPath); err != nil {
-			_ = os.Remove(tmpPath)
-			return err
-		}
-		if err := os.Rename(tmpPath, execPath); err != nil {
-			_ = os.Rename(oldPath, execPath)
-			_ = os.Remove(tmpPath)
-			return err
-		}
-		_ = os.Remove(oldPath)
-		return nil
-	}
-
-	if err := os.Rename(tmpPath, execPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("could not replace binary (try with sudo): %w", err)
-	}
-	return nil
-}
-
-func tuiDownloadFile(url, dest string) error {
-	client := &http.Client{Timeout: 60 * time.Second}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", "skillpack/"+Version)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
-	}
-
-	f, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	_, err = io.Copy(f, resp.Body)
-	return err
 }
 
 // visibleRows returns indices into m.rows that should be displayed given
@@ -1689,4 +1573,23 @@ func tuiMin(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// cloneState creates a deep copy of State to avoid data races
+// between async commands and UI rendering.
+func cloneState(src *state.State) *state.State {
+	dst := &state.State{
+		Repos:           make(map[string]state.RepoRecord, len(src.Repos)),
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord, len(src.InstalledSkills)),
+	}
+	for k, v := range src.Repos {
+		dst.Repos[k] = v
+	}
+	for addr, agents := range src.InstalledSkills {
+		dst.InstalledSkills[addr] = make(map[string]state.InstalledSkillRecord, len(agents))
+		for agent, rec := range agents {
+			dst.InstalledSkills[addr][agent] = rec
+		}
+	}
+	return dst
 }

@@ -90,7 +90,11 @@ func Load() (*Config, error) {
 	}
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return &Config{Agents: make(map[string]AgentConfig)}, nil
+		cfg := &Config{Agents: make(map[string]AgentConfig)}
+		if DetectAgents(cfg) {
+			_ = Save(cfg) // best-effort persist
+		}
+		return cfg, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading config: %w", err)
@@ -149,7 +153,8 @@ func DetectAgents(cfg *Config) bool {
 		if err != nil {
 			continue
 		}
-		if _, err := os.Stat(expanded); err == nil {
+		info, err := os.Stat(expanded)
+		if err == nil && info.IsDir() {
 			cfg.Agents[agent.Name] = AgentConfig{SkillDir: agent.SkillDir}
 			modified = true
 		}

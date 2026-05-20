@@ -83,7 +83,8 @@ func runWizard(cfg *config.Config) error {
 		if err != nil {
 			continue
 		}
-		if _, err := os.Stat(expanded); err == nil {
+		info, statErr := os.Stat(expanded)
+		if statErr == nil && info.IsDir() {
 			detected = append(detected, agent.Name)
 			cfg.Agents[agent.Name] = config.AgentConfig{SkillDir: agent.SkillDir}
 			fmt.Printf("  detected: %s (%s)\n", agent.Name, agent.SkillDir)

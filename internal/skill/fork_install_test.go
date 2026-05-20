@@ -139,6 +139,167 @@ func TestFork_ExistingDestinationWithSameUpstream_ReforksInPlace(t *testing.T) {
 	}
 }
 
+func TestFork_MovesAllInstalledAgentsToForkAddress(t *testing.T) {
+	upstreamCache := t.TempDir()
+	writeFile(t, filepath.Join(upstreamCache, "skills", "engineering", "improve-codebase-architecture", "SKILL.md"), "# Upstream")
+	_, _ = initRepoWithCommit(t, upstreamCache, "upstream commit")
+
+	forkCache := t.TempDir()
+	skillName := "improve-codebase-architecture"
+	writeFile(t, filepath.Join(forkCache, "README.md"), "fork repo")
+	forkRepo := initRepoOnly(t, forkCache)
+	_, _ = commitAll(t, forkRepo, "initial fork repo commit")
+	remoteDir := attachBareOrigin(t, forkRepo, forkCache)
+
+	claudeInstalledDir := t.TempDir()
+	writeFile(t, filepath.Join(claudeInstalledDir, "SKILL.md"), "# Claude local installed content")
+	claudeHash, err := skill.ComputeHash(claudeInstalledDir)
+	if err != nil {
+		t.Fatalf("ComputeHash(claude): %v", err)
+	}
+	copilotInstalledDir := t.TempDir()
+	writeFile(t, filepath.Join(copilotInstalledDir, "SKILL.md"), "# Copilot local installed content")
+	copilotHash, err := skill.ComputeHash(copilotInstalledDir)
+	if err != nil {
+		t.Fatalf("ComputeHash(copilot): %v", err)
+	}
+
+	addr := "source-skills/skills/engineering/improve-codebase-architecture"
+	newAddr := "bmaltais-skills/" + skillName
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"source-skills":   {CachePath: upstreamCache},
+			"bmaltais-skills": {CachePath: forkCache, URL: "file://" + remoteDir},
+		},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			addr: {
+				"claude-code": {
+					InstalledHash: claudeHash,
+					LocalPath:     claudeInstalledDir,
+				},
+				"copilot": {
+					InstalledHash: copilotHash,
+					LocalPath:     copilotInstalledDir,
+				},
+			},
+		},
+	}
+
+	gotAddr, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", st)
+	if err != nil {
+		t.Fatalf("Fork: %v", err)
+	}
+	if gotAddr != newAddr {
+		t.Fatalf("expected new addr %q, got %q", newAddr, gotAddr)
+	}
+	if _, ok := st.InstalledSkills[addr]; ok {
+		t.Fatalf("expected original addr %q to be removed from state", addr)
+	}
+
+	forkedAgents := st.InstalledSkills[newAddr]
+	claudeRec, ok := forkedAgents["claude-code"]
+	if !ok {
+		t.Fatalf("expected claude-code to be moved under %q", newAddr)
+	}
+	copilotRec, ok := forkedAgents["copilot"]
+	if !ok {
+		t.Fatalf("expected copilot to be moved under %q", newAddr)
+	}
+	if claudeRec.LocalPath != claudeInstalledDir {
+		t.Fatalf("claude local path mismatch: got %q want %q", claudeRec.LocalPath, claudeInstalledDir)
+	}
+	if copilotRec.LocalPath != copilotInstalledDir {
+		t.Fatalf("copilot local path mismatch: got %q want %q", copilotRec.LocalPath, copilotInstalledDir)
+	}
+	if claudeRec.UpstreamAddr != addr || copilotRec.UpstreamAddr != addr {
+		t.Fatalf("expected both agents to track upstream %q; got claude=%q copilot=%q", addr, claudeRec.UpstreamAddr, copilotRec.UpstreamAddr)
+	}
+	if claudeRec.UpstreamSHA == "" || copilotRec.UpstreamSHA == "" {
+		t.Fatalf("expected upstream SHA for both agents; got claude=%q copilot=%q", claudeRec.UpstreamSHA, copilotRec.UpstreamSHA)
+	}
+
+	claudeMetaRaw, err := os.ReadFile(filepath.Join(claudeInstalledDir, ".skillpack-fork"))
+	if err != nil {
+		t.Fatalf("reading claude .skillpack-fork: %v", err)
+	}
+	copilotMetaRaw, err := os.ReadFile(filepath.Join(copilotInstalledDir, ".skillpack-fork"))
+	if err != nil {
+		t.Fatalf("reading copilot .skillpack-fork: %v", err)
+	}
+	var claudeMeta struct {
+		UpstreamAddr string `json:"upstream_addr"`
+	}
+	if err := json.Unmarshal(claudeMetaRaw, &claudeMeta); err != nil {
+		t.Fatalf("unmarshal claude metadata: %v", err)
+	}
+	var copilotMeta struct {
+		UpstreamAddr string `json:"upstream_addr"`
+	}
+	if err := json.Unmarshal(copilotMetaRaw, &copilotMeta); err != nil {
+		t.Fatalf("unmarshal copilot metadata: %v", err)
+	}
+	if claudeMeta.UpstreamAddr != addr || copilotMeta.UpstreamAddr != addr {
+		t.Fatalf("expected both metadata files to track upstream %q; got claude=%q copilot=%q", addr, claudeMeta.UpstreamAddr, copilotMeta.UpstreamAddr)
+	}
+}
+
+func TestFork_ExistingDestinationWithMatchingUpstream_AllowsRemainingAgentMigration(t *testing.T) {
+	upstreamCache := t.TempDir()
+	writeFile(t, filepath.Join(upstreamCache, "skills", "engineering", "improve-codebase-architecture", "SKILL.md"), "# Upstream")
+	_, _ = initRepoWithCommit(t, upstreamCache, "upstream commit")
+
+	forkCache := t.TempDir()
+	skillName := "improve-codebase-architecture"
+	writeFile(t, filepath.Join(forkCache, skillName, "SKILL.md"), "# Existing fork content")
+	forkRepo := initRepoOnly(t, forkCache)
+	_, _ = commitAll(t, forkRepo, "existing fork commit")
+	remoteDir := attachBareOrigin(t, forkRepo, forkCache)
+
+	copilotInstalledDir := t.TempDir()
+	writeFile(t, filepath.Join(copilotInstalledDir, "SKILL.md"), "# Copilot local installed content")
+	copilotHash, err := skill.ComputeHash(copilotInstalledDir)
+	if err != nil {
+		t.Fatalf("ComputeHash(copilot): %v", err)
+	}
+
+	addr := "source-skills/skills/engineering/improve-codebase-architecture"
+	newAddr := "bmaltais-skills/" + skillName
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"source-skills":   {CachePath: upstreamCache},
+			"bmaltais-skills": {CachePath: forkCache, URL: "file://" + remoteDir},
+		},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			addr: {
+				"copilot": {
+					InstalledHash: copilotHash,
+					LocalPath:     copilotInstalledDir,
+				},
+			},
+			newAddr: {
+				"claude-code": {
+					UpstreamAddr: addr,
+					UpstreamSHA:  "old-sha",
+				},
+			},
+		},
+	}
+
+	if _, err := skill.Fork(addr, "bmaltais-skills", "copilot", "", st); err != nil {
+		t.Fatalf("Fork: %v", err)
+	}
+	if _, ok := st.InstalledSkills[addr]; ok {
+		t.Fatalf("expected original addr %q to be removed from state", addr)
+	}
+
+	if _, ok := st.InstalledSkills[newAddr]["claude-code"]; !ok {
+		t.Fatalf("expected existing forked agent state for claude-code to be preserved at %q", newAddr)
+	}
+	if _, ok := st.InstalledSkills[newAddr]["copilot"]; !ok {
+		t.Fatalf("expected remaining source agent copilot to migrate to %q", newAddr)
+	}
+}
+
 func TestFork_ExistingDestinationWithDifferentUpstream_ReturnsError(t *testing.T) {
 	upstreamCache := t.TempDir()
 	writeFile(t, filepath.Join(upstreamCache, "skills", "engineering", "improve-codebase-architecture", "SKILL.md"), "# Upstream")

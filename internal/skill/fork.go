@@ -32,8 +32,13 @@ func Fork(addr, forkRepo, agentName, token string, st *state.State) (newAddr str
 	}
 
 	// Prevent forking a fork (multi-hop)
-	if rec.UpstreamAddr != "" {
-		return "", fmt.Errorf("skill %q is already a fork of %q — multi-hop forks are not supported", addr, rec.UpstreamAddr)
+	for sourceAgentName, sourceRec := range agents {
+		if sourceRec.UpstreamAddr != "" {
+			return "", fmt.Errorf(
+				"skill %q is already a fork of %q for agent %q — multi-hop forks are not supported",
+				addr, sourceRec.UpstreamAddr, sourceAgentName,
+			)
+		}
 	}
 
 	// Validate fork repo is registered
@@ -68,22 +73,20 @@ func Fork(addr, forkRepo, agentName, token string, st *state.State) (newAddr str
 				skillName, forkRepo, newAddr,
 			)
 		}
-		forkStateRec, ok := forkAgents[agentName]
-		if !ok {
-			return "", fmt.Errorf(
-				"skill %q already exists in repo %q but has unknown fork provenance for agent %q; install and register %q for that agent first or remove it from the destination repo",
-				skillName, forkRepo, agentName, newAddr,
-			)
-		}
-		if forkStateRec.UpstreamAddr != addr {
-			conflictingUpstream := forkStateRec.UpstreamAddr
-			if conflictingUpstream == "" {
-				conflictingUpstream = "(not tracked as a fork)"
+		for forkAgentName, forkStateRec := range forkAgents {
+			if forkStateRec.UpstreamAddr != addr {
+				conflictingUpstream := forkStateRec.UpstreamAddr
+				if conflictingUpstream == "" {
+					conflictingUpstream = "(not tracked as a fork)"
+				}
+				return "", fmt.Errorf(
+					"skill %q already exists in repo %q and is tracked as a fork of %q, not %q",
+					skillName, forkRepo, conflictingUpstream, addr,
+				)
 			}
-			return "", fmt.Errorf(
-				"skill %q already exists in repo %q and is tracked as a fork of %q, not %q",
-				skillName, forkRepo, conflictingUpstream, addr,
-			)
+			if forkAgentName == agentName {
+				continue
+			}
 		}
 	}
 
@@ -100,8 +103,13 @@ func Fork(addr, forkRepo, agentName, token string, st *state.State) (newAddr str
 	if err := writeForkMetadata(forkDestPath, addr, upstreamSHA); err != nil {
 		return "", fmt.Errorf("writing fork provenance metadata in fork repo: %w", err)
 	}
-	if err := writeForkMetadata(rec.LocalPath, addr, upstreamSHA); err != nil {
-		return "", fmt.Errorf("writing fork provenance metadata in installed skill: %w", err)
+	for sourceAgentName, sourceRec := range agents {
+		if err := writeForkMetadata(sourceRec.LocalPath, addr, upstreamSHA); err != nil {
+			return "", fmt.Errorf(
+				"writing fork provenance metadata in installed skill for agent %q: %w",
+				sourceAgentName, err,
+			)
+		}
 	}
 
 	// Commit and push the fork
@@ -126,29 +134,26 @@ func Fork(addr, forkRepo, agentName, token string, st *state.State) (newAddr str
 		}
 	}
 
-	// Compute new hash from installed dir (unchanged on disk)
-	hash, err := ComputeHash(rec.LocalPath)
-	if err != nil {
-		return "", fmt.Errorf("computing installed hash: %w", err)
-	}
-
 	// Register the fork in state
 	if st.InstalledSkills[newAddr] == nil {
 		st.InstalledSkills[newAddr] = make(map[string]state.InstalledSkillRecord)
 	}
-	st.InstalledSkills[newAddr][agentName] = state.InstalledSkillRecord{
-		InstalledAtSHA: commitHash,
-		InstalledHash:  hash,
-		LocalPath:      rec.LocalPath,
-		UpstreamAddr:   addr,
-		UpstreamSHA:    upstreamSHA,
+	for sourceAgentName, sourceRec := range agents {
+		hash, hashErr := ComputeHash(sourceRec.LocalPath)
+		if hashErr != nil {
+			return "", fmt.Errorf("computing installed hash for agent %q: %w", sourceAgentName, hashErr)
+		}
+		st.InstalledSkills[newAddr][sourceAgentName] = state.InstalledSkillRecord{
+			InstalledAtSHA: commitHash,
+			InstalledHash:  hash,
+			LocalPath:      sourceRec.LocalPath,
+			UpstreamAddr:   addr,
+			UpstreamSHA:    upstreamSHA,
+		}
 	}
 
-	// Remove the original state entry for this agent
-	delete(st.InstalledSkills[addr], agentName)
-	if len(st.InstalledSkills[addr]) == 0 {
-		delete(st.InstalledSkills, addr)
-	}
+	// Remove original state entry (all agents moved to fork address)
+	delete(st.InstalledSkills, addr)
 
 	return newAddr, nil
 }

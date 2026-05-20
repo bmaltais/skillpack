@@ -139,6 +139,7 @@ type model struct {
 	// Update banner
 	updateBanner    string // e.g. "v0.3.0" — shown as a banner when set
 	bannerSelection int    // 0=Update, 1=Skip
+	pendingMessage  string // message to show after next async completes
 
 	// Config/state refs
 	cfg *config.Config
@@ -305,7 +306,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statusDoneMsg:
 		m.statusInfo = msg.info
 		m.busy = ""
-		m.message = "Status refreshed"
+		if m.pendingMessage != "" {
+			m.message = m.pendingMessage
+			m.pendingMessage = ""
+		} else {
+			m.message = "Status refreshed"
+		}
 		// Build status rows
 		m.statusRows = nil
 		for addr, agents := range msg.info {
@@ -334,6 +340,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for agentName := range agents {
 				m.installed[addr][agentName] = true
 			}
+		}
+		// Auto-refresh status after sync
+		if m.activePanel == panelStatus {
+			m.busy = "Refreshing status..."
+			m.pendingMessage = msg.summary
+			return m, m.cmdCheckStatus()
 		}
 		return m, nil
 

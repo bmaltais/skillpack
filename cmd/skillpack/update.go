@@ -136,7 +136,7 @@ the upstream_sha recorded at fork time as the common base.`,
 				switch {
 				case forceRemote:
 					if !dryRun {
-						if err := skill.ForceRemote(t.addr, t.agent, cfg.TokenForRepo(repoNameFromAddr(t.addr)), st); err != nil {
+						if err := skill.Resolve(t.addr, t.agent, skill.ResolveForceRemote, cfg.TokenForRepo(repoNameFromAddr(t.addr)), st); err != nil {
 							return err
 						}
 						fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("force-remote applied"))
@@ -147,7 +147,7 @@ the upstream_sha recorded at fork time as the common base.`,
 
 				case forceLocal:
 					if !dryRun {
-						if err := skill.ForceLocal(t.addr, t.agent, cfg.TokenForRepo(repoNameFromAddr(t.addr)), st); err != nil {
+						if err := skill.Resolve(t.addr, t.agent, skill.ResolveForceLocal, cfg.TokenForRepo(repoNameFromAddr(t.addr)), st); err != nil {
 							return err
 						}
 						fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("force-local applied (pushed to remote)"))

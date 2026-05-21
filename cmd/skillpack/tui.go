@@ -1,9 +1,12 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -34,6 +37,7 @@ Skills panel:
   ←/→         Move between agent columns
   Space/Enter  Toggle install/remove or expand/collapse
   f           Fork a skill into your repo
+  v           View SKILL.md of the selected skill
   Type        Filter skills (incremental search)
   Backspace   Delete filter character
   Esc         Clear filter
@@ -53,6 +57,7 @@ Repos panel:
 Unmanaged panel:
   ↑/↓         Move between unmanaged skills
   Enter       Adopt selected skill into a registered repo
+  v           View SKILL.md of the selected skill
 
 All changes are applied immediately.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -339,6 +344,10 @@ type updateCheckMsg struct {
 	err       error
 }
 
+type viewerExitMsg struct {
+	err error
+}
+
 // --- Bubble Tea interface ---
 
 func (m model) Init() tea.Cmd {
@@ -431,6 +440,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.latestTag != "" {
 			m.updateBanner = msg.latestTag
 			m.bannerSelection = 0
+		}
+		return m, nil
+
+	case viewerExitMsg:
+		if msg.err != nil {
+			m.message = fmt.Sprintf("✗ Viewer error: %v", msg.err)
 		}
 		return m, nil
 
@@ -544,6 +559,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.startFork()
 					return m, nil
 				}
+				if ch == "v" && m.filter == "" {
+					if m.cursorRow >= 0 && m.cursorRow < len(m.rows) {
+						row := m.rows[m.cursorRow]
+						if row.kind == skillRow {
+							cachePath := m.st.Repos[row.repoName].CachePath
+							skillMd := filepath.Join(cachePath, row.relPath, "SKILL.md")
+							return m, m.viewSkillMdAt(skillMd)
+						}
+					}
+					return m, nil
+				}
 				// On Windows (ConPTY), space can arrive as a rune instead of
 				// KeySpace. Treat it as the toggle action to match Linux/macOS.
 				if ch == " " {
@@ -585,6 +611,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case panelUnmanaged:
 				if ch == "q" {
 					return m, tea.Quit
+				}
+				if ch == "v" {
+					if m.unmanagedCursor >= 0 && m.unmanagedCursor < len(m.unmanagedEntries) {
+						entry := m.unmanagedEntries[m.unmanagedCursor]
+						skillMd := filepath.Join(entry.localPath, "SKILL.md")
+						return m, m.viewSkillMdAt(skillMd)
+					}
+					return m, nil
 				}
 			}
 		}
@@ -1069,6 +1103,41 @@ func (m *model) updateSelectedSkill() {
 }
 
 // --- Async commands ---
+
+// viewSkillMdAt stats path and either sets an error message or returns a
+// command to open the file in the platform default viewer.
+func (m *model) viewSkillMdAt(path string) tea.Cmd {
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			m.message = "✗ SKILL.md not found"
+		} else {
+			m.message = fmt.Sprintf("✗ %v", err)
+		}
+		return nil
+	}
+	m.message = ""
+	return cmdViewSkillMd(path)
+}
+
+// cmdViewSkillMd opens path in the platform default viewer by suspending the
+// TUI until the launcher process exits. On macOS, "open -W" is used so the TUI
+// stays suspended until the viewer application itself closes. On Linux and
+// Windows, xdg-open/start return as soon as the viewer is launched, so the TUI
+// resumes promptly after the handoff.
+func cmdViewSkillMd(path string) tea.Cmd {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", "-W", path)
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", "", path)
+	default:
+		cmd = exec.Command("xdg-open", path)
+	}
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return viewerExitMsg{err: err}
+	})
+}
 
 func (m *model) cmdCheckStatus() tea.Cmd {
 	cfg := m.cfg
@@ -1615,7 +1684,7 @@ func (m model) viewSkills(b *strings.Builder) {
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render(" ↑↓ navigate  ←→ agents  Space/Enter toggle  f fork  Tab switch  q quit"))
+	b.WriteString(helpStyle.Render(" ↑↓ navigate  ←→ agents  Space/Enter toggle  f fork  v view  Tab switch  q quit"))
 	b.WriteString("\n")
 	if m.message != "" {
 		b.WriteString(msgStyle.Render(" " + m.message))
@@ -2015,7 +2084,7 @@ func (m model) viewUnmanaged(b *strings.Builder) {
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render(" ↑↓ navigate  Enter adopt into repo  Tab switch  q quit"))
+	b.WriteString(helpStyle.Render(" ↑↓ navigate  Enter adopt into repo  v view  Tab switch  q quit"))
 	b.WriteString("\n")
 	if m.message != "" {
 		b.WriteString(msgStyle.Render(" " + m.message))

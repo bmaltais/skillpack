@@ -126,8 +126,9 @@ func CollectRepoHeads(st *state.State) (map[string]string, error) {
 }
 
 // ApplySync executes a plan produced by ReconcilePlan, applying updates,
-// publishing local edits, and collecting conflicts. State is persisted once
-// at the end of the call — not after each individual skill operation.
+// publishing local edits, and collecting conflicts. State is persisted at the
+// end of the call only when at least one update or publish succeeded — it is
+// not written on a no-op plan (all already-current / conflict / error items).
 //
 // SyncConflict items are collected into the returned conflicts slice without
 // being applied; callers that wish to resolve them should do so and call
@@ -142,6 +143,7 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 	}
 	results = make([]SyncResult, 0, len(plan))
 	conflicts = make([]SyncResult, 0, len(plan))
+	mutated := false
 	for _, item := range plan {
 		if item.Err != nil {
 			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: item.Err})
@@ -157,18 +159,22 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 				continue
 			}
 			results = append(results, SyncResult{item.Addr, item.AgentName, SyncUpdated, nil})
+			mutated = true
 		case SyncPublished:
 			if pubErr := Publish(item.Addr, item.AgentName, tokenFor(repoName), st); pubErr != nil {
 				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: pubErr})
 				continue
 			}
 			results = append(results, SyncResult{item.Addr, item.AgentName, SyncPublished, nil})
+			mutated = true
 		default: // SyncAlreadyCurrent
 			results = append(results, SyncResult{item.Addr, item.AgentName, SyncAlreadyCurrent, nil})
 		}
 	}
-	if saveErr := state.Save(st); saveErr != nil {
-		return results, conflicts, saveErr
+	if mutated {
+		if saveErr := state.Save(st); saveErr != nil {
+			return results, conflicts, saveErr
+		}
 	}
 	return results, conflicts, nil
 }
@@ -183,8 +189,8 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 //     applies any updates that are now visible to sibling agents that were
 //     marked already-current before the publish.
 //
-// When dryRun is true, repos are still pulled (to get accurate upstream state)
-// but ApplySync is not called — steps 2 and 3 are skipped.
+// When dryRun is true, repo pulls are skipped and only a status message is
+// printed per repo. ApplySync is not called — steps 2 and 3 are skipped.
 //
 // tokenFor is called with a repo name to resolve its token; pass nil to rely
 // on environment variables only.
@@ -232,25 +238,31 @@ func Sync(dryRun bool, tokenFor func(string) string, st *state.State) (results [
 		return results, conflicts, fmt.Errorf("second-pass head collection: %w", heads2Err)
 	}
 	plan2 := ReconcilePlan(st, heads2)
-	secondResults, _, err2 := ApplySync(plan2, tokenFor, st)
+	secondResults, secondConflicts, err2 := ApplySync(plan2, tokenFor, st)
 	if err2 != nil {
 		return results, conflicts, err2
 	}
 
-	// Merge second-pass updates into the main results.
-	// Any skill that was already-current in pass 1 but updated in pass 2 is
-	// upgraded so the caller sees the final resolved state.
-	resultIdx := make(map[string]int, len(results))
+	// Merge second-pass outcomes into the main results.
+	// A skill that was already-current in pass 1 may have become updated,
+	// errored, or conflicted in pass 2 (e.g. after a sibling publish advanced
+	// the cache HEAD). Surface all such changes so callers see the final state.
+	type skillKey struct{ addr, agentName string }
+	resultIdx := make(map[skillKey]int, len(results))
 	for i, r := range results {
-		resultIdx[r.Addr+"\x00"+r.AgentName] = i
+		resultIdx[skillKey{r.Addr, r.AgentName}] = i
 	}
 	for _, r := range secondResults {
-		if r.Action != SyncUpdated {
-			continue
-		}
-		key := r.Addr + "\x00" + r.AgentName
-		if i, ok := resultIdx[key]; ok && results[i].Action == SyncAlreadyCurrent {
+		key := skillKey{r.Addr, r.AgentName}
+		if i, ok := resultIdx[key]; ok && results[i].Action == SyncAlreadyCurrent && r.Action != SyncAlreadyCurrent {
 			results[i] = r
+		}
+	}
+	for _, c := range secondConflicts {
+		key := skillKey{c.Addr, c.AgentName}
+		if i, ok := resultIdx[key]; ok && results[i].Action == SyncAlreadyCurrent {
+			results[i] = SyncResult{Addr: c.Addr, AgentName: c.AgentName, Action: SyncConflict}
+			conflicts = append(conflicts, c)
 		}
 	}
 

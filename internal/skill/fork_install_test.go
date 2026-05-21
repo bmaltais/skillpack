@@ -380,6 +380,172 @@ func TestFork_ExistingDestinationWithoutState_ReturnsError(t *testing.T) {
 	}
 }
 
+func TestFork_ForkModeOverride_ReplacesExistingDestination(t *testing.T) {
+	upstreamCache := t.TempDir()
+	writeFile(t, filepath.Join(upstreamCache, "skills", "engineering", "improve-codebase-architecture", "SKILL.md"), "# Upstream")
+	_, _ = initRepoWithCommit(t, upstreamCache, "upstream commit")
+
+	forkCache := t.TempDir()
+	skillName := "improve-codebase-architecture"
+	writeFile(t, filepath.Join(forkCache, skillName, "SKILL.md"), "# Old existing content")
+	forkRepo := initRepoOnly(t, forkCache)
+	_, _ = commitAll(t, forkRepo, "existing fork commit")
+	remoteDir := attachBareOrigin(t, forkRepo, forkCache)
+
+	installedDir := t.TempDir()
+	writeFile(t, filepath.Join(installedDir, "SKILL.md"), "# Local installed content")
+	hash, err := skill.ComputeHash(installedDir)
+	if err != nil {
+		t.Fatalf("ComputeHash: %v", err)
+	}
+
+	addr := "source-skills/skills/engineering/improve-codebase-architecture"
+	newAddr := "bmaltais-skills/" + skillName
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"source-skills":   {CachePath: upstreamCache},
+			"bmaltais-skills": {CachePath: forkCache, URL: "file://" + remoteDir},
+		},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			addr: {
+				"claude-code": {
+					InstalledHash: hash,
+					LocalPath:     installedDir,
+				},
+			},
+			// No state entry for newAddr — unknown provenance, user chose override
+		},
+	}
+
+	gotAddr, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", skill.ForkModeOverride, st)
+	if err != nil {
+		t.Fatalf("Fork with ForkModeOverride: %v", err)
+	}
+	if gotAddr != newAddr {
+		t.Fatalf("expected new addr %q, got %q", newAddr, gotAddr)
+	}
+
+	// Destination dir should contain the installed content, not the old content
+	content, err := os.ReadFile(filepath.Join(forkCache, skillName, "SKILL.md"))
+	if err != nil {
+		t.Fatalf("reading forked SKILL.md: %v", err)
+	}
+	if string(content) != "# Local installed content" {
+		t.Fatalf("expected override to replace dest with installed content, got %q", string(content))
+	}
+
+	// Fork metadata must be written
+	if _, err := os.Stat(filepath.Join(forkCache, skillName, ".skillpack-fork")); err != nil {
+		t.Fatalf("expected .skillpack-fork to be written: %v", err)
+	}
+
+	// State must track the new address
+	if _, ok := st.InstalledSkills[newAddr]; !ok {
+		t.Fatalf("expected state entry for new addr %q after override fork", newAddr)
+	}
+}
+
+func TestFork_ForkModeRegister_KeepsExistingDestinationContents(t *testing.T) {
+	upstreamCache := t.TempDir()
+	writeFile(t, filepath.Join(upstreamCache, "skills", "engineering", "improve-codebase-architecture", "SKILL.md"), "# Upstream")
+	_, _ = initRepoWithCommit(t, upstreamCache, "upstream commit")
+
+	forkCache := t.TempDir()
+	skillName := "improve-codebase-architecture"
+	writeFile(t, filepath.Join(forkCache, skillName, "SKILL.md"), "# Existing destination content")
+	forkRepo := initRepoOnly(t, forkCache)
+	_, _ = commitAll(t, forkRepo, "existing fork commit")
+	remoteDir := attachBareOrigin(t, forkRepo, forkCache)
+
+	installedDir := t.TempDir()
+	writeFile(t, filepath.Join(installedDir, "SKILL.md"), "# Local installed content")
+	hash, err := skill.ComputeHash(installedDir)
+	if err != nil {
+		t.Fatalf("ComputeHash: %v", err)
+	}
+
+	addr := "source-skills/skills/engineering/improve-codebase-architecture"
+	newAddr := "bmaltais-skills/" + skillName
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"source-skills":   {CachePath: upstreamCache},
+			"bmaltais-skills": {CachePath: forkCache, URL: "file://" + remoteDir},
+		},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			addr: {
+				"claude-code": {
+					InstalledHash: hash,
+					LocalPath:     installedDir,
+				},
+			},
+			// No state entry for newAddr — unknown provenance, user chose register
+		},
+	}
+
+	gotAddr, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", skill.ForkModeRegister, st)
+	if err != nil {
+		t.Fatalf("Fork with ForkModeRegister: %v", err)
+	}
+	if gotAddr != newAddr {
+		t.Fatalf("expected new addr %q, got %q", newAddr, gotAddr)
+	}
+
+	// Destination dir content must be unchanged
+	content, err := os.ReadFile(filepath.Join(forkCache, skillName, "SKILL.md"))
+	if err != nil {
+		t.Fatalf("reading forked SKILL.md: %v", err)
+	}
+	if string(content) != "# Existing destination content" {
+		t.Fatalf("expected register to preserve existing dest content, got %q", string(content))
+	}
+
+	// Fork metadata must be written
+	if _, err := os.Stat(filepath.Join(forkCache, skillName, ".skillpack-fork")); err != nil {
+		t.Fatalf("expected .skillpack-fork to be written: %v", err)
+	}
+
+	// State must track the new address
+	if _, ok := st.InstalledSkills[newAddr]; !ok {
+		t.Fatalf("expected state entry for new addr %q after register fork", newAddr)
+	}
+}
+
+func TestFork_ForkModeRegister_NonExistentDestination_ReturnsError(t *testing.T) {
+	upstreamCache := t.TempDir()
+	writeFile(t, filepath.Join(upstreamCache, "skills", "engineering", "improve-codebase-architecture", "SKILL.md"), "# Upstream")
+	_, _ = initRepoWithCommit(t, upstreamCache, "upstream commit")
+
+	installedDir := t.TempDir()
+	writeFile(t, filepath.Join(installedDir, "SKILL.md"), "# Local installed content")
+	hash, _ := skill.ComputeHash(installedDir)
+
+	forkCache := t.TempDir() // destination dir does NOT exist inside forkCache
+
+	addr := "source-skills/skills/engineering/improve-codebase-architecture"
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"source-skills":   {CachePath: upstreamCache},
+			"bmaltais-skills": {CachePath: forkCache},
+		},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			addr: {
+				"claude-code": {
+					InstalledHash: hash,
+					LocalPath:     installedDir,
+				},
+			},
+		},
+	}
+
+	_, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", skill.ForkModeRegister, st)
+	if err == nil {
+		t.Fatal("expected error when register mode used with non-existent destination")
+	}
+	if !strings.Contains(err.Error(), "register mode requires") {
+		t.Fatalf("expected 'register mode requires' error, got: %v", err)
+	}
+}
+
 func initRepoOnly(t *testing.T, dir string) *gogit.Repository {
 	t.Helper()
 	r, err := gogit.PlainInit(dir, false)

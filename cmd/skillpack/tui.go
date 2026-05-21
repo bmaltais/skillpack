@@ -825,6 +825,10 @@ func (m *model) doFork() {
 	forkRec := m.st.Repos[targetRepo]
 	forkDestPath := filepath.Join(forkRec.CachePath, skillName)
 	_, destStatErr := os.Stat(forkDestPath)
+	if destStatErr != nil && !os.IsNotExist(destStatErr) {
+		m.message = fmt.Sprintf("✗ Fork: cannot check destination: %v", destStatErr)
+		return
+	}
 	destExists := destStatErr == nil
 	_, stateKnown := m.st.InstalledSkills[newAddr]
 	if destExists && !stateKnown {

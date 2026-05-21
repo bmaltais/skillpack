@@ -80,6 +80,13 @@ func Fork(addr, forkRepo, agentName, token string, mode ForkMode, st *state.Stat
 	} else if !os.IsNotExist(statErr) {
 		return "", fmt.Errorf("checking fork destination path: %w", statErr)
 	}
+	if mode == ForkModeRegister && !destExists {
+		return "", fmt.Errorf(
+			"register mode requires an existing skill directory at %q: nothing to register",
+			forkDestPath,
+		)
+	}
+
 	if destExists {
 		forkAgents, ok := st.InstalledSkills[newAddr]
 		if !ok {

@@ -65,24 +65,16 @@ func Install(addr, agentName string, cfg *config.Config, st *state.State, skipEx
 		return fmt.Errorf("getting repo HEAD SHA: %w", err)
 	}
 
-	if st.InstalledSkills[addr] == nil {
-		st.InstalledSkills[addr] = make(map[string]state.InstalledSkillRecord)
-	}
-	st.InstalledSkills[addr][agentName] = state.InstalledSkillRecord{
+	instRec := state.InstalledSkillRecord{
 		InstalledAtSHA: sha,
 		InstalledHash:  hash,
 		LocalPath:      targetDir,
 	}
 	if meta != nil {
-		st.InstalledSkills[addr][agentName] = state.InstalledSkillRecord{
-			InstalledAtSHA: sha,
-			InstalledHash:  hash,
-			LocalPath:      targetDir,
-			UpstreamAddr:   meta.UpstreamAddr,
-			UpstreamSHA:    meta.UpstreamSHA,
-		}
+		instRec.UpstreamAddr = meta.UpstreamAddr
+		instRec.UpstreamSHA = meta.UpstreamSHA
 	}
-	return nil
+	return st.RecordInstall(addr, agentName, instRec)
 }
 
 // Remove deletes an installed skill from an agent's skill dir.
@@ -110,11 +102,7 @@ func Remove(addr, agentName string, cfg *config.Config, st *state.State, force b
 		return fmt.Errorf("removing skill directory: %w", err)
 	}
 
-	delete(st.InstalledSkills[addr], agentName)
-	if len(st.InstalledSkills[addr]) == 0 {
-		delete(st.InstalledSkills, addr)
-	}
-	return nil
+	return st.RecordRemove(addr, agentName)
 }
 
 // IsModified returns true if the installed skill directory has changed since installation.

@@ -42,8 +42,7 @@ func SnapshotInstalled(addr, agentName string, st *state.State) error {
 	}
 	rec.InstalledHash = hash
 	rec.InstalledAtSHA = headSHA
-	st.InstalledSkills[addr][agentName] = rec
-	return nil
+	return st.RecordInstall(addr, agentName, rec)
 }
 
 // UpdateResult describes the state of an installed skill relative to upstream.
@@ -130,12 +129,11 @@ func ApplyUpdate(addr, agentName, token string, st *state.State) error {
 	if err != nil {
 		return err
 	}
-	st.InstalledSkills[addr][agentName] = state.InstalledSkillRecord{
+	return st.RecordInstall(addr, agentName, state.InstalledSkillRecord{
 		InstalledAtSHA: sha,
 		InstalledHash:  hash,
 		LocalPath:      rec.LocalPath,
-	}
-	return nil
+	})
 }
 
 // ForceRemote overwrites the installed skill with the cache (upstream) version, discarding local changes.
@@ -202,8 +200,7 @@ func ForceLocal(addr, agentName, token string, st *state.State) error {
 			newRec.UpstreamSHA = upstreamSHA
 		}
 	}
-	st.InstalledSkills[addr][agentName] = newRec
-	return nil
+	return st.RecordInstall(addr, agentName, newRec)
 }
 
 // MergeSkill performs a file-level three-way merge between the installed skill (ours)
@@ -265,11 +262,11 @@ func MergeSkill(addr, agentName, token string, st *state.State) (hasConflicts bo
 	if !hasConflicts {
 		hash, _ := ComputeHash(rec.LocalPath)
 		sha, _ := repo.HeadSHA(skillInfo.RepoName, st)
-		st.InstalledSkills[addr][agentName] = state.InstalledSkillRecord{
+		_ = st.RecordInstall(addr, agentName, state.InstalledSkillRecord{
 			InstalledAtSHA: sha,
 			InstalledHash:  hash,
 			LocalPath:      rec.LocalPath,
-		}
+		})
 	}
 	return hasConflicts, nil
 }

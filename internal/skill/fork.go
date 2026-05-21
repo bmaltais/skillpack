@@ -182,17 +182,16 @@ func Fork(addr, forkRepo, agentName, token string, mode ForkMode, st *state.Stat
 	}
 
 	// All hashes succeeded — apply state rewrite.
-	if st.InstalledSkills[newAddr] == nil {
-		st.InstalledSkills[newAddr] = make(map[string]state.InstalledSkillRecord)
-	}
-	for sourceAgentName, rec := range newRecords {
-		st.InstalledSkills[newAddr][sourceAgentName] = rec
+	for sourceAgentName, newRec := range newRecords {
+		if err := st.RecordInstall(newAddr, sourceAgentName, newRec); err != nil {
+			return "", fmt.Errorf("recording fork install for agent %q: %w", sourceAgentName, err)
+		}
 	}
 
 	// Remove original state entry only when the fork address differs.
 	// If newAddr == addr, deleting addr would also delete the records we just wrote.
 	if newAddr != addr {
-		delete(st.InstalledSkills, addr)
+		_ = st.RecordRemoveAll(addr)
 	}
 
 	return newAddr, nil
@@ -263,12 +262,11 @@ func pushForkAfterMerge(addr, agentName, token string, upstreamHeadSHA string, s
 		commitSHA = result.CommitHash
 	}
 
-	st.InstalledSkills[addr][agentName] = state.InstalledSkillRecord{
+	return st.RecordInstall(addr, agentName, state.InstalledSkillRecord{
 		InstalledAtSHA: commitSHA,
 		InstalledHash:  hash,
 		LocalPath:      rec.LocalPath,
 		UpstreamAddr:   rec.UpstreamAddr,
 		UpstreamSHA:    upstreamHeadSHA,
-	}
-	return nil
+	})
 }

@@ -564,12 +564,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if row.kind == skillRow {
 							cachePath := m.st.Repos[row.repoName].CachePath
 							skillMd := filepath.Join(cachePath, row.relPath, "SKILL.md")
-							if _, err := os.Stat(skillMd); err != nil {
-								m.message = "✗ SKILL.md not found"
-							} else {
-								m.message = ""
-								return m, cmdViewSkillMd(skillMd)
-							}
+							return m, m.viewSkillMdAt(skillMd)
 						}
 					}
 					return m, nil
@@ -620,12 +615,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.unmanagedCursor >= 0 && m.unmanagedCursor < len(m.unmanagedEntries) {
 						entry := m.unmanagedEntries[m.unmanagedCursor]
 						skillMd := filepath.Join(entry.localPath, "SKILL.md")
-						if _, err := os.Stat(skillMd); err != nil {
-							m.message = "✗ SKILL.md not found"
-						} else {
-							m.message = ""
-							return m, cmdViewSkillMd(skillMd)
-						}
+						return m, m.viewSkillMdAt(skillMd)
 					}
 					return m, nil
 				}
@@ -1112,6 +1102,17 @@ func (m *model) updateSelectedSkill() {
 }
 
 // --- Async commands ---
+
+// viewSkillMdAt stats path and either sets an error message or returns a
+// command to open the file in the platform default viewer.
+func (m *model) viewSkillMdAt(path string) tea.Cmd {
+	if _, err := os.Stat(path); err != nil {
+		m.message = "✗ SKILL.md not found"
+		return nil
+	}
+	m.message = ""
+	return cmdViewSkillMd(path)
+}
 
 // cmdViewSkillMd opens path in the platform default viewer by suspending the
 // TUI, launching the OS open command, then resuming when the viewer exits.

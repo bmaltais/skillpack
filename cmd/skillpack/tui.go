@@ -463,6 +463,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.startFork()
 					return m, nil
 				}
+				// On Windows (ConPTY), space can arrive as a rune instead of
+				// KeySpace. Treat it as the toggle action to match Linux/macOS.
+				if ch == " " {
+					m.handleEnter()
+					return m, nil
+				}
 				m.filter += ch
 			case panelStatus:
 				switch ch {

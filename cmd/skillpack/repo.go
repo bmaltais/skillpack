@@ -220,8 +220,9 @@ var repoRenameCmd = &cobra.Command{
 			}
 		}
 		for _, rk := range rekeys {
-			st.InstalledSkills[rk.newAddr] = st.InstalledSkills[rk.oldAddr]
-			delete(st.InstalledSkills, rk.oldAddr)
+			if err := st.RecordRenameAddr(rk.oldAddr, rk.newAddr); err != nil {
+				return fmt.Errorf("renaming skill address %q: %w", rk.oldAddr, err)
+			}
 		}
 
 		// Save state and config before renaming the directory.

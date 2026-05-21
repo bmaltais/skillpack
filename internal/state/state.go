@@ -96,3 +96,98 @@ func empty() *State {
 		InstalledSkills: make(map[string]map[string]InstalledSkillRecord),
 	}
 }
+
+// validateMutation checks that addr and agentName are non-empty.
+func validateMutation(addr, agentName string) error {
+	if addr == "" {
+		return fmt.Errorf("addr must not be empty")
+	}
+	if agentName == "" {
+		return fmt.Errorf("agentName must not be empty")
+	}
+	return nil
+}
+
+// RecordInstall stores or replaces the installation record for one agent.
+// Creates the per-address inner map if it does not already exist.
+func (st *State) RecordInstall(addr, agentName string, rec InstalledSkillRecord) error {
+	if err := validateMutation(addr, agentName); err != nil {
+		return err
+	}
+	if st.InstalledSkills[addr] == nil {
+		st.InstalledSkills[addr] = make(map[string]InstalledSkillRecord)
+	}
+	st.InstalledSkills[addr][agentName] = rec
+	return nil
+}
+
+// RecordRemove deletes the installation record for one agent.
+// Removes the per-address inner map entirely when it becomes empty.
+func (st *State) RecordRemove(addr, agentName string) error {
+	if err := validateMutation(addr, agentName); err != nil {
+		return err
+	}
+	delete(st.InstalledSkills[addr], agentName)
+	if len(st.InstalledSkills[addr]) == 0 {
+		delete(st.InstalledSkills, addr)
+	}
+	return nil
+}
+
+// RecordRemoveAll deletes all installation records for an address (all agents).
+// No-op when no entry exists for addr.
+func (st *State) RecordRemoveAll(addr string) error {
+	if addr == "" {
+		return fmt.Errorf("addr must not be empty")
+	}
+	delete(st.InstalledSkills, addr)
+	return nil
+}
+
+// RecordHash updates InstalledHash for an existing installation record.
+// Returns an error when no record exists for the given addr/agentName.
+func (st *State) RecordHash(addr, agentName, hash string) error {
+	if err := validateMutation(addr, agentName); err != nil {
+		return err
+	}
+	rec, ok := st.InstalledSkills[addr][agentName]
+	if !ok {
+		return fmt.Errorf("skill %q is not installed for agent %q", addr, agentName)
+	}
+	rec.InstalledHash = hash
+	st.InstalledSkills[addr][agentName] = rec
+	return nil
+}
+
+// RecordSHA updates InstalledAtSHA for an existing installation record.
+// Returns an error when no record exists for the given addr/agentName.
+func (st *State) RecordSHA(addr, agentName, sha string) error {
+	if err := validateMutation(addr, agentName); err != nil {
+		return err
+	}
+	rec, ok := st.InstalledSkills[addr][agentName]
+	if !ok {
+		return fmt.Errorf("skill %q is not installed for agent %q", addr, agentName)
+	}
+	rec.InstalledAtSHA = sha
+	st.InstalledSkills[addr][agentName] = rec
+	return nil
+}
+
+// RecordRenameAddr moves all installed-skill entries from oldAddr to newAddr.
+// Used when a repo is renamed. No-op when no entry exists for oldAddr.
+func (st *State) RecordRenameAddr(oldAddr, newAddr string) error {
+	if oldAddr == "" {
+		return fmt.Errorf("oldAddr must not be empty")
+	}
+	if newAddr == "" {
+		return fmt.Errorf("newAddr must not be empty")
+	}
+	agents, ok := st.InstalledSkills[oldAddr]
+	if !ok {
+		return nil
+	}
+	st.InstalledSkills[newAddr] = agents
+	delete(st.InstalledSkills, oldAddr)
+	return nil
+}

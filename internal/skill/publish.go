@@ -3,7 +3,7 @@ package skill
 import (
 	"fmt"
 	"os"
-	"strings"
+	"path/filepath"
 
 	"github.com/bmaltais/skillpack/internal/gitops"
 	"github.com/bmaltais/skillpack/internal/state"
@@ -23,7 +23,7 @@ func PublishNew(localDir, repoName, token string, st *state.State) (string, erro
 	if _, err := os.Stat(localDir); err != nil {
 		return "", fmt.Errorf("local dir %q not found: %w", localDir, err)
 	}
-	if _, err := os.Stat(localDir + "/SKILL.md"); err != nil {
+	if _, err := os.Stat(filepath.Join(localDir, "SKILL.md")); err != nil {
 		return "", fmt.Errorf("%s does not contain a SKILL.md — not a valid skill directory", localDir)
 	}
 
@@ -32,20 +32,15 @@ func PublishNew(localDir, repoName, token string, st *state.State) (string, erro
 		return "", fmt.Errorf("repo %q not registered — add it first with: skillpack repo add <name> <url>", repoName)
 	}
 
-	// Use the local dir's basename as the skill name in the repo
-	skillName := localDir
-	// Strip trailing slashes and leading ./
-	for strings.HasSuffix(skillName, "/") {
-		skillName = skillName[:len(skillName)-1]
-	}
-	if idx := strings.LastIndex(skillName, "/"); idx >= 0 {
-		skillName = skillName[idx+1:]
-	}
+	// Use the local dir's basename as the skill name in the repo.
+	// filepath.Base(filepath.Clean(...)) handles both slash and backslash
+	// separators correctly on all platforms.
+	skillName := filepath.Base(filepath.Clean(localDir))
 	if skillName == "" || skillName == "." {
 		return "", fmt.Errorf("cannot determine skill name from path %q", localDir)
 	}
 
-	destPath := repoRec.CachePath + "/" + skillName
+	destPath := filepath.Join(repoRec.CachePath, skillName)
 	if _, err := os.Stat(destPath); err == nil {
 		return "", fmt.Errorf(
 			"skill %q already exists in repo %q — use `skillpack publish %s/%s` to update it",

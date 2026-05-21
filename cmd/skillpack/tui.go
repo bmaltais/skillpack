@@ -24,9 +24,10 @@ var tuiCmd = &cobra.Command{
 and toggle installation for each configured agent.
 
 Panels (Tab to switch):
-  Skills    Browse and install/remove skills
-  Status    View installed skill states, update, sync
-  Repos     Add/remove skill repositories
+  Skills      Browse and install/remove skills
+  Status      View installed skill states, update, sync
+  Repos       Add/remove skill repositories
+  Unmanaged   Adopt skills found in agent dirs but not tracked by skillpack
 
 Skills panel:
   ↑/↓         Move between items
@@ -48,6 +49,10 @@ Repos panel:
   ↑/↓         Move between repos
   a           Add a repo
   d/Delete    Remove selected repo
+
+Unmanaged panel:
+  ↑/↓         Move between unmanaged skills
+  Enter       Adopt selected skill into a registered repo
 
 All changes are applied immediately.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -84,6 +89,7 @@ const (
 	panelSkills panel = iota
 	panelRepos
 	panelStatus
+	panelUnmanaged
 )
 
 // --- Input mode ---
@@ -97,6 +103,7 @@ const (
 	modeConfirmRemove
 	modeForkSelectRepo
 	modeForkResolveChoice
+	modeAdoptSelectRepo
 )
 
 // --- Model ---
@@ -139,6 +146,11 @@ type model struct {
 	bannerSelection int    // 0=Update, 1=Skip
 	pendingMessage  string // message to show after next async completes
 
+	// Unmanaged panel
+	unmanagedEntries []unmanagedEntry
+	unmanagedCursor  int
+	adoptCursor      int // cursor for repo selection in adopt flow
+
 	// Config/state refs
 	cfg *config.Config
 	st  *state.State
@@ -147,6 +159,12 @@ type model struct {
 type repoEntry struct {
 	name string
 	url  string
+}
+
+type unmanagedEntry struct {
+	agentName string
+	skillName string
+	localPath string
 }
 
 type statusRow struct {
@@ -173,6 +191,7 @@ func initialModel(cfg *config.Config, st *state.State) model {
 
 	m.refreshSkills()
 	m.refreshRepos()
+	m.refreshUnmanaged()
 
 	return m
 }
@@ -226,6 +245,61 @@ func (m *model) refreshRepos() {
 		m.repoList = append(m.repoList, repoEntry{name: name, url: rec.URL})
 	}
 	sort.Slice(m.repoList, func(i, j int) bool { return m.repoList[i].name < m.repoList[j].name })
+}
+
+func (m *model) refreshUnmanaged() {
+	m.unmanagedEntries = nil
+
+	// Build set of all local paths that are already tracked in state
+	knownPaths := make(map[string]bool)
+	for _, agents := range m.st.InstalledSkills {
+		for _, rec := range agents {
+			if rec.LocalPath != "" {
+				knownPaths[rec.LocalPath] = true
+			}
+		}
+	}
+
+	// Walk each configured agent's skill dir and find untracked skills
+	var agentNames []string
+	for name := range m.cfg.Agents {
+		agentNames = append(agentNames, name)
+	}
+	sort.Strings(agentNames)
+
+	for _, agentName := range agentNames {
+		agentCfg := m.cfg.Agents[agentName]
+		expanded, err := config.ExpandPath(agentCfg.SkillDir)
+		if err != nil {
+			continue
+		}
+		entries, err := os.ReadDir(expanded)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			fullPath := filepath.Join(expanded, entry.Name())
+			// Use os.Stat (follows symlinks) so symlinked directories are included
+			info, statErr := os.Stat(fullPath)
+			if statErr != nil || !info.IsDir() {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(fullPath, "SKILL.md")); err != nil {
+				continue
+			}
+			if !knownPaths[fullPath] {
+				m.unmanagedEntries = append(m.unmanagedEntries, unmanagedEntry{
+					agentName: agentName,
+					skillName: entry.Name(),
+					localPath: fullPath,
+				})
+			}
+		}
+	}
+
+	if m.unmanagedCursor >= len(m.unmanagedEntries) {
+		m.unmanagedCursor = 0
+	}
 }
 
 func sampleData() ([]string, map[string][]repo.SkillInfo) {
@@ -421,6 +495,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case panelStatus:
 				m.activePanel = panelRepos
 			case panelRepos:
+				m.activePanel = panelUnmanaged
+				m.refreshUnmanaged()
+			case panelUnmanaged:
 				m.activePanel = panelSkills
 			}
 			m.message = ""
@@ -504,6 +581,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.message = ""
 				case "d":
 					m.startRemoveRepo()
+				}
+			case panelUnmanaged:
+				if ch == "q" {
+					return m, tea.Quit
 				}
 			}
 		}
@@ -627,6 +708,25 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 		case tea.KeyCtrlC:
 			return *m, tea.Quit
 		}
+
+	case modeAdoptSelectRepo:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.inputMode = modeNormal
+			m.message = ""
+		case tea.KeyUp:
+			if m.adoptCursor > 0 {
+				m.adoptCursor--
+			}
+		case tea.KeyDown:
+			if m.adoptCursor < len(m.repoList)-1 {
+				m.adoptCursor++
+			}
+		case tea.KeyEnter:
+			m.doAdopt()
+		case tea.KeyCtrlC:
+			return *m, tea.Quit
+		}
 	}
 	return *m, nil
 }
@@ -643,6 +743,10 @@ func (m *model) handleUp() {
 		if m.statusCursor > 0 {
 			m.statusCursor--
 		}
+	case panelUnmanaged:
+		if m.unmanagedCursor > 0 {
+			m.unmanagedCursor--
+		}
 	}
 }
 
@@ -658,6 +762,10 @@ func (m *model) handleDown() {
 		if m.statusCursor < len(m.statusRows)-1 {
 			m.statusCursor++
 		}
+	case panelUnmanaged:
+		if m.unmanagedCursor < len(m.unmanagedEntries)-1 {
+			m.unmanagedCursor++
+		}
 	}
 }
 
@@ -667,6 +775,8 @@ func (m *model) handleAction() {
 		m.handleEnter()
 	case panelStatus:
 		m.updateSelectedSkill()
+	case panelUnmanaged:
+		m.startAdopt()
 	}
 }
 
@@ -779,6 +889,63 @@ func (m *model) doRemoveRepo() {
 		m.repoCursor--
 	}
 	m.message = fmt.Sprintf("➖ Removed repo %s", name)
+	m.inputMode = modeNormal
+}
+
+func (m *model) startAdopt() {
+	if len(m.unmanagedEntries) == 0 {
+		m.message = "No unmanaged skills to adopt"
+		return
+	}
+	if m.unmanagedCursor >= len(m.unmanagedEntries) {
+		return
+	}
+	if len(m.repoList) == 0 {
+		m.message = "✗ No repos registered — add a writable repo first (Tab → Repos → a)"
+		return
+	}
+	m.adoptCursor = 0
+	m.inputMode = modeAdoptSelectRepo
+	m.message = ""
+}
+
+func (m *model) doAdopt() {
+	if m.adoptCursor >= len(m.repoList) {
+		m.inputMode = modeNormal
+		return
+	}
+	if m.unmanagedCursor >= len(m.unmanagedEntries) {
+		m.inputMode = modeNormal
+		return
+	}
+	entry := m.unmanagedEntries[m.unmanagedCursor]
+	targetRepo := m.repoList[m.adoptCursor].name
+	token := m.cfg.TokenForRepo(targetRepo)
+
+	newAddr, err := skill.PublishNew(entry.localPath, targetRepo, token, m.st)
+	if err != nil {
+		m.message = fmt.Sprintf("✗ Publish failed: %v", err)
+		m.inputMode = modeNormal
+		return
+	}
+
+	if err := skill.Install(newAddr, entry.agentName, m.cfg, m.st, false); err != nil {
+		m.message = fmt.Sprintf("✗ Install failed: %v", err)
+		m.inputMode = modeNormal
+		return
+	}
+
+	if err := state.Save(m.st); err != nil {
+		m.message = fmt.Sprintf("✗ Save failed: %v", err)
+		m.inputMode = modeNormal
+		return
+	}
+
+	m.refreshUnmanaged()
+	m.refreshSkills()
+	m.refreshRepos()
+
+	m.message = fmt.Sprintf("✓ Adopted %s → %s (%s)", entry.skillName, newAddr, entry.agentName)
 	m.inputMode = modeNormal
 }
 
@@ -1130,18 +1297,32 @@ func (m model) View() string {
 		b.WriteString(tabInactive.Render(" Status "))
 		b.WriteString("  ")
 		b.WriteString(tabInactive.Render(" Repos "))
+		b.WriteString("  ")
+		b.WriteString(tabInactive.Render(" Unmanaged "))
 	case panelStatus:
 		b.WriteString(tabInactive.Render(" Skills "))
 		b.WriteString("  ")
 		b.WriteString(tabActive.Render("[Status]"))
 		b.WriteString("  ")
 		b.WriteString(tabInactive.Render(" Repos "))
+		b.WriteString("  ")
+		b.WriteString(tabInactive.Render(" Unmanaged "))
 	case panelRepos:
 		b.WriteString(tabInactive.Render(" Skills "))
 		b.WriteString("  ")
 		b.WriteString(tabInactive.Render(" Status "))
 		b.WriteString("  ")
 		b.WriteString(tabActive.Render("[Repos]"))
+		b.WriteString("  ")
+		b.WriteString(tabInactive.Render(" Unmanaged "))
+	case panelUnmanaged:
+		b.WriteString(tabInactive.Render(" Skills "))
+		b.WriteString("  ")
+		b.WriteString(tabInactive.Render(" Status "))
+		b.WriteString("  ")
+		b.WriteString(tabInactive.Render(" Repos "))
+		b.WriteString("  ")
+		b.WriteString(tabActive.Render("[Unmanaged]"))
 	}
 	b.WriteString("\n")
 
@@ -1179,6 +1360,8 @@ func (m model) View() string {
 		m.viewStatus(&b)
 	case panelRepos:
 		m.viewRepos(&b)
+	case panelUnmanaged:
+		m.viewUnmanaged(&b)
 	}
 
 	return b.String()
@@ -1730,6 +1913,114 @@ func (m model) viewRepos(b *strings.Builder) {
 		b.WriteString(msgStyle.Render(" " + m.message))
 	} else {
 		b.WriteString(dimStyle.Render(fmt.Sprintf(" %d repo(s) registered", len(m.repoList))))
+	}
+}
+
+func (m model) viewUnmanaged(b *strings.Builder) {
+	b.WriteString("\n")
+
+	// Adopt repo-selection overlay
+	if m.inputMode == modeAdoptSelectRepo && m.unmanagedCursor < len(m.unmanagedEntries) {
+		entry := m.unmanagedEntries[m.unmanagedCursor]
+		b.WriteString(inputStyle.Render(fmt.Sprintf(" Adopt %q (%s) into which repo?", entry.skillName, entry.agentName)))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render(" (↑↓ to select, Enter to confirm, Esc to cancel)"))
+		b.WriteString("\n\n")
+		for i, re := range m.repoList {
+			if i == m.adoptCursor {
+				b.WriteString(selectedStyle.Render(fmt.Sprintf(" ▶ %-*s", m.width-4, fmt.Sprintf("%s  %s", re.name, re.url))))
+			} else {
+				b.WriteString(fmt.Sprintf("   %s  %s", re.name, dimStyle.Render(re.url)))
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+		if m.message != "" {
+			b.WriteString(msgStyle.Render(" " + m.message))
+		}
+		return
+	}
+
+	if len(m.unmanagedEntries) == 0 {
+		b.WriteString(emptyStyle.Render("   No unmanaged skills found."))
+		b.WriteString("\n")
+		b.WriteString(emptyStyle.Render("   Skills installed by skillpack are tracked automatically."))
+		b.WriteString("\n")
+	} else {
+		// Column widths
+		nameColW := 10
+		agentColW := 5
+		for _, e := range m.unmanagedEntries {
+			if len(e.skillName) > nameColW {
+				nameColW = len(e.skillName)
+			}
+			if len(e.agentName) > agentColW {
+				agentColW = len(e.agentName)
+			}
+		}
+		nameColW += 2
+		agentColW += 2
+		if nameColW > m.width/2 {
+			nameColW = m.width / 2
+		}
+
+		header := fmt.Sprintf(" %-*s  %-*s  %s", nameColW, "SKILL", agentColW, "AGENT", "PATH")
+		b.WriteString(dimStyle.Render(header))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
+		b.WriteString("\n")
+
+		maxRows := m.height - 10
+		if maxRows < 3 {
+			maxRows = 3
+		}
+		pathColW := m.width - nameColW - agentColW - 8
+		if pathColW < 5 {
+			pathColW = 5
+		}
+
+		displayed := 0
+		for i, entry := range m.unmanagedEntries {
+			if displayed >= maxRows {
+				break
+			}
+			name := entry.skillName
+			if len(name) > nameColW {
+				name = name[:nameColW-1] + "…"
+			}
+			agent := entry.agentName
+			if len(agent) > agentColW {
+				agent = agent[:agentColW-1] + "…"
+			}
+			path := entry.localPath
+			if len(path) > pathColW {
+				path = "…" + path[len(path)-pathColW+1:]
+			}
+			line := fmt.Sprintf(" %-*s  %-*s  %s", nameColW, name, agentColW, agent, dimStyle.Render(path))
+			if i == m.unmanagedCursor {
+				b.WriteString(selectedStyle.Render(fmt.Sprintf(" %-*s  %-*s  %-*s", nameColW, name, agentColW, agent, pathColW, path)))
+			} else {
+				b.WriteString(line)
+			}
+			b.WriteString("\n")
+			displayed++
+		}
+
+		for i := displayed; i < maxRows; i++ {
+			b.WriteString("\n")
+		}
+	}
+
+	// Footer
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
+	b.WriteString("\n")
+	b.WriteString(helpStyle.Render(" ↑↓ navigate  Enter adopt into repo  Tab switch  q quit"))
+	b.WriteString("\n")
+	if m.message != "" {
+		b.WriteString(msgStyle.Render(" " + m.message))
+	} else {
+		b.WriteString(dimStyle.Render(fmt.Sprintf(" %d unmanaged skill(s) found", len(m.unmanagedEntries))))
 	}
 }
 

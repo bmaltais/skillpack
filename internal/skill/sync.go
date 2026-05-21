@@ -125,23 +125,69 @@ func CollectRepoHeads(st *state.State) (map[string]string, error) {
 	return heads, nil
 }
 
+// ApplySync executes a plan produced by ReconcilePlan, applying updates,
+// publishing local edits, and collecting conflicts. State is persisted once
+// at the end of the call — not after each individual skill operation.
+//
+// SyncConflict items are collected into the returned conflicts slice without
+// being applied; callers that wish to resolve them should do so and call
+// ApplySync again with a fresh plan from ReconcilePlan.
+//
+// Items whose Err field is non-nil are reported as error results and skipped.
+// tokenFor is called with a repo name to resolve its auth token; pass nil to
+// rely on environment variables only.
+func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.State) (results []SyncResult, conflicts []SyncResult, err error) {
+	if tokenFor == nil {
+		tokenFor = func(string) string { return "" }
+	}
+	results = make([]SyncResult, 0, len(plan))
+	conflicts = make([]SyncResult, 0, len(plan))
+	for _, item := range plan {
+		if item.Err != nil {
+			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: item.Err})
+			continue
+		}
+		repoName := strings.SplitN(item.Addr, "/", 2)[0]
+		switch item.Action {
+		case SyncConflict:
+			conflicts = append(conflicts, SyncResult{item.Addr, item.AgentName, SyncConflict, nil})
+		case SyncUpdated:
+			if applyErr := ApplyUpdate(item.Addr, item.AgentName, tokenFor(repoName), st); applyErr != nil {
+				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: applyErr})
+				continue
+			}
+			results = append(results, SyncResult{item.Addr, item.AgentName, SyncUpdated, nil})
+		case SyncPublished:
+			if pubErr := Publish(item.Addr, item.AgentName, tokenFor(repoName), st); pubErr != nil {
+				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: pubErr})
+				continue
+			}
+			results = append(results, SyncResult{item.Addr, item.AgentName, SyncPublished, nil})
+		default: // SyncAlreadyCurrent
+			results = append(results, SyncResult{item.Addr, item.AgentName, SyncAlreadyCurrent, nil})
+		}
+	}
+	if saveErr := state.Save(st); saveErr != nil {
+		return results, conflicts, saveErr
+	}
+	return results, conflicts, nil
+}
+
 // Sync performs two-way reconciliation for all installed skills:
 //
 //  1. Pulls every registered repo (updates the local cache).
-//  2. For each installed skill:
-//     - No local edits + upstream changed  → update (cache → installed)
-//     - Local edits + no upstream change   → publish (installed → cache, commit, push)
-//     - Local edits + upstream changed     → skip, append to conflicts
-//     - Neither                            → nothing to do
-//  3. Second-pass update for sibling agents: if a skill was published in step 2,
-//     the cache HEAD advanced. Any agent whose copy of that skill was evaluated
-//     before the publish (and marked already-current) is re-checked and updated
-//     if it is now behind. This ensures a single sync run fully converges.
+//  2. Calls ReconcilePlan to determine the action for each installed skill,
+//     then ApplySync to execute those actions.
+//  3. Second-pass sibling re-check: a publish in step 2 advances the cache HEAD.
+//     ReconcilePlan is called a second time on the updated state, and ApplySync
+//     applies any updates that are now visible to sibling agents that were
+//     marked already-current before the publish.
 //
-// When dryRun is true, repos are still pulled (to get accurate upstream state) but
-// no installed-skill files or state records are modified (steps 2 and 3 are skipped).
+// When dryRun is true, repos are still pulled (to get accurate upstream state)
+// but ApplySync is not called — steps 2 and 3 are skipped.
 //
-// tokenFor is called with a repo name to resolve its token; pass nil to rely on env vars only.
+// tokenFor is called with a repo name to resolve its token; pass nil to rely
+// on environment variables only.
 //
 // Returns all results and a separate slice for conflicts.
 func Sync(dryRun bool, tokenFor func(string) string, st *state.State) (results []SyncResult, conflicts []SyncResult, err error) {
@@ -160,80 +206,51 @@ func Sync(dryRun bool, tokenFor func(string) string, st *state.State) (results [
 		}
 	}
 
-	// Step 2: Reconcile each installed skill.
-	//
-	// publishedAddrs tracks skill addresses where a publish occurred in this
-	// pass. A publish advances the cache HEAD; sibling agents sharing the same
-	// address may have been evaluated (and marked already-current) before that
-	// new HEAD was visible, so they need a second look in step 3.
-	publishedAddrs := make(map[string]bool)
-
-	for addr, agents := range st.InstalledSkills {
-		for agentName := range agents {
-			result, checkErr := CheckUpdate(addr, agentName, st)
-			if checkErr != nil {
-				results = append(results, SyncResult{addr, agentName, "", checkErr})
-				continue
-			}
-
-			switch {
-			case result.IsConflict:
-				// Both sides changed — user must resolve manually.
-				conflicts = append(conflicts, SyncResult{addr, agentName, SyncConflict, nil})
-
-			case result.HasUpstream && !result.IsModified:
-				// Safe upstream update.
-				if !dryRun {
-					if applyErr := ApplyUpdate(addr, agentName, tokenFor(strings.SplitN(addr, "/", 2)[0]), st); applyErr != nil {
-						results = append(results, SyncResult{addr, agentName, "", applyErr})
-						continue
-					}
-				}
-				results = append(results, SyncResult{addr, agentName, SyncUpdated, nil})
-
-			case result.IsModified && !result.HasUpstream:
-				// Local edits, nothing upstream — publish.
-				if !dryRun {
-					repoName := strings.SplitN(addr, "/", 2)[0]
-					if pubErr := Publish(addr, agentName, tokenFor(repoName), st); pubErr != nil {
-						results = append(results, SyncResult{addr, agentName, "", pubErr})
-						continue
-					}
-					publishedAddrs[addr] = true
-				}
-				results = append(results, SyncResult{addr, agentName, SyncPublished, nil})
-
-			default:
-				// Already in sync.
-				results = append(results, SyncResult{addr, agentName, SyncAlreadyCurrent, nil})
-			}
-		}
+	if dryRun {
+		return nil, nil, nil
 	}
 
-	// Step 3: Second-pass update for sibling agents.
+	// Step 2: Reconcile and apply.
+	heads, headsErr := CollectRepoHeads(st)
+	if headsErr != nil {
+		return nil, nil, headsErr
+	}
+	plan := ReconcilePlan(st, heads)
+	results, conflicts, err = ApplySync(plan, tokenFor, st)
+	if err != nil {
+		return results, conflicts, err
+	}
+
+	// Step 3: Second-pass sibling re-check.
 	//
-	// When agent A's skill was published in step 2, the cache HEAD advanced.
-	// Agent B's copy of the same skill may have been evaluated before that
-	// publish and incorrectly marked already-current. Re-check every
-	// already-current result whose address was published and apply any
-	// update that is now visible.
-	if !dryRun {
-		for i, r := range results {
-			if r.Err != nil || r.Action != SyncAlreadyCurrent || !publishedAddrs[r.Addr] {
-				continue
-			}
-			recheck, checkErr := CheckUpdate(r.Addr, r.AgentName, st)
-			if checkErr != nil {
-				results[i] = SyncResult{r.Addr, r.AgentName, "", checkErr}
-				continue
-			}
-			if recheck.HasUpstream && !recheck.IsModified {
-				if applyErr := ApplyUpdate(r.Addr, r.AgentName, tokenFor(strings.SplitN(r.Addr, "/", 2)[0]), st); applyErr != nil {
-					results[i] = SyncResult{r.Addr, r.AgentName, "", applyErr}
-					continue
-				}
-				results[i] = SyncResult{r.Addr, r.AgentName, SyncUpdated, nil}
-			}
+	// Any publish in step 2 advanced the cache HEAD. Re-running ReconcilePlan
+	// on the updated state surfaces sibling agents that were marked
+	// already-current before the publish. Apply those updates now so a single
+	// Sync call fully converges.
+	heads2, heads2Err := CollectRepoHeads(st)
+	if heads2Err != nil {
+		return results, conflicts, fmt.Errorf("second-pass head collection: %w", heads2Err)
+	}
+	plan2 := ReconcilePlan(st, heads2)
+	secondResults, _, err2 := ApplySync(plan2, tokenFor, st)
+	if err2 != nil {
+		return results, conflicts, err2
+	}
+
+	// Merge second-pass updates into the main results.
+	// Any skill that was already-current in pass 1 but updated in pass 2 is
+	// upgraded so the caller sees the final resolved state.
+	resultIdx := make(map[string]int, len(results))
+	for i, r := range results {
+		resultIdx[r.Addr+"\x00"+r.AgentName] = i
+	}
+	for _, r := range secondResults {
+		if r.Action != SyncUpdated {
+			continue
+		}
+		key := r.Addr + "\x00" + r.AgentName
+		if i, ok := resultIdx[key]; ok && results[i].Action == SyncAlreadyCurrent {
+			results[i] = r
 		}
 	}
 

@@ -224,9 +224,12 @@ Resolve conflicts at sync time with:
 		}
 		fmt.Println()
 
-		if !dryRun && (updated > 0 || published > 0) {
-			if err := state.Save(st); err != nil {
-				return err
+		// state.Save for updates and publishes is handled inside skill.ApplySync
+		// (called by skill.Sync). Save here only when merge/LLM resolution ran,
+		// since those operations modify state after ApplySync returns.
+		if doMerge {
+			if saveErr := state.Save(st); saveErr != nil {
+				return saveErr
 			}
 		}
 

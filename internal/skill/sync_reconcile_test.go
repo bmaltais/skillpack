@@ -1,6 +1,7 @@
 package skill_test
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"testing"
@@ -287,5 +288,102 @@ func TestReconcilePlan_IsModifiedError(t *testing.T) {
 	}
 	if item.Action != skill.SyncAlreadyCurrent {
 		t.Errorf("want SyncAlreadyCurrent on error, got %q", item.Action)
+	}
+}
+
+// ─── ApplySync ──────────────────────────────────────────────────────────────
+
+// TestApplySync_AlreadyCurrent: plan items with SyncAlreadyCurrent are returned
+// in results without modification.
+func TestApplySync_AlreadyCurrent(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	st, _ := makeInstalledState(t, "repo/skill", "copilot", "# S", "sha", "")
+
+	plan := []skill.SyncPlanItem{
+		{Addr: "repo/skill", AgentName: "copilot", Action: skill.SyncAlreadyCurrent},
+	}
+	results, conflicts, err := skill.ApplySync(plan, nil, st)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Errorf("want 0 conflicts, got %d", len(conflicts))
+	}
+	if len(results) != 1 {
+		t.Fatalf("want 1 result, got %d", len(results))
+	}
+	if results[0].Action != skill.SyncAlreadyCurrent {
+		t.Errorf("want SyncAlreadyCurrent, got %q", results[0].Action)
+	}
+	if results[0].Err != nil {
+		t.Errorf("want no error, got %v", results[0].Err)
+	}
+}
+
+// TestApplySync_CollectsConflicts: SyncConflict plan items go to the conflicts
+// slice and do not appear in results.
+func TestApplySync_CollectsConflicts(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	st, _ := makeInstalledState(t, "repo/skill", "copilot", "# S", "sha", "")
+
+	plan := []skill.SyncPlanItem{
+		{Addr: "repo/skill", AgentName: "copilot", Action: skill.SyncConflict},
+	}
+	results, conflicts, err := skill.ApplySync(plan, nil, st)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("want 0 results, got %d", len(results))
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("want 1 conflict, got %d", len(conflicts))
+	}
+	if conflicts[0].Action != skill.SyncConflict {
+		t.Errorf("want SyncConflict, got %q", conflicts[0].Action)
+	}
+	if conflicts[0].Addr != "repo/skill" || conflicts[0].AgentName != "copilot" {
+		t.Errorf("unexpected conflict identity: %+v", conflicts[0])
+	}
+}
+
+// TestApplySync_PlanErrorPassthrough: plan items whose Err field is set are
+// forwarded as error results without attempting to apply the action.
+func TestApplySync_PlanErrorPassthrough(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	st := &state.State{
+		Repos:           map[string]state.RepoRecord{},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{},
+	}
+	planErr := fmt.Errorf("repo not found in cache")
+	plan := []skill.SyncPlanItem{
+		{Addr: "repo/skill", AgentName: "copilot", Action: skill.SyncAlreadyCurrent, Err: planErr},
+	}
+	results, conflicts, err := skill.ApplySync(plan, nil, st)
+	if err != nil {
+		t.Fatalf("unexpected fatal error: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Errorf("want 0 conflicts, got %d", len(conflicts))
+	}
+	if len(results) != 1 {
+		t.Fatalf("want 1 result, got %d", len(results))
+	}
+	if results[0].Err == nil {
+		t.Error("want Err propagated in result, got nil")
+	}
+}
+
+// TestApplySync_NilTokenFor: passing nil tokenFor does not panic.
+func TestApplySync_NilTokenFor(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	st, _ := makeInstalledState(t, "repo/skill", "copilot", "# S", "sha", "")
+
+	plan := []skill.SyncPlanItem{
+		{Addr: "repo/skill", AgentName: "copilot", Action: skill.SyncAlreadyCurrent},
+	}
+	_, _, err := skill.ApplySync(plan, nil, st)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

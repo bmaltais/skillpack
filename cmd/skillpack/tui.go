@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -1107,7 +1108,11 @@ func (m *model) updateSelectedSkill() {
 // command to open the file in the platform default viewer.
 func (m *model) viewSkillMdAt(path string) tea.Cmd {
 	if _, err := os.Stat(path); err != nil {
-		m.message = "✗ SKILL.md not found"
+		if errors.Is(err, os.ErrNotExist) {
+			m.message = "✗ SKILL.md not found"
+		} else {
+			m.message = fmt.Sprintf("✗ %v", err)
+		}
 		return nil
 	}
 	m.message = ""
@@ -1115,12 +1120,15 @@ func (m *model) viewSkillMdAt(path string) tea.Cmd {
 }
 
 // cmdViewSkillMd opens path in the platform default viewer by suspending the
-// TUI, launching the OS open command, then resuming when the viewer exits.
+// TUI until the launcher process exits. On macOS, "open -W" is used so the TUI
+// stays suspended until the viewer application itself closes. On Linux and
+// Windows, xdg-open/start return as soon as the viewer is launched, so the TUI
+// resumes promptly after the handoff.
 func cmdViewSkillMd(path string) tea.Cmd {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", path)
+		cmd = exec.Command("open", "-W", path)
 	case "windows":
 		cmd = exec.Command("cmd", "/c", "start", "", path)
 	default:

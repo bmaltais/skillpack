@@ -184,6 +184,7 @@ Resolve conflicts at sync time with:
 					fmt.Printf("  %-*s  %-*s  %s\n", addrW, c.Addr, agentW, c.AgentName, yellow("merged — conflicts written, resolve manually or use --llm"))
 				case mergeErr != nil:
 					fmt.Printf("  %-*s  %-*s  merge error: %v\n", addrW, c.Addr, agentW, c.AgentName, mergeErr)
+					errCount++
 				case llmResolved:
 					stateMutated = true
 					published++
@@ -238,5 +239,5 @@ func init() {
 	syncCmd.Flags().Bool("dry-run", false, "Show what would change without applying")
 	syncCmd.Flags().Bool("merge", false, "Attempt three-way merge for all conflicts")
 	syncCmd.Flags().String("llm", "", "LLM agent for conflict resolution (requires --merge); omit value to use default agent")
-	syncCmd.Flags().Lookup("llm").NoOptDefVal = "true"
+	syncCmd.Flags().Lookup("llm").NoOptDefVal = llmNoOptDefVal
 }

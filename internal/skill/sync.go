@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/bmaltais/skillpack/internal/gitops"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/state"
 )
@@ -24,6 +25,104 @@ type SyncResult struct {
 	AgentName string
 	Action    SyncAction
 	Err       error
+}
+
+// SyncPlanItem is the decision for one installed skill, computed without git or network I/O.
+// Err is non-nil when the plan for this skill could not be determined (e.g. repo not
+// registered, local-modification check failed). Callers should display Err and skip
+// the skill rather than acting on Action when Err != nil.
+type SyncPlanItem struct {
+	Addr      string
+	AgentName string
+	Action    SyncAction
+	Err       error
+}
+
+// ReconcilePlan determines the sync action for every installed skill using only
+// the data provided — no git or network I/O is performed inside this function.
+//
+// repoHeads maps repo name to the current HEAD SHA in the local cache (obtained
+// by the caller, e.g. via CollectRepoHeads, after any desired repo pulls).
+// Upstream-change detection compares InstalledAtSHA against the provided HEAD;
+// this is a coarser check than a file-level diff — a commit touching only unrelated
+// parts of the repo will still produce a SyncUpdated action.
+//
+// Local-modification detection calls IsModified, which hashes the installed
+// directory (local file reads; no git or network operations).
+//
+// If a skill's repo is not present in repoHeads, or if the local-modification
+// check fails, the returned SyncPlanItem has Err set and Action = SyncAlreadyCurrent.
+// Callers must check Err before acting on Action.
+//
+// To simulate the second-pass sibling re-check that Sync performs after
+// publishing, call ReconcilePlan a second time on the updated state.
+func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem {
+	var plan []SyncPlanItem
+	for addr, agents := range st.InstalledSkills {
+		for agentName, rec := range agents {
+			item := SyncPlanItem{Addr: addr, AgentName: agentName, Action: SyncAlreadyCurrent}
+
+			headSHA := repoHeadForRecord(addr, rec, repoHeads)
+			if headSHA == "" {
+				// Repo not found in repoHeads — state is inconsistent or the repo was removed.
+				var missingRepo string
+				if rec.UpstreamAddr != "" {
+					missingRepo = strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
+				} else {
+					missingRepo = strings.SplitN(addr, "/", 2)[0]
+				}
+				item.Err = fmt.Errorf("repo %q not found in local cache — run 'skillpack repo add' to register it", missingRepo)
+				plan = append(plan, item)
+				continue
+			}
+
+			hasUpstream := rec.InstalledAtSHA != headSHA
+
+			modified, modErr := IsModified(rec)
+			if modErr != nil {
+				item.Err = fmt.Errorf("checking local modifications: %w", modErr)
+				plan = append(plan, item)
+				continue
+			}
+
+			switch {
+			case hasUpstream && modified:
+				item.Action = SyncConflict
+			case hasUpstream && !modified:
+				item.Action = SyncUpdated
+			case modified && !hasUpstream:
+				item.Action = SyncPublished
+			}
+			plan = append(plan, item)
+		}
+	}
+	return plan
+}
+
+// repoHeadForRecord returns the relevant HEAD SHA for a skill record:
+// the upstream repo HEAD for forked skills, the skill's own repo HEAD otherwise.
+func repoHeadForRecord(addr string, rec state.InstalledSkillRecord, repoHeads map[string]string) string {
+	if rec.UpstreamAddr != "" {
+		upstreamRepoName := strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
+		return repoHeads[upstreamRepoName]
+	}
+	repoName := strings.SplitN(addr, "/", 2)[0]
+	return repoHeads[repoName]
+}
+
+// CollectRepoHeads reads the current HEAD SHA from each registered repo's local
+// cache. This is a local git read (no network). The resulting map is suitable for
+// passing directly to ReconcilePlan.
+func CollectRepoHeads(st *state.State) (map[string]string, error) {
+	heads := make(map[string]string, len(st.Repos))
+	for name, rec := range st.Repos {
+		sha, err := gitops.HeadSHA(rec.CachePath)
+		if err != nil {
+			return nil, fmt.Errorf("reading HEAD for repo %q: %w", name, err)
+		}
+		heads[name] = sha
+	}
+	return heads, nil
 }
 
 // Sync performs two-way reconciliation for all installed skills:

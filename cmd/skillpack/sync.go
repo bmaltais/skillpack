@@ -55,7 +55,76 @@ Resolve conflicts at sync time with:
 		}
 		fmt.Printf("%sSyncing %d installed skill(s)...\n", prefix, countInstalled(st))
 
-		results, conflicts, err := skill.Sync(dryRun, cfg.TokenForRepo, st)
+		// Dry-run: use ReconcilePlan (pure, no applying changes) to show what
+		// would happen. Repo caches are not pulled — output reflects current
+		// local cache state, matching the previous behaviour.
+		if dryRun {
+			repoHeads, headErr := skill.CollectRepoHeads(st)
+			if headErr != nil {
+				return headErr
+			}
+			plan := skill.ReconcilePlan(st, repoHeads)
+
+			// Sort for stable output.
+			sort.Slice(plan, func(i, j int) bool {
+				if plan[i].Addr != plan[j].Addr {
+					return plan[i].Addr < plan[j].Addr
+				}
+				return plan[i].AgentName < plan[j].AgentName
+			})
+
+			addrW := 5
+			agentW := 5
+			for _, p := range plan {
+				addrW = maxInt(addrW, len(p.Addr))
+				agentW = maxInt(agentW, len(p.AgentName))
+			}
+
+			var updated, published, current, conflicts, errCount int
+			for _, p := range plan {
+				if p.Err != nil {
+					fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, p.Addr, agentW, p.AgentName, p.Err)
+					errCount++
+					continue
+				}
+				switch p.Action {
+				case skill.SyncUpdated:
+					// Note: upstream detection uses InstalledAtSHA vs HEAD SHA (coarser than
+					// a file-level diff). A commit touching only unrelated paths in the repo
+					// will still appear as "would update" here.
+					fmt.Printf("  %-*s  %-*s  [dry-run] would update\n", addrW, p.Addr, agentW, p.AgentName)
+					updated++
+				case skill.SyncPublished:
+					fmt.Printf("  %-*s  %-*s  [dry-run] would publish\n", addrW, p.Addr, agentW, p.AgentName)
+					published++
+				case skill.SyncConflict:
+					fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, red("CONFLICT — resolve manually"))
+					conflicts++
+				case skill.SyncAlreadyCurrent:
+					current++
+				}
+			}
+			fmt.Printf("\n  %d updated, %d published, %d already current", updated, published, current)
+			if conflicts > 0 {
+				fmt.Printf(", %d conflict(s)", conflicts)
+			}
+			if errCount > 0 {
+				fmt.Printf(", %d error(s)", errCount)
+			}
+			fmt.Println()
+			if conflicts > 0 {
+				return fmt.Errorf(
+					"%d conflict(s) skipped — resolve with: skillpack update --force-remote|--force-local|--merge <addr>  (or rerun sync with --merge)",
+					conflicts,
+				)
+			}
+			if errCount > 0 {
+				return fmt.Errorf("%d skill(s) could not be planned — see errors above", errCount)
+			}
+			return nil
+		}
+
+		results, conflicts, err := skill.Sync(false, cfg.TokenForRepo, st)
 		if err != nil {
 			return err
 		}
@@ -88,25 +157,17 @@ Resolve conflicts at sync time with:
 				fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, r.Addr, agentW, r.AgentName, r.Err)
 				errCount++
 			case r.Action == skill.SyncUpdated:
-				tag := green("updated")
-				if dryRun {
-					tag = "[dry-run] would update"
-				}
-				fmt.Printf("  %-*s  %-*s  %s\n", addrW, r.Addr, agentW, r.AgentName, tag)
+				fmt.Printf("  %-*s  %-*s  %s\n", addrW, r.Addr, agentW, r.AgentName, green("updated"))
 				updated++
 			case r.Action == skill.SyncPublished:
-				tag := green("published")
-				if dryRun {
-					tag = "[dry-run] would publish"
-				}
-				fmt.Printf("  %-*s  %-*s  %s\n", addrW, r.Addr, agentW, r.AgentName, tag)
+				fmt.Printf("  %-*s  %-*s  %s\n", addrW, r.Addr, agentW, r.AgentName, green("published"))
 				published++
 			case r.Action == skill.SyncAlreadyCurrent:
 				current++
 			}
 		}
 		for _, c := range conflicts {
-			if doMerge && !dryRun {
+			if doMerge {
 				token := cfg.TokenForRepo(strings.SplitN(c.Addr, "/", 2)[0])
 				hadConflicts, mergeErr := skill.MergeSkill(c.Addr, c.AgentName, token, st)
 				if mergeErr != nil {

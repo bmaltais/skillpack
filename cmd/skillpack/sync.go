@@ -1,9 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -169,46 +169,27 @@ Resolve conflicts at sync time with:
 		stateMutated := false
 		for _, c := range conflicts {
 			if doMerge {
-				token := cfg.TokenForRepo(strings.SplitN(c.Addr, "/", 2)[0])
-				hadConflicts, mergeErr := skill.MergeSkill(c.Addr, c.AgentName, token, st)
-				if mergeErr != nil {
-					fmt.Printf("  %-*s  %-*s  merge error: %v\n", addrW, c.Addr, agentW, c.AgentName, mergeErr)
-					continue
-				}
-				if hadConflicts {
-					if llmAgent != "" {
-						agentName := llmAgent
-						if agentName == "true" || agentName == "" {
-							agentName = cfg.DefaultAgent
-						}
-						resolver, resolverErr := skill.NewDefaultLLMResolver(agentName)
-						if resolverErr != nil {
-							fmt.Printf("  %-*s  %-*s  %v\n", addrW, c.Addr, agentW, c.AgentName, resolverErr)
-							continue
-						}
-						if llmErr := skill.LLMResolveConflicts(c.Addr, c.AgentName, resolver, st); llmErr != nil {
-							fmt.Printf("  %-*s  %-*s  LLM error: %v\n", addrW, c.Addr, agentW, c.AgentName, llmErr)
-							continue
-						}
-						rec := st.InstalledSkills[c.Addr][c.AgentName]
-						if rec.UpstreamAddr != "" {
-							if pushErr := skill.PushForkAfterLLM(c.Addr, c.AgentName, token, st); pushErr != nil {
-								fmt.Printf("  %-*s  %-*s  push error: %v\n", addrW, c.Addr, agentW, c.AgentName, pushErr)
-								continue
-							}
-						} else {
-							if snapErr := skill.SnapshotInstalled(c.Addr, c.AgentName, st); snapErr != nil {
-								fmt.Printf("  %-*s  %-*s  snapshot error: %v\n", addrW, c.Addr, agentW, c.AgentName, snapErr)
-								continue
-							}
-						}
-						stateMutated = true
-						published++
-						fmt.Printf("  %-*s  %-*s  %s\n", addrW, c.Addr, agentW, c.AgentName, green("merged + LLM resolved"))
-					} else {
-						fmt.Printf("  %-*s  %-*s  %s\n", addrW, c.Addr, agentW, c.AgentName, yellow("merged — conflicts written, resolve manually or use --llm"))
+				token := cfg.TokenForRepo(repoNameFromAddr(c.Addr))
+				mergeStrategy := skill.ResolveMerge
+				effectiveLLMAgent := llmAgent
+				if llmAgent != "" {
+					mergeStrategy = skill.ResolveLLM
+					if effectiveLLMAgent == llmNoOptDefVal {
+						effectiveLLMAgent = cfg.DefaultAgent
 					}
-				} else {
+				}
+				llmResolved, mergeErr := skill.Resolve(c.Addr, c.AgentName, mergeStrategy, token, effectiveLLMAgent, st)
+				switch {
+				case errors.Is(mergeErr, skill.ErrMergeConflicts):
+					fmt.Printf("  %-*s  %-*s  %s\n", addrW, c.Addr, agentW, c.AgentName, yellow("merged — conflicts written, resolve manually or use --llm"))
+				case mergeErr != nil:
+					fmt.Printf("  %-*s  %-*s  merge error: %v\n", addrW, c.Addr, agentW, c.AgentName, mergeErr)
+					errCount++
+				case llmResolved:
+					stateMutated = true
+					published++
+					fmt.Printf("  %-*s  %-*s  %s\n", addrW, c.Addr, agentW, c.AgentName, green("merged + LLM resolved"))
+				default:
 					stateMutated = true
 					fmt.Printf("  %-*s  %-*s  %s\n", addrW, c.Addr, agentW, c.AgentName, green("merged cleanly"))
 				}
@@ -258,5 +239,5 @@ func init() {
 	syncCmd.Flags().Bool("dry-run", false, "Show what would change without applying")
 	syncCmd.Flags().Bool("merge", false, "Attempt three-way merge for all conflicts")
 	syncCmd.Flags().String("llm", "", "LLM agent for conflict resolution (requires --merge); omit value to use default agent")
-	syncCmd.Flags().Lookup("llm").NoOptDefVal = "true"
+	syncCmd.Flags().Lookup("llm").NoOptDefVal = llmNoOptDefVal
 }

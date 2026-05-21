@@ -66,9 +66,6 @@ var repoAddCmd = &cobra.Command{
 		if err := repo.Add(name, url, cfg.TokenForRepo(name), st); err != nil {
 			return err
 		}
-		if err := state.Save(st); err != nil {
-			return err
-		}
 
 		skills, _ := repo.DiscoverSkills(name, st)
 		fmt.Printf("Repo %q registered — %d skill(s) available.\n", name, len(skills))
@@ -122,9 +119,6 @@ var repoRemoveCmd = &cobra.Command{
 		if err := repo.Remove(name, st); err != nil {
 			return err
 		}
-		if err := state.Save(st); err != nil {
-			return err
-		}
 		fmt.Printf("Repo %q unregistered (local clone kept at ~/.skillpack/repos/%s)\n", name, name)
 		return nil
 	},
@@ -156,9 +150,6 @@ var repoUpdateCmd = &cobra.Command{
 			if err := repo.Update(name, cfg.TokenForRepo(name), st); err != nil {
 				errs = append(errs, fmt.Sprintf("  %s: %v", name, err))
 			}
-		}
-		if err := state.Save(st); err != nil {
-			return err
 		}
 		if len(errs) > 0 {
 			return fmt.Errorf("some repos failed to update:\n%s", strings.Join(errs, "\n"))

@@ -72,10 +72,6 @@ After forking:
 			return err
 		}
 
-		if err := state.Save(st); err != nil {
-			return err
-		}
-
 		fmt.Printf("  Forked: %s → %s (%s)\n", addr, newAddr, agentName)
 		fmt.Printf("  Upstream origin recorded. Use `skillpack update %s` to check for upstream changes.\n", newAddr)
 		return nil

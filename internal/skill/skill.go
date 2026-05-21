@@ -68,7 +68,10 @@ func Install(addr, agentName string, cfg *config.Config, st *state.State, skipEx
 	if err := loadForkProvenance(targetDir, &instRec); err != nil {
 		return err
 	}
-	return st.RecordInstall(addr, agentName, instRec)
+	if err := st.RecordInstall(addr, agentName, instRec); err != nil {
+		return err
+	}
+	return state.Save(st)
 }
 
 // Remove deletes an installed skill from an agent's skill dir.
@@ -96,7 +99,10 @@ func Remove(addr, agentName string, cfg *config.Config, st *state.State, force b
 		return fmt.Errorf("removing skill directory: %w", err)
 	}
 
-	return st.RecordRemove(addr, agentName)
+	if err := st.RecordRemove(addr, agentName); err != nil {
+		return err
+	}
+	return state.Save(st)
 }
 
 // IsModified returns true if the installed skill directory has changed since installation.

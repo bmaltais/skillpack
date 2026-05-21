@@ -92,9 +92,6 @@ Two modes:
 		if err := skill.Publish(addr, agentName, cfg.TokenForRepo(repoName), st); err != nil {
 			return err
 		}
-		if err := state.Save(st); err != nil {
-			return err
-		}
 		fmt.Printf("  Published: %s (%s)\n", addr, agentName)
 		return nil
 	},

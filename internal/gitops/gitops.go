@@ -102,6 +102,16 @@ func CommitAndPush(cachePath, skillRelPath, message, remoteURL, token string) (*
 		return &CommitResult{Committed: false}, nil
 	}
 
+	// Record the current HEAD ref before committing so we can roll back if the
+	// push fails. Without this, a dangling local commit advances the cache HEAD
+	// SHA and causes every other skill in the repo to appear as needing an
+	// update on subsequent syncs (issue #71).
+	headRef, err := r.Head()
+	if err != nil {
+		return nil, fmt.Errorf("getting HEAD before commit: %w", err)
+	}
+	preCommitRef := plumbing.NewHashReference(headRef.Name(), headRef.Hash())
+
 	sig := DefaultSignature()
 	commitHash, err := w.Commit(message, &gogit.CommitOptions{Author: sig, Committer: sig})
 	if err != nil {
@@ -109,6 +119,10 @@ func CommitAndPush(cachePath, skillRelPath, message, remoteURL, token string) (*
 	}
 
 	if err := push(r, remoteURL, token); err != nil {
+		// Roll back the local commit so the cache HEAD stays at the
+		// pre-commit SHA. Best-effort: ignore the reset error since we
+		// already have a push error to return.
+		_ = r.Storer.SetReference(preCommitRef)
 		return nil, err
 	}
 

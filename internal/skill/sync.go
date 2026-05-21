@@ -66,7 +66,7 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 			if headSHA == "" {
 				// Repo not found in repoHeads — state is inconsistent or the repo was removed.
 				var missingRepo string
-				if rec.UpstreamAddr != "" {
+					if IsFork(rec) {
 					missingRepo = strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
 				} else {
 					missingRepo = strings.SplitN(addr, "/", 2)[0]
@@ -102,7 +102,7 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 // repoHeadForRecord returns the relevant HEAD SHA for a skill record:
 // the upstream repo HEAD for forked skills, the skill's own repo HEAD otherwise.
 func repoHeadForRecord(addr string, rec state.InstalledSkillRecord, repoHeads map[string]string) string {
-	if rec.UpstreamAddr != "" {
+	if IsFork(rec) {
 		upstreamRepoName := strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
 		return repoHeads[upstreamRepoName]
 	}

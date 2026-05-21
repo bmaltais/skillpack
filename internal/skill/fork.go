@@ -19,8 +19,8 @@ func IsFork(rec state.InstalledSkillRecord) bool {
 
 // loadForkProvenance reads the .skillpack-fork metadata file from skillDir and
 // populates UpstreamAddr and UpstreamSHA on rec when the file is present.
-// It is the sole entry-point through which the fork metadata file is read
-// outside of fork.go itself.
+// Callers should use this instead of readForkMetadata directly so that
+// provenance loading stays co-located with its error-wrapping context.
 func loadForkProvenance(skillDir string, rec *state.InstalledSkillRecord) error {
 	meta, err := readForkMetadata(skillDir)
 	if err != nil {

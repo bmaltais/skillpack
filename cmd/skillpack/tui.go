@@ -1652,7 +1652,7 @@ func (m model) viewSkills(b *strings.Builder) {
 // first non-empty UpstreamAddr found.
 func (m model) upstreamAddr(addr string) string {
 	for _, rec := range m.st.InstalledSkills[addr] {
-		if rec.UpstreamAddr != "" {
+		if skill.IsFork(rec) {
 			return rec.UpstreamAddr
 		}
 	}

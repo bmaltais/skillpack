@@ -1117,6 +1117,7 @@ var (
 	inputStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
 	updateStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("117")) // cyan - update available
 	modifiedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("220")) // yellow - locally modified
+	forkStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // amber  - forked skill
 	conflictStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red - conflict
 	bannerStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("220")).Bold(true)
 	bannerBtnActive   = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("62")).Bold(true)
@@ -1343,16 +1344,35 @@ func (m model) viewSkills(b *strings.Builder) {
 			}
 		} else {
 			// Skill name
+			upstream := m.upstreamAddr(row.addr)
+			isFork := upstream != ""
+			const forkGlyph = " ⑂"
+			const forkGlyphW = 2 // visible columns: space + ⑂
 			label := fmt.Sprintf("     %s", row.relPath)
-			if len(label) > nameColW {
-				label = label[:nameColW-1] + "…"
-			}
-			nameStr := fmt.Sprintf("%-*s", nameColW+1, label)
-
-			if isSelected {
-				b.WriteString(selectedStyle.Render(nameStr))
+			if isFork {
+				// Reserve room for the glyph; truncate label if needed
+				maxLabelW := nameColW - forkGlyphW
+				if len(label) > maxLabelW {
+					label = label[:maxLabelW-1] + "…"
+				}
+				nameStr := fmt.Sprintf("%-*s", nameColW+1-forkGlyphW, label)
+				if isSelected {
+					b.WriteString(selectedStyle.Render(nameStr))
+				} else {
+					b.WriteString(nameStr)
+				}
+				b.WriteString(forkStyle.Render(forkGlyph))
+				b.WriteString(" ") // trailing pad to maintain column alignment
 			} else {
-				b.WriteString(nameStr)
+				if len(label) > nameColW {
+					label = label[:nameColW-1] + "…"
+				}
+				nameStr := fmt.Sprintf("%-*s", nameColW+1, label)
+				if isSelected {
+					b.WriteString(selectedStyle.Render(nameStr))
+				} else {
+					b.WriteString(nameStr)
+				}
 			}
 
 			// Agent cells
@@ -1425,6 +1445,16 @@ func (m model) viewSkills(b *strings.Builder) {
 	if m.message != "" {
 		b.WriteString(msgStyle.Render(" " + m.message))
 	} else {
+		// Show fork provenance when cursor is on a forked skill
+		if m.cursorRow >= 0 && m.cursorRow < len(m.rows) {
+			selRow := m.rows[m.cursorRow]
+			if selRow.kind == skillRow {
+				if upstream := m.upstreamAddr(selRow.addr); upstream != "" {
+					b.WriteString(forkStyle.Render(fmt.Sprintf(" ⑂ forked from %s", upstream)))
+					return
+				}
+			}
+		}
 		skillCount := 0
 		repoCount := 0
 		for _, r := range m.rows {
@@ -1436,6 +1466,18 @@ func (m model) viewSkills(b *strings.Builder) {
 		}
 		b.WriteString(dimStyle.Render(fmt.Sprintf(" %d skills in %d repos  •  %d agents", skillCount, repoCount, len(m.agents))))
 	}
+}
+
+// upstreamAddr returns the upstream skill address for a forked skill, or "" if
+// the skill at addr is not a fork. It checks all agent records and returns the
+// first non-empty UpstreamAddr found.
+func (m model) upstreamAddr(addr string) string {
+	for _, rec := range m.st.InstalledSkills[addr] {
+		if rec.UpstreamAddr != "" {
+			return rec.UpstreamAddr
+		}
+	}
+	return ""
 }
 
 func (m model) viewStatus(b *strings.Builder) {

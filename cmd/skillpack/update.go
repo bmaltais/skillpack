@@ -13,6 +13,10 @@ import (
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
+// llmNoOptDefVal is the sentinel value cobra injects when --llm is given without
+// an argument (set via NoOptDefVal in init). Must match the NoOptDefVal assignment.
+const llmNoOptDefVal = "true"
+
 var updateCmd = &cobra.Command{
 	Use:   "update [<repo>/<path/to/skill>]",
 	Short: "Check for and apply upstream updates to installed skills",
@@ -163,7 +167,7 @@ the upstream_sha recorded at fork time as the common base.`,
 						effectiveLLMAgent := llmAgent
 						if llmAgent != "" {
 							mergeStrategy = skill.ResolveLLM
-							if effectiveLLMAgent == "true" {
+							if effectiveLLMAgent == llmNoOptDefVal {
 								effectiveLLMAgent = cfg.DefaultAgent
 							}
 						}
@@ -223,8 +227,8 @@ func init() {
 	updateCmd.Flags().Bool("force-local", false, "Conflict resolution: local wins (pushes to remote)")
 	updateCmd.Flags().Bool("merge", false, "Conflict resolution: three-way file-level merge")
 	updateCmd.Flags().String("llm", "", "LLM agent for conflict resolution (requires --merge); omit value to use default agent")
-	// Allow --llm without a value; sentinel "true" means "use default agent".
-	updateCmd.Flags().Lookup("llm").NoOptDefVal = "true"
+	// Allow --llm without a value; llmNoOptDefVal ("true") means "use default agent".
+	updateCmd.Flags().Lookup("llm").NoOptDefVal = llmNoOptDefVal
 }
 
 func repoNameFromAddr(addr string) string {

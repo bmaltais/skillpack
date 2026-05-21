@@ -857,14 +857,7 @@ func (m *model) execFork(targetRepo string, mode skill.ForkMode) {
 		return
 	}
 
-	// Refresh installed state
-	m.installed = make(map[string]map[string]bool)
-	for addr, agents := range m.st.InstalledSkills {
-		m.installed[addr] = make(map[string]bool)
-		for agentName := range agents {
-			m.installed[addr][agentName] = true
-		}
-	}
+	m.refreshSkills()
 
 	m.message = fmt.Sprintf("🍴 Forked %s → %s", m.forkAddr, newAddr)
 	m.inputMode = modeNormal

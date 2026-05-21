@@ -260,13 +260,9 @@ func MergeSkill(addr, agentName, token string, st *state.State) (hasConflicts bo
 	}
 
 	if !hasConflicts {
-		hash, _ := ComputeHash(rec.LocalPath)
-		sha, _ := repo.HeadSHA(skillInfo.RepoName, st)
-		_ = st.RecordInstall(addr, agentName, state.InstalledSkillRecord{
-			InstalledAtSHA: sha,
-			InstalledHash:  hash,
-			LocalPath:      rec.LocalPath,
-		})
+		if err := SnapshotInstalled(addr, agentName, st); err != nil {
+			return false, err
+		}
 	}
 	return hasConflicts, nil
 }

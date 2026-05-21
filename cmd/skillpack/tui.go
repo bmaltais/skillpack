@@ -2065,8 +2065,9 @@ func cloneState(src *state.State) *state.State {
 		dst.Repos[k] = v
 	}
 	for addr, agents := range src.InstalledSkills {
+		dst.InstalledSkills[addr] = make(map[string]state.InstalledSkillRecord, len(agents))
 		for agent, rec := range agents {
-			_ = dst.RecordInstall(addr, agent, rec)
+			dst.InstalledSkills[addr][agent] = rec
 		}
 	}
 	return dst

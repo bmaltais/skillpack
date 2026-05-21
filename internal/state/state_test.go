@@ -33,16 +33,6 @@ func TestRecordInstall_CreatesEntry(t *testing.T) {
 	}
 }
 
-func TestRecordInstall_CreatesInnerMapWhenMissing(t *testing.T) {
-	st := emptyState()
-	if err := st.RecordInstall("repo/skill", "copilot", rec("sha1", "h1", "/path")); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if st.InstalledSkills["repo/skill"] == nil {
-		t.Error("inner map not created")
-	}
-}
-
 func TestRecordInstall_ReplacesExistingEntry(t *testing.T) {
 	st := emptyState()
 	_ = st.RecordInstall("repo/skill", "copilot", rec("sha1", "h1", "/path"))

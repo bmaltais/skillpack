@@ -191,7 +191,9 @@ func Fork(addr, forkRepo, agentName, token string, mode ForkMode, st *state.Stat
 	// Remove original state entry only when the fork address differs.
 	// If newAddr == addr, deleting addr would also delete the records we just wrote.
 	if newAddr != addr {
-		_ = st.RecordRemoveAll(addr)
+		if err := st.RecordRemoveAll(addr); err != nil {
+			return "", fmt.Errorf("removing old fork address %q from state: %w", addr, err)
+		}
 	}
 
 	return newAddr, nil

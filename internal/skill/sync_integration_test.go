@@ -21,6 +21,10 @@ import (
 // Both operations must complete in a single Sync call, regardless of the
 // (non-deterministic) order in which Go iterates the installed-skill map.
 func TestSync_SiblingUpdate_SinglePass(t *testing.T) {
+	// ApplySync (called inside Sync) persists state; redirect HOME so the
+	// write goes to a throw-away directory instead of ~/.skillpack/state.json.
+	t.Setenv("HOME", t.TempDir())
+
 	sig := &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()}
 
 	// --- Step 1: initialise the cache repo with an initial skill commit ---

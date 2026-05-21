@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/bmaltais/skillpack/internal/gitops"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/state"
 )
@@ -24,6 +25,79 @@ type SyncResult struct {
 	AgentName string
 	Action    SyncAction
 	Err       error
+}
+
+// SyncPlanItem is the decision for one installed skill, computed without I/O.
+type SyncPlanItem struct {
+	Addr      string
+	AgentName string
+	Action    SyncAction
+}
+
+// ReconcilePlan determines the sync action for every installed skill using only
+// the data provided — no git or network I/O is performed inside this function.
+//
+// repoHeads maps repo name to the current HEAD SHA in the local cache (obtained
+// by the caller, e.g. via CollectRepoHeads, after any desired repo pulls).
+// Upstream-change detection compares InstalledAtSHA against the provided HEAD;
+// this is a coarser check than a file-level diff — a commit touching unrelated
+// parts of the repo will still produce a SyncUpdated action.
+//
+// Local-modification detection calls IsModified, which hashes the installed
+// directory (local file reads; no git operations).
+//
+// To simulate the second-pass sibling re-check that Sync performs after
+// publishing, call ReconcilePlan a second time on the updated state.
+func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem {
+	var plan []SyncPlanItem
+	for addr, agents := range st.InstalledSkills {
+		for agentName, rec := range agents {
+			headSHA := repoHeadForRecord(addr, rec, repoHeads)
+			hasUpstream := headSHA != "" && rec.InstalledAtSHA != headSHA
+
+			modified, _ := IsModified(rec) // local hash check; error → assume not modified
+
+			var action SyncAction
+			switch {
+			case hasUpstream && modified:
+				action = SyncConflict
+			case hasUpstream && !modified:
+				action = SyncUpdated
+			case modified && !hasUpstream:
+				action = SyncPublished
+			default:
+				action = SyncAlreadyCurrent
+			}
+			plan = append(plan, SyncPlanItem{Addr: addr, AgentName: agentName, Action: action})
+		}
+	}
+	return plan
+}
+
+// repoHeadForRecord returns the relevant HEAD SHA for a skill record:
+// the upstream repo HEAD for forked skills, the skill's own repo HEAD otherwise.
+func repoHeadForRecord(addr string, rec state.InstalledSkillRecord, repoHeads map[string]string) string {
+	if rec.UpstreamAddr != "" {
+		upstreamRepoName := strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
+		return repoHeads[upstreamRepoName]
+	}
+	repoName := strings.SplitN(addr, "/", 2)[0]
+	return repoHeads[repoName]
+}
+
+// CollectRepoHeads reads the current HEAD SHA from each registered repo's local
+// cache. This is a local git read (no network). The resulting map is suitable for
+// passing directly to ReconcilePlan.
+func CollectRepoHeads(st *state.State) (map[string]string, error) {
+	heads := make(map[string]string, len(st.Repos))
+	for name, rec := range st.Repos {
+		sha, err := gitops.HeadSHA(rec.CachePath)
+		if err != nil {
+			return nil, fmt.Errorf("reading HEAD for repo %q: %w", name, err)
+		}
+		heads[name] = sha
+	}
+	return heads, nil
 }
 
 // Sync performs two-way reconciliation for all installed skills:

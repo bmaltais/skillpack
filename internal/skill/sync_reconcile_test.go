@@ -241,9 +241,9 @@ func TestReconcilePlan_SecondPass(t *testing.T) {
 	}
 }
 
-// ─── Unknown / empty repo ────────────────────────────────────────────────────
+// ─── Error cases ────────────────────────────────────────────────────────────
 
-// TestReconcilePlan_UnknownRepo: repo not in repoHeads → treated as no upstream change.
+// TestReconcilePlan_UnknownRepo: repo not in repoHeads → item has Err set.
 func TestReconcilePlan_UnknownRepo(t *testing.T) {
 	st, _ := makeInstalledState(t, "unknownrepo/skill", "copilot", "# Skill", "sha-abc", "")
 	repoHeads := map[string]string{} // empty — repo not present
@@ -251,8 +251,41 @@ func TestReconcilePlan_UnknownRepo(t *testing.T) {
 	plan := skill.ReconcilePlan(st, repoHeads)
 
 	item := planByAddr(plan, "unknownrepo/skill", "copilot")
-	// headSHA will be "" → hasUpstream=false, not modified → already current
+	if item.Err == nil {
+		t.Error("want Err != nil for unknown repo, got nil")
+	}
 	if item.Action != skill.SyncAlreadyCurrent {
 		t.Errorf("want SyncAlreadyCurrent for unknown repo, got %q", item.Action)
+	}
+}
+
+// TestReconcilePlan_IsModifiedError: LocalPath contains an invalid character (null byte)
+// so os.Stat returns EINVAL (not ErrNotExist), causing IsModified to propagate the error.
+func TestReconcilePlan_IsModifiedError(t *testing.T) {
+	repoName := "myrepo"
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			repoName: {CachePath: t.TempDir()},
+		},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			"myrepo/coding/debugger": {
+				"copilot": {
+					InstalledAtSHA: "sha-abc",
+					InstalledHash:  "sha256:something",
+					LocalPath:      "/invalid\x00path", // null byte → EINVAL, not ErrNotExist
+				},
+			},
+		},
+	}
+	repoHeads := map[string]string{repoName: "sha-abc"} // same SHA so no upstream change
+
+	plan := skill.ReconcilePlan(st, repoHeads)
+
+	item := planByAddr(plan, "myrepo/coding/debugger", "copilot")
+	if item.Err == nil {
+		t.Error("want Err != nil when LocalPath is invalid, got nil")
+	}
+	if item.Action != skill.SyncAlreadyCurrent {
+		t.Errorf("want SyncAlreadyCurrent on error, got %q", item.Action)
 	}
 }

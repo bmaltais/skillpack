@@ -27,11 +27,15 @@ type SyncResult struct {
 	Err       error
 }
 
-// SyncPlanItem is the decision for one installed skill, computed without I/O.
+// SyncPlanItem is the decision for one installed skill, computed without git or network I/O.
+// Err is non-nil when the plan for this skill could not be determined (e.g. repo not
+// registered, local-modification check failed). Callers should display Err and skip
+// the skill rather than acting on Action when Err != nil.
 type SyncPlanItem struct {
 	Addr      string
 	AgentName string
 	Action    SyncAction
+	Err       error
 }
 
 // ReconcilePlan determines the sync action for every installed skill using only
@@ -40,11 +44,15 @@ type SyncPlanItem struct {
 // repoHeads maps repo name to the current HEAD SHA in the local cache (obtained
 // by the caller, e.g. via CollectRepoHeads, after any desired repo pulls).
 // Upstream-change detection compares InstalledAtSHA against the provided HEAD;
-// this is a coarser check than a file-level diff — a commit touching unrelated
+// this is a coarser check than a file-level diff — a commit touching only unrelated
 // parts of the repo will still produce a SyncUpdated action.
 //
 // Local-modification detection calls IsModified, which hashes the installed
-// directory (local file reads; no git operations).
+// directory (local file reads; no git or network operations).
+//
+// If a skill's repo is not present in repoHeads, or if the local-modification
+// check fails, the returned SyncPlanItem has Err set and Action = SyncAlreadyCurrent.
+// Callers must check Err before acting on Action.
 //
 // To simulate the second-pass sibling re-check that Sync performs after
 // publishing, call ReconcilePlan a second time on the updated state.
@@ -52,23 +60,40 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 	var plan []SyncPlanItem
 	for addr, agents := range st.InstalledSkills {
 		for agentName, rec := range agents {
+			item := SyncPlanItem{Addr: addr, AgentName: agentName, Action: SyncAlreadyCurrent}
+
 			headSHA := repoHeadForRecord(addr, rec, repoHeads)
-			hasUpstream := headSHA != "" && rec.InstalledAtSHA != headSHA
+			if headSHA == "" {
+				// Repo not found in repoHeads — state is inconsistent or the repo was removed.
+				var missingRepo string
+				if rec.UpstreamAddr != "" {
+					missingRepo = strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
+				} else {
+					missingRepo = strings.SplitN(addr, "/", 2)[0]
+				}
+				item.Err = fmt.Errorf("repo %q not found in local cache — run 'skillpack repo add' to register it", missingRepo)
+				plan = append(plan, item)
+				continue
+			}
 
-			modified, _ := IsModified(rec) // local hash check; error → assume not modified
+			hasUpstream := rec.InstalledAtSHA != headSHA
 
-			var action SyncAction
+			modified, modErr := IsModified(rec)
+			if modErr != nil {
+				item.Err = fmt.Errorf("checking local modifications: %w", modErr)
+				plan = append(plan, item)
+				continue
+			}
+
 			switch {
 			case hasUpstream && modified:
-				action = SyncConflict
+				item.Action = SyncConflict
 			case hasUpstream && !modified:
-				action = SyncUpdated
+				item.Action = SyncUpdated
 			case modified && !hasUpstream:
-				action = SyncPublished
-			default:
-				action = SyncAlreadyCurrent
+				item.Action = SyncPublished
 			}
-			plan = append(plan, SyncPlanItem{Addr: addr, AgentName: agentName, Action: action})
+			plan = append(plan, item)
 		}
 	}
 	return plan

@@ -80,10 +80,18 @@ Resolve conflicts at sync time with:
 				agentW = maxInt(agentW, len(p.AgentName))
 			}
 
-			var updated, published, current, conflicts int
+			var updated, published, current, conflicts, errCount int
 			for _, p := range plan {
+				if p.Err != nil {
+					fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, p.Addr, agentW, p.AgentName, p.Err)
+					errCount++
+					continue
+				}
 				switch p.Action {
 				case skill.SyncUpdated:
+					// Note: upstream detection uses InstalledAtSHA vs HEAD SHA (coarser than
+					// a file-level diff). A commit touching only unrelated paths in the repo
+					// will still appear as "would update" here.
 					fmt.Printf("  %-*s  %-*s  [dry-run] would update\n", addrW, p.Addr, agentW, p.AgentName)
 					updated++
 				case skill.SyncPublished:
@@ -100,12 +108,18 @@ Resolve conflicts at sync time with:
 			if conflicts > 0 {
 				fmt.Printf(", %d conflict(s)", conflicts)
 			}
+			if errCount > 0 {
+				fmt.Printf(", %d error(s)", errCount)
+			}
 			fmt.Println()
 			if conflicts > 0 {
 				return fmt.Errorf(
 					"%d conflict(s) skipped — resolve with: skillpack update --force-remote|--force-local|--merge <addr>  (or rerun sync with --merge)",
 					conflicts,
 				)
+			}
+			if errCount > 0 {
+				return fmt.Errorf("%d skill(s) could not be planned — see errors above", errCount)
 			}
 			return nil
 		}
@@ -145,7 +159,7 @@ Resolve conflicts at sync time with:
 			case r.Action == skill.SyncUpdated:
 				fmt.Printf("  %-*s  %-*s  %s\n", addrW, r.Addr, agentW, r.AgentName, green("updated"))
 				updated++
-				case r.Action == skill.SyncPublished:
+			case r.Action == skill.SyncPublished:
 				fmt.Printf("  %-*s  %-*s  %s\n", addrW, r.Addr, agentW, r.AgentName, green("published"))
 				published++
 			case r.Action == skill.SyncAlreadyCurrent:

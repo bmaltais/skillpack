@@ -1362,7 +1362,6 @@ func (m model) viewSkills(b *strings.Builder) {
 					b.WriteString(nameStr)
 				}
 				b.WriteString(forkStyle.Render(forkGlyph))
-				b.WriteString(" ") // trailing pad to maintain column alignment
 			} else {
 				if len(label) > nameColW {
 					label = label[:nameColW-1] + "…"
@@ -1450,7 +1449,11 @@ func (m model) viewSkills(b *strings.Builder) {
 			selRow := m.rows[m.cursorRow]
 			if selRow.kind == skillRow {
 				if upstream := m.upstreamAddr(selRow.addr); upstream != "" {
-					b.WriteString(forkStyle.Render(fmt.Sprintf(" ⑂ forked from %s", upstream)))
+					line := fmt.Sprintf(" ⑂ forked from %s", upstream)
+					if m.width > 2 && len(line) > m.width-2 {
+						line = line[:m.width-3] + "…"
+					}
+					b.WriteString(forkStyle.Render(line))
 					return
 				}
 			}

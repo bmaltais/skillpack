@@ -8,9 +8,9 @@ import (
 )
 
 // ErrMergeConflicts is returned by Resolve when a three-way merge wrote conflict
-// markers into one or more installed files. The caller should prompt the user to
-// resolve manually or retry with ResolveLLM.
-var ErrMergeConflicts = errors.New("merge produced conflicts — resolve manually or use --llm")
+// markers into one or more installed files. Callers should prompt the user to
+// resolve manually or retry with a resolution strategy.
+var ErrMergeConflicts = errors.New("merge produced conflicts")
 
 // ResolveStrategy names the conflict resolution strategy for skill.Resolve.
 type ResolveStrategy string
@@ -38,8 +38,9 @@ const (
 // token is the auth token for git operations against the skill's remote repo.
 // llmAgentName is only used for the ResolveLLM strategy; pass "" for all others.
 //
-// The returned bool is true when ResolveLLM was used and the LLM resolved at least
-// one conflict, allowing callers to display distinct output for that outcome.
+// The returned bool is true when the ResolveLLM pipeline was invoked (MergeSkill
+// detected conflicts and LLMResolveConflicts was called). It is only meaningful
+// when err == nil; callers must not inspect it when err != nil.
 func Resolve(addr, agentName string, strategy ResolveStrategy, token, llmAgentName string, st *state.State) (bool, error) {
 	switch strategy {
 	case ResolveForceRemote:
@@ -56,6 +57,9 @@ func Resolve(addr, agentName string, strategy ResolveStrategy, token, llmAgentNa
 		}
 		return false, nil
 	case ResolveLLM:
+		if llmAgentName == "" {
+			return false, fmt.Errorf("ResolveLLM requires a non-empty llmAgentName")
+		}
 		hadConflicts, err := MergeSkill(addr, agentName, token, st)
 		if err != nil {
 			return false, err
@@ -73,9 +77,15 @@ func Resolve(addr, agentName string, strategy ResolveStrategy, token, llmAgentNa
 		}
 		rec := st.InstalledSkills[addr][agentName]
 		if IsFork(rec) {
-			return true, PushForkAfterLLM(addr, agentName, token, st)
+			if err := PushForkAfterLLM(addr, agentName, token, st); err != nil {
+				return false, err
+			}
+			return true, nil
 		}
-		return true, SnapshotInstalled(addr, agentName, st)
+		if err := SnapshotInstalled(addr, agentName, st); err != nil {
+			return false, err
+		}
+		return true, nil
 	default:
 		return false, fmt.Errorf("unknown resolve strategy %q", strategy)
 	}

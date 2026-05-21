@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -136,7 +137,7 @@ the upstream_sha recorded at fork time as the common base.`,
 				switch {
 				case forceRemote:
 					if !dryRun {
-						if err := skill.Resolve(t.addr, t.agent, skill.ResolveForceRemote, cfg.TokenForRepo(repoNameFromAddr(t.addr)), st); err != nil {
+						if _, err := skill.Resolve(t.addr, t.agent, skill.ResolveForceRemote, cfg.TokenForRepo(repoNameFromAddr(t.addr)), "", st); err != nil {
 							return err
 						}
 						fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("force-remote applied"))
@@ -147,7 +148,7 @@ the upstream_sha recorded at fork time as the common base.`,
 
 				case forceLocal:
 					if !dryRun {
-						if err := skill.Resolve(t.addr, t.agent, skill.ResolveForceLocal, cfg.TokenForRepo(repoNameFromAddr(t.addr)), st); err != nil {
+						if _, err := skill.Resolve(t.addr, t.agent, skill.ResolveForceLocal, cfg.TokenForRepo(repoNameFromAddr(t.addr)), "", st); err != nil {
 							return err
 						}
 						fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("force-local applied (pushed to remote)"))
@@ -158,43 +159,25 @@ the upstream_sha recorded at fork time as the common base.`,
 
 				case doMerge:
 					if !dryRun {
-						token := cfg.TokenForRepo(repoNameFromAddr(t.addr))
-						hadConflicts, err := skill.MergeSkill(t.addr, t.agent, token, st)
-						if err != nil {
-							return err
-						}
-						if hadConflicts {
-							if llmAgent != "" {
-								agentName := llmAgent
-								if agentName == "true" || agentName == "" {
-									agentName = cfg.DefaultAgent
-								}
-								resolver, err := skill.NewDefaultLLMResolver(agentName)
-								if err != nil {
-									return err
-								}
-								if err := skill.LLMResolveConflicts(t.addr, t.agent, resolver, st); err != nil {
-									return err
-								}
-								// Push resolved result to fork repo if applicable;
-								// otherwise snapshot state so future updates use the
-								// resolved files as the new baseline.
-								rec := st.InstalledSkills[t.addr][t.agent]
-								if rec.UpstreamAddr != "" {
-									if pushErr := skill.PushForkAfterLLM(t.addr, t.agent, token, st); pushErr != nil {
-										return pushErr
-									}
-								} else {
-									if snapErr := skill.SnapshotInstalled(t.addr, t.agent, st); snapErr != nil {
-										return snapErr
-									}
-								}
-								fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("merged + LLM resolved"))
-								changed = true
-							} else {
-								fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, yellow("merged — conflicts written, resolve manually or use --llm"))
+						mergeStrategy := skill.ResolveMerge
+						effectiveLLMAgent := llmAgent
+						if llmAgent != "" {
+							mergeStrategy = skill.ResolveLLM
+							if effectiveLLMAgent == "true" {
+								effectiveLLMAgent = cfg.DefaultAgent
 							}
-						} else {
+						}
+						token := cfg.TokenForRepo(repoNameFromAddr(t.addr))
+						llmResolved, err := skill.Resolve(t.addr, t.agent, mergeStrategy, token, effectiveLLMAgent, st)
+						switch {
+						case errors.Is(err, skill.ErrMergeConflicts):
+							fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, yellow("merged — conflicts written, resolve manually or use --llm"))
+						case err != nil:
+							return err
+						case llmResolved:
+							fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("merged + LLM resolved"))
+							changed = true
+						default:
 							fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("merged cleanly"))
 							changed = true
 						}

@@ -88,7 +88,7 @@ func CheckUpdate(addr, agentName string, st *state.State) (*UpdateResult, error)
 func ApplyUpdate(addr, agentName, token string, st *state.State) error {
 	rec := st.InstalledSkills[addr][agentName]
 
-	if rec.UpstreamAddr != "" {
+	if IsFork(rec) {
 		// Forked skill: take files from the upstream origin, then push to fork.
 		upstreamInfo, err := repo.FindSkill(rec.UpstreamAddr, st)
 		if err != nil {
@@ -194,7 +194,7 @@ func ForceLocal(addr, agentName, token string, st *state.State) error {
 	}
 	// For forked skills, acknowledge that upstream changes have been dealt with
 	// by updating UpstreamSHA to the current upstream HEAD.
-	if rec.UpstreamAddr != "" {
+	if IsFork(rec) {
 		upstreamRepoName := strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
 		if upstreamSHA, shaErr := repo.HeadSHA(upstreamRepoName, st); shaErr == nil {
 			newRec.UpstreamSHA = upstreamSHA
@@ -215,7 +215,7 @@ func ForceLocal(addr, agentName, token string, st *state.State) error {
 func MergeSkill(addr, agentName, token string, st *state.State) (hasConflicts bool, err error) {
 	rec := st.InstalledSkills[addr][agentName]
 
-	if rec.UpstreamAddr != "" {
+	if IsFork(rec) {
 		return mergeForkSkill(addr, agentName, token, rec, st)
 	}
 
@@ -341,7 +341,7 @@ func mergeForkSkill(addr, agentName, token string, rec state.InstalledSkillRecor
 // For normal skills: checks between installed_at_sha and repo HEAD.
 // For forked skills: checks upstream origin between upstream_sha and upstream HEAD.
 func hasUpstreamChange(addr string, rec state.InstalledSkillRecord, st *state.State) (bool, error) {
-	if rec.UpstreamAddr != "" {
+	if IsFork(rec) {
 		return hasUpstreamOriginChange(rec, st)
 	}
 

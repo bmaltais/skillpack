@@ -11,6 +11,28 @@ import (
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
+// IsFork reports whether a skill record represents a forked skill — one that
+// was copied from an upstream origin and may need upstream-sync operations.
+func IsFork(rec state.InstalledSkillRecord) bool {
+	return rec.UpstreamAddr != ""
+}
+
+// loadForkProvenance reads the .skillpack-fork metadata file from skillDir and
+// populates UpstreamAddr and UpstreamSHA on rec when the file is present.
+// Callers should use this instead of readForkMetadata directly so that
+// provenance loading stays co-located with its error-wrapping context.
+func loadForkProvenance(skillDir string, rec *state.InstalledSkillRecord) error {
+	meta, err := readForkMetadata(skillDir)
+	if err != nil {
+		return fmt.Errorf("reading fork provenance metadata: %w", err)
+	}
+	if meta != nil {
+		rec.UpstreamAddr = meta.UpstreamAddr
+		rec.UpstreamSHA = meta.UpstreamSHA
+	}
+	return nil
+}
+
 // ForkMode controls how Fork handles a destination that already contains a
 // skill directory with unknown provenance.
 type ForkMode int
@@ -48,7 +70,7 @@ func Fork(addr, forkRepo, agentName, token string, mode ForkMode, st *state.Stat
 
 	// Prevent forking a fork (multi-hop)
 	for sourceAgentName, sourceRec := range agents {
-		if sourceRec.UpstreamAddr != "" {
+		if IsFork(sourceRec) {
 			return "", fmt.Errorf(
 				"skill %q is already a fork of %q for agent %q — multi-hop forks are not supported",
 				addr, sourceRec.UpstreamAddr, sourceAgentName,
@@ -207,7 +229,7 @@ func PushForkAfterLLM(addr, agentName, token string, st *state.State) error {
 	if !ok {
 		return fmt.Errorf("skill %q not installed for agent %q", addr, agentName)
 	}
-	if rec.UpstreamAddr == "" {
+	if !IsFork(rec) {
 		return nil // non-forked skill — nothing to push
 	}
 	upstreamRepoName := strings.SplitN(rec.UpstreamAddr, "/", 2)[0]

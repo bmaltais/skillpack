@@ -1,3 +1,8 @@
+// Package-private fork metadata I/O. This file centralizes the low-level
+// reads and writes for the .skillpack-fork file.
+// Within package skill, fork.go owns direct calls to readForkMetadata and
+// writeForkMetadata; other files should use higher-level helpers such as
+// IsFork and loadForkProvenance instead of duplicating this logic.
 package skill
 
 import (

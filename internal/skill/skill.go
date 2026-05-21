@@ -51,11 +51,6 @@ func Install(addr, agentName string, cfg *config.Config, st *state.State, skipEx
 		return fmt.Errorf("copying skill files: %w", err)
 	}
 
-	meta, err := readForkMetadata(targetDir)
-	if err != nil {
-		return fmt.Errorf("reading fork provenance metadata: %w", err)
-	}
-
 	hash, err := ComputeHash(targetDir)
 	if err != nil {
 		return fmt.Errorf("computing installed hash: %w", err)
@@ -70,9 +65,8 @@ func Install(addr, agentName string, cfg *config.Config, st *state.State, skipEx
 		InstalledHash:  hash,
 		LocalPath:      targetDir,
 	}
-	if meta != nil {
-		instRec.UpstreamAddr = meta.UpstreamAddr
-		instRec.UpstreamSHA = meta.UpstreamSHA
+	if err := loadForkProvenance(targetDir, &instRec); err != nil {
+		return err
 	}
 	return st.RecordInstall(addr, agentName, instRec)
 }

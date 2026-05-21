@@ -11,6 +11,28 @@ import (
 )
 
 // ---------------------------------------------------------------------------
+// IsFork predicate tests
+// ---------------------------------------------------------------------------
+
+func TestIsFork_FalseForPlainSkill(t *testing.T) {
+	rec := state.InstalledSkillRecord{LocalPath: "/some/path", InstalledAtSHA: "abc", InstalledHash: "h"}
+	if skill.IsFork(rec) {
+		t.Error("expected IsFork to return false for a skill with no UpstreamAddr")
+	}
+}
+
+func TestIsFork_TrueForForkedSkill(t *testing.T) {
+	rec := state.InstalledSkillRecord{
+		LocalPath:    "/some/path",
+		UpstreamAddr: "origin-repo/debugger",
+		UpstreamSHA:  "deadbeef",
+	}
+	if !skill.IsFork(rec) {
+		t.Error("expected IsFork to return true for a skill with UpstreamAddr set")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // LLM resolution tests
 // ---------------------------------------------------------------------------
 

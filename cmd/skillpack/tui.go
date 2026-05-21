@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -94,6 +96,7 @@ const (
 	modeAddRepoURL
 	modeConfirmRemove
 	modeForkSelectRepo
+	modeForkResolveChoice
 )
 
 // --- Model ---
@@ -121,8 +124,9 @@ type model struct {
 	inputMode   inputMode
 	inputBuffer string
 	newRepoName string
-	forkAddr    string // skill address being forked
-	forkCursor  int    // cursor for fork repo selection
+	forkAddr       string // skill address being forked
+	forkCursor     int    // cursor for fork repo selection
+	forkTargetRepo string // repo chosen in modeForkSelectRepo, kept for modeForkResolveChoice
 
 	// Status info per skill+agent
 	statusInfo   map[string]map[string]string // addr → agent → status text
@@ -607,6 +611,22 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 		case tea.KeyCtrlC:
 			return *m, tea.Quit
 		}
+
+	case modeForkResolveChoice:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.inputMode = modeNormal
+			m.message = ""
+		case tea.KeyRunes:
+			switch msg.String() {
+			case "1":
+				m.execFork(m.forkTargetRepo, skill.ForkModeOverride)
+			case "2":
+				m.execFork(m.forkTargetRepo, skill.ForkModeRegister)
+			}
+		case tea.KeyCtrlC:
+			return *m, tea.Quit
+		}
 	}
 	return *m, nil
 }
@@ -797,10 +817,31 @@ func (m *model) doFork() {
 	}
 
 	targetRepo := m.repoList[m.forkCursor].name
+
+	// Check for unknown provenance before calling Fork — if destination already
+	// exists in the repo cache but has no state entry, show the resolution overlay.
+	skillName := filepath.Base(m.forkAddr)
+	newAddr := targetRepo + "/" + skillName
+	forkRec := m.st.Repos[targetRepo]
+	forkDestPath := filepath.Join(forkRec.CachePath, skillName)
+	_, destStatErr := os.Stat(forkDestPath)
+	destExists := destStatErr == nil
+	_, stateKnown := m.st.InstalledSkills[newAddr]
+	if destExists && !stateKnown {
+		m.forkTargetRepo = targetRepo
+		m.inputMode = modeForkResolveChoice
+		m.message = ""
+		return
+	}
+
+	m.execFork(targetRepo, skill.ForkModeAuto)
+}
+
+func (m *model) execFork(targetRepo string, mode skill.ForkMode) {
 	agent := m.agents[m.cursorCol]
 	token := m.cfg.TokenForRepo(targetRepo)
 
-	newAddr, err := skill.Fork(m.forkAddr, targetRepo, agent, token, m.st)
+	newAddr, err := skill.Fork(m.forkAddr, targetRepo, agent, token, mode, m.st)
 	if err != nil {
 		m.message = fmt.Sprintf("✗ Fork failed: %v", err)
 		m.inputMode = modeNormal
@@ -1146,6 +1187,24 @@ func (m model) View() string {
 }
 
 func (m model) viewSkills(b *strings.Builder) {
+	// Fork unknown-provenance resolution overlay
+	if m.inputMode == modeForkResolveChoice {
+		skillName := filepath.Base(m.forkAddr)
+		b.WriteString(inputStyle.Render(fmt.Sprintf(" %q already exists in %q with unknown provenance", skillName, m.forkTargetRepo)))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render(" This skill was not installed by skillpack. How should we proceed?"))
+		b.WriteString("\n\n")
+		b.WriteString(fmt.Sprintf(" %s  Override — replace existing with a fresh fork\n", inputStyle.Render(" 1 ")))
+		b.WriteString(fmt.Sprintf(" %s  Register — keep existing, record it as a fork of %s\n", inputStyle.Render(" 2 "), m.forkAddr))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render(" Press 1 or 2 to choose • Esc to cancel"))
+		b.WriteString("\n")
+		if m.message != "" {
+			b.WriteString(msgStyle.Render(" " + m.message))
+		}
+		return
+	}
+
 	// Fork repo selection overlay
 	if m.inputMode == modeForkSelectRepo {
 		b.WriteString(inputStyle.Render(fmt.Sprintf(" Fork %q into which repo?", m.forkAddr)))

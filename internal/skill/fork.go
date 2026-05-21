@@ -11,6 +11,20 @@ import (
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
+// ForkMode controls how Fork handles a destination that already contains a
+// skill directory with unknown provenance.
+type ForkMode int
+
+const (
+	// ForkModeAuto is the default: error on unknown provenance.
+	ForkModeAuto ForkMode = iota
+	// ForkModeOverride removes the existing destination and forks fresh.
+	ForkModeOverride
+	// ForkModeRegister keeps the existing directory and retroactively
+	// registers it as a fork of the source.
+	ForkModeRegister
+)
+
 // Fork copies an installed skill into the user's own repo, commits, pushes,
 // and re-registers state so the skill is now tracked under the fork address.
 // The original skill address and upstream HEAD SHA are recorded in state so
@@ -20,7 +34,8 @@ import (
 // forkRepo  — name of the target repo (must already be registered via `skillpack repo add`)
 // agentName — which agent's installed copy to fork
 // token     — optional OAuth/PAT token for pushing to forkRepo over HTTPS
-func Fork(addr, forkRepo, agentName, token string, st *state.State) (newAddr string, err error) {
+// mode      — how to handle unknown provenance at the destination
+func Fork(addr, forkRepo, agentName, token string, mode ForkMode, st *state.State) (newAddr string, err error) {
 	// Validate skill is installed
 	agents, ok := st.InstalledSkills[addr]
 	if !ok {
@@ -68,34 +83,46 @@ func Fork(addr, forkRepo, agentName, token string, st *state.State) (newAddr str
 	if destExists {
 		forkAgents, ok := st.InstalledSkills[newAddr]
 		if !ok {
-			return "", fmt.Errorf(
-				"skill %q already exists in repo %q but has unknown fork provenance in state; install and register %q first or remove it from the destination repo",
-				skillName, forkRepo, newAddr,
-			)
-		}
-		for _, forkStateRec := range forkAgents {
-			if forkStateRec.UpstreamAddr != addr {
-				conflictingUpstream := forkStateRec.UpstreamAddr
-				if conflictingUpstream == "" {
-					conflictingUpstream = "(not tracked as a fork)"
-				}
+			switch mode {
+			case ForkModeOverride:
+				// User chose to overwrite — fall through to remove + copy
+			case ForkModeRegister:
+				// User chose to register existing dir — skip copy below
+			default:
 				return "", fmt.Errorf(
-					"skill %q already exists in repo %q and is tracked as a fork of %q, not %q",
-					skillName, forkRepo, conflictingUpstream, addr,
+					"skill %q already exists in repo %q but has unknown fork provenance in state; install and register %q first or remove it from the destination repo",
+					skillName, forkRepo, newAddr,
 				)
+			}
+		} else {
+			for _, forkStateRec := range forkAgents {
+				if forkStateRec.UpstreamAddr != addr {
+					conflictingUpstream := forkStateRec.UpstreamAddr
+					if conflictingUpstream == "" {
+						conflictingUpstream = "(not tracked as a fork)"
+					}
+					return "", fmt.Errorf(
+						"skill %q already exists in repo %q and is tracked as a fork of %q, not %q",
+						skillName, forkRepo, conflictingUpstream, addr,
+					)
+				}
 			}
 		}
 	}
 
-	if destExists {
-		if err := os.RemoveAll(forkDestPath); err != nil {
-			return "", fmt.Errorf("clearing existing skill in fork repo: %w", err)
+	switch mode {
+	case ForkModeRegister:
+		// Keep existing directory — only write fork metadata, skip copy
+	default:
+		// ForkModeAuto and ForkModeOverride: remove existing (if any) and copy fresh
+		if destExists {
+			if err := os.RemoveAll(forkDestPath); err != nil {
+				return "", fmt.Errorf("clearing existing skill in fork repo: %w", err)
+			}
 		}
-	}
-
-	// Copy installed files → fork repo cache
-	if err := copyDir(rec.LocalPath, forkDestPath); err != nil {
-		return "", fmt.Errorf("copying skill to fork repo: %w", err)
+		if err := copyDir(rec.LocalPath, forkDestPath); err != nil {
+			return "", fmt.Errorf("copying skill to fork repo: %w", err)
+		}
 	}
 	if err := writeForkMetadata(forkDestPath, addr, upstreamSHA); err != nil {
 		return "", fmt.Errorf("writing fork provenance metadata in fork repo: %w", err)

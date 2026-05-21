@@ -93,7 +93,7 @@ func TestFork_ExistingDestinationWithSameUpstream_ReforksInPlace(t *testing.T) {
 		},
 	}
 
-	gotAddr, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", st)
+	gotAddr, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", skill.ForkModeAuto, st)
 	if err != nil {
 		t.Fatalf("Fork: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestFork_MovesAllInstalledAgentsToForkAddress(t *testing.T) {
 		},
 	}
 
-	gotAddr, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", st)
+	gotAddr, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", skill.ForkModeAuto, st)
 	if err != nil {
 		t.Fatalf("Fork: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestFork_ExistingDestinationWithMatchingUpstream_AllowsRemainingAgentMigrat
 		},
 	}
 
-	if _, err := skill.Fork(addr, "bmaltais-skills", "copilot", "", st); err != nil {
+	if _, err := skill.Fork(addr, "bmaltais-skills", "copilot", "", skill.ForkModeAuto, st); err != nil {
 		t.Fatalf("Fork: %v", err)
 	}
 	if _, ok := st.InstalledSkills[addr]; ok {
@@ -334,7 +334,7 @@ func TestFork_ExistingDestinationWithDifferentUpstream_ReturnsError(t *testing.T
 		},
 	}
 
-	_, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", st)
+	_, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", skill.ForkModeAuto, st)
 	if err == nil {
 		t.Fatal("expected error for conflicting upstream")
 	}
@@ -371,7 +371,7 @@ func TestFork_ExistingDestinationWithoutState_ReturnsError(t *testing.T) {
 		},
 	}
 
-	_, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", st)
+	_, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", skill.ForkModeAuto, st)
 	if err == nil {
 		t.Fatal("expected error for unknown-provenance existing destination skill")
 	}

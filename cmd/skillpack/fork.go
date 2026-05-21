@@ -10,6 +10,21 @@ import (
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
+func parseForkMode(s string) (skill.ForkMode, error) {
+	switch s {
+	case "":
+		return skill.ForkModeAuto, nil
+	case "auto":
+		return skill.ForkModeAuto, nil
+	case "override":
+		return skill.ForkModeOverride, nil
+	case "register":
+		return skill.ForkModeRegister, nil
+	default:
+		return 0, fmt.Errorf("invalid fork mode %q: must be auto, override, or register", s)
+	}
+}
+
 var forkCmd = &cobra.Command{
 	Use:   "fork <addr> <my-repo>",
 	Short: "Fork an installed skill into your own repo",
@@ -30,6 +45,7 @@ After forking:
 		addr := args[0]
 		forkRepo := args[1]
 		agentName, _ := cmd.Flags().GetString("agent")
+		forkModeStr, _ := cmd.Flags().GetString("fork-mode")
 
 		cfg, err := config.Load()
 		if err != nil {
@@ -46,7 +62,12 @@ After forking:
 			return err
 		}
 
-		newAddr, err := skill.Fork(addr, forkRepo, agentName, token, st)
+		mode, err := parseForkMode(forkModeStr)
+		if err != nil {
+			return err
+		}
+
+		newAddr, err := skill.Fork(addr, forkRepo, agentName, token, mode, st)
 		if err != nil {
 			return err
 		}
@@ -63,4 +84,5 @@ After forking:
 
 func init() {
 	forkCmd.Flags().String("agent", "", "Agent whose installed copy to fork (default: default agent)")
+	forkCmd.Flags().String("fork-mode", "auto", "How to handle unknown provenance: auto, override, or register")
 }

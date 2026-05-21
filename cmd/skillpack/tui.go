@@ -278,10 +278,12 @@ func (m *model) refreshUnmanaged() {
 			continue
 		}
 		for _, entry := range entries {
-			if !entry.IsDir() {
+			fullPath := filepath.Join(expanded, entry.Name())
+			// Use os.Stat (follows symlinks) so symlinked directories are included
+			info, statErr := os.Stat(fullPath)
+			if statErr != nil || !info.IsDir() {
 				continue
 			}
-			fullPath := filepath.Join(expanded, entry.Name())
 			if _, err := os.Stat(filepath.Join(fullPath, "SKILL.md")); err != nil {
 				continue
 			}
@@ -909,6 +911,10 @@ func (m *model) startAdopt() {
 
 func (m *model) doAdopt() {
 	if m.adoptCursor >= len(m.repoList) {
+		m.inputMode = modeNormal
+		return
+	}
+	if m.unmanagedCursor >= len(m.unmanagedEntries) {
 		m.inputMode = modeNormal
 		return
 	}

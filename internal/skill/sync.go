@@ -43,9 +43,10 @@ type SyncPlanItem struct {
 //
 // repoHeads maps repo name to the current HEAD SHA in the local cache (obtained
 // by the caller, e.g. via CollectRepoHeads, after any desired repo pulls).
-// Upstream-change detection compares InstalledAtSHA against the provided HEAD;
-// this is a coarser check than a file-level diff — a commit touching only unrelated
-// parts of the repo will still produce a SyncUpdated action.
+// Upstream-change detection compares InstalledAtSHA (non-forks) or UpstreamSHA
+// (forks) against the provided HEAD. This is a coarser check than a file-level
+// diff — a commit touching only unrelated parts of the repo will still produce
+// a SyncUpdated action.
 //
 // Local-modification detection calls IsModified, which hashes the installed
 // directory (local file reads; no git or network operations).
@@ -76,7 +77,15 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 				continue
 			}
 
-			hasUpstream := rec.InstalledAtSHA != headSHA
+			// For forked skills the relevant baseline is upstream_sha (the upstream
+			// HEAD at the time of the last fork/update), not installed_at_sha (which
+			// is a SHA from the fork's own repo and cannot be compared against the
+			// upstream repo's SHA space).
+			baselineSHA := rec.InstalledAtSHA
+			if isFork(rec) {
+				baselineSHA = rec.UpstreamSHA
+			}
+			hasUpstream := baselineSHA != headSHA
 
 			modified, modErr := isModified(rec)
 			if modErr != nil {

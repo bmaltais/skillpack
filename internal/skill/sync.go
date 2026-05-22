@@ -76,7 +76,15 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 				continue
 			}
 
-			hasUpstream := rec.InstalledAtSHA != headSHA
+			// For forked skills the relevant baseline is upstream_sha (the upstream
+			// HEAD at the time of the last fork/update), not installed_at_sha (which
+			// is a SHA from the fork's own repo and cannot be compared against the
+			// upstream repo's SHA space).
+			baselineSHA := rec.InstalledAtSHA
+			if isFork(rec) {
+				baselineSHA = rec.UpstreamSHA
+			}
+			hasUpstream := baselineSHA != headSHA
 
 			modified, modErr := isModified(rec)
 			if modErr != nil {

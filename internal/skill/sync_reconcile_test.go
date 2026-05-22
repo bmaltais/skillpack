@@ -291,6 +291,137 @@ func TestReconcilePlan_IsModifiedError(t *testing.T) {
 	}
 }
 
+// ─── Fork skills ─────────────────────────────────────────────────────────────
+
+// makeForkState builds a State with one forked skill.
+// upstreamRepoName is the repo holding the upstream origin.
+// installedAtSHA is from the fork's own repo (irrelevant for upstream detection).
+// upstreamSHA is the stored upstream HEAD at fork time.
+// Pass overrideHash to simulate a locally modified installed copy.
+func makeForkState(t *testing.T, addr, agentName, upstreamAddr, installedAtSHA, upstreamSHA, overrideHash string) *state.State {
+	t.Helper()
+	installDir := t.TempDir()
+	writeFile(t, filepath.Join(installDir, "SKILL.md"), "# Forked skill")
+	hash, err := skill.ComputeHash(installDir)
+	if err != nil {
+		t.Fatalf("ComputeHash: %v", err)
+	}
+	storedHash := hash
+	if overrideHash != "" {
+		storedHash = overrideHash
+	}
+	forkRepoName := splitRepoName(addr)
+	upstreamRepoName := splitRepoName(upstreamAddr)
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			forkRepoName:     {CachePath: t.TempDir()},
+			upstreamRepoName: {CachePath: t.TempDir()},
+		},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			addr: {
+				agentName: {
+					InstalledAtSHA: installedAtSHA,
+					InstalledHash:  storedHash,
+					LocalPath:      installDir,
+					UpstreamAddr:   upstreamAddr,
+					UpstreamSHA:    upstreamSHA,
+				},
+			},
+		},
+	}
+	return st
+}
+
+// TestReconcilePlan_Fork_AlreadyCurrent: forked skill, upstream_sha == upstream
+// HEAD, no local edits → up-to-date.
+// Regression guard: installed_at_sha is a SHA from the fork's own repo and must
+// NOT be compared against the upstream HEAD.
+func TestReconcilePlan_Fork_AlreadyCurrent(t *testing.T) {
+	st := makeForkState(t,
+		"my-skills/debugger", "copilot",
+		"upstream-skills/tools/debugger",
+		"fork-repo-sha-abc",    // installed_at_sha: from my-skills repo — irrelevant
+		"upstream-sha-current", // upstream_sha == upstream HEAD
+		"",
+	)
+	repoHeads := map[string]string{
+		"my-skills":        "fork-repo-sha-abc",
+		"upstream-skills":  "upstream-sha-current", // upstream unchanged
+	}
+
+	plan := skill.ReconcilePlan(st, repoHeads)
+	item := planByAddr(plan, "my-skills/debugger", "copilot")
+	if item.Action != skill.SyncAlreadyCurrent {
+		t.Errorf("want SyncAlreadyCurrent, got %q (regression: installed_at_sha must not be compared against upstream HEAD)", item.Action)
+	}
+}
+
+// TestReconcilePlan_Fork_Update: forked skill, upstream_sha != upstream HEAD,
+// no local edits → should update.
+func TestReconcilePlan_Fork_Update(t *testing.T) {
+	st := makeForkState(t,
+		"my-skills/debugger", "copilot",
+		"upstream-skills/tools/debugger",
+		"fork-repo-sha-abc",
+		"upstream-sha-old", // upstream_sha is behind
+		"",
+	)
+	repoHeads := map[string]string{
+		"my-skills":       "fork-repo-sha-abc",
+		"upstream-skills": "upstream-sha-new", // upstream advanced
+	}
+
+	plan := skill.ReconcilePlan(st, repoHeads)
+	item := planByAddr(plan, "my-skills/debugger", "copilot")
+	if item.Action != skill.SyncUpdated {
+		t.Errorf("want SyncUpdated, got %q", item.Action)
+	}
+}
+
+// TestReconcilePlan_Fork_Publish: forked skill, upstream unchanged, local edits
+// → should publish.
+func TestReconcilePlan_Fork_Publish(t *testing.T) {
+	st := makeForkState(t,
+		"my-skills/debugger", "copilot",
+		"upstream-skills/tools/debugger",
+		"fork-repo-sha-abc",
+		"upstream-sha-current",
+		"sha256:000badhash", // simulate local modification
+	)
+	repoHeads := map[string]string{
+		"my-skills":       "fork-repo-sha-abc",
+		"upstream-skills": "upstream-sha-current", // upstream unchanged
+	}
+
+	plan := skill.ReconcilePlan(st, repoHeads)
+	item := planByAddr(plan, "my-skills/debugger", "copilot")
+	if item.Action != skill.SyncPublished {
+		t.Errorf("want SyncPublished, got %q", item.Action)
+	}
+}
+
+// TestReconcilePlan_Fork_Conflict: forked skill, upstream changed AND local
+// edits → conflict.
+func TestReconcilePlan_Fork_Conflict(t *testing.T) {
+	st := makeForkState(t,
+		"my-skills/debugger", "copilot",
+		"upstream-skills/tools/debugger",
+		"fork-repo-sha-abc",
+		"upstream-sha-old",
+		"sha256:000badhash", // simulate local modification
+	)
+	repoHeads := map[string]string{
+		"my-skills":       "fork-repo-sha-abc",
+		"upstream-skills": "upstream-sha-new",
+	}
+
+	plan := skill.ReconcilePlan(st, repoHeads)
+	item := planByAddr(plan, "my-skills/debugger", "copilot")
+	if item.Action != skill.SyncConflict {
+		t.Errorf("want SyncConflict, got %q", item.Action)
+	}
+}
+
 // ─── ApplySync ──────────────────────────────────────────────────────────────
 
 // TestApplySync_AlreadyCurrent: plan items with SyncAlreadyCurrent are returned

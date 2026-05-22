@@ -50,32 +50,20 @@ Use --no-fetch to skip the network call and report against cached state.`,
 			}
 		}
 
-		type row struct {
-			addr         string
-			agentName    string
-			upstreamAddr string
-			result       *skill.UpdateResult
-			err          error
+		// Collect repo heads so PlanUpdate can determine upstream changes.
+		repoHeads, headErr := skill.CollectRepoHeads(st)
+		if headErr != nil {
+			return headErr
 		}
 
-		var rows []row
-		for addr, agents := range st.InstalledSkills {
-			for agentName, rec := range agents {
-				is, openErr := skill.Open(addr, agentName, app.Cfg, st)
-				if openErr != nil {
-					rows = append(rows, row{addr, agentName, rec.UpstreamAddr, nil, openErr})
-					continue
-				}
-				r, checkErr := is.Status()
-				rows = append(rows, row{addr, agentName, rec.UpstreamAddr, r, checkErr})
-			}
-		}
+		plan := skill.PlanUpdate(st, repoHeads)
 
-		sort.Slice(rows, func(i, j int) bool {
-			if rows[i].addr != rows[j].addr {
-				return rows[i].addr < rows[j].addr
+		// Sort for stable output.
+		sort.Slice(plan, func(i, j int) bool {
+			if plan[i].Addr != plan[j].Addr {
+				return plan[i].Addr < plan[j].Addr
 			}
-			return rows[i].agentName < rows[j].agentName
+			return plan[i].AgentName < plan[j].AgentName
 		})
 
 		// Detect skills with missing fork provenance (best-effort heuristic).
@@ -84,9 +72,9 @@ Use --no-fetch to skip the network call and report against cached state.`,
 		// Compute column widths from actual data.
 		addrW := len("Skill")
 		agentW := len("Agent")
-		for _, r := range rows {
-			addrW = maxInt(addrW, len(r.addr))
-			agentW = maxInt(agentW, len(r.agentName))
+		for _, p := range plan {
+			addrW = maxInt(addrW, len(p.Addr))
+			agentW = maxInt(agentW, len(p.AgentName))
 		}
 		sep := func(n int) string {
 			return strings.Repeat("─", n)
@@ -101,33 +89,34 @@ Use --no-fetch to skip the network call and report against cached state.`,
 		fmt.Printf("  %-*s  %-*s  %s\n", addrW, sep(addrW), agentW, sep(agentW), "───────────────────")
 
 		var nCurrent, nUpdate, nModified, nConflict, nErr int
-		for _, row := range rows {
-			if row.err != nil {
-				fmt.Printf("  %-*s  %-*s  %s\n", addrW, row.addr, agentW, row.agentName, red("error: "+row.err.Error()))
+		for _, p := range plan {
+			if p.Err != nil {
+				fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, red("error: "+p.Err.Error()))
 				nErr++
 				continue
 			}
 			var statusStr string
-			switch {
-			case row.result.IsConflict:
+			rec := st.InstalledSkills[p.Addr][p.AgentName]
+			switch p.Action {
+			case skill.UpdateConflict:
 				statusStr = red("conflict")
 				nConflict++
-			case row.result.IsModified:
+			case skill.UpdateLocallyModified:
 				statusStr = yellow("locally modified")
 				nModified++
-			case row.result.HasUpstream:
+			case skill.UpdateAvailable:
 				statusStr = cyan("update available")
 				nUpdate++
 			default:
 				statusStr = green("up-to-date")
 				nCurrent++
 			}
-			if row.upstreamAddr != "" {
-				statusStr += "  [fork of " + row.upstreamAddr + "]"
-			} else if upstream, ok := forkCandidateUpstream[row.addr]; ok {
+			if rec.UpstreamAddr != "" {
+				statusStr += "  [fork of " + rec.UpstreamAddr + "]"
+			} else if upstream, ok := forkCandidateUpstream[p.Addr]; ok {
 				statusStr += "  " + yellow("[fork? → "+upstream+"]")
 			}
-			fmt.Printf("  %-*s  %-*s  %s\n", addrW, row.addr, agentW, row.agentName, statusStr)
+			fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, statusStr)
 		}
 
 		// Summary line

@@ -67,8 +67,15 @@ the upstream_sha recorded at fork time as the common base.`,
 			return fmt.Errorf("configuration not available")
 		}
 
+		// Collect repo heads so PlanUpdate can determine upstream changes.
+		repoHeads, headErr := skill.CollectRepoHeads(app.St)
+		if headErr != nil {
+			return headErr
+		}
+
 		type target struct{ addr, agent string }
 		var targets []target
+		targetsByRepo := make(map[string]bool)
 
 		if len(args) > 0 {
 			// Specific skill: check for all agents that have it installed (or filter by --agent)
@@ -77,6 +84,7 @@ the upstream_sha recorded at fork time as the common base.`,
 			if !ok {
 				return fmt.Errorf("skill %q is not installed", addr)
 			}
+			targetsByRepo[repoNameFromAddr(addr)] = true
 			for agent := range agents {
 				if agentFilter != "" && agent != agentFilter {
 					continue
@@ -91,6 +99,7 @@ the upstream_sha recorded at fork time as the common base.`,
 			}
 			sort.Strings(addrs)
 			for _, addr := range addrs {
+				targetsByRepo[repoNameFromAddr(addr)] = true
 				for agent := range app.St.InstalledSkills[addr] {
 					if agentFilter != "" && agent != agentFilter {
 						continue
@@ -105,61 +114,114 @@ the upstream_sha recorded at fork time as the common base.`,
 			return nil
 		}
 
+		// Build a filtered repoHeads map limited to the repos referenced by targets.
+		filteredHeads := make(map[string]string)
+		for repoName := range targetsByRepo {
+			if sha, ok := repoHeads[repoName]; ok {
+				filteredHeads[repoName] = sha
+			}
+		}
+
+		plan := skill.PlanUpdate(app.St, filteredHeads)
+
+		// Filter plan items to only those matching the targets.
+		targetSet := make(map[string]bool)
+		for _, t := range targets {
+			key := t.addr + "/" + t.agent
+			targetSet[key] = true
+		}
+		var filteredPlan []skill.UpdatePlanItem
+		for _, p := range plan {
+			key := p.Addr + "/" + p.AgentName
+			if targetSet[key] {
+				filteredPlan = append(filteredPlan, p)
+			}
+		}
+
+		// Sort for stable output.
+		sort.Slice(filteredPlan, func(i, j int) bool {
+			if filteredPlan[i].Addr != filteredPlan[j].Addr {
+				return filteredPlan[i].Addr < filteredPlan[j].Addr
+			}
+			return filteredPlan[i].AgentName < filteredPlan[j].AgentName
+		})
+
 		// Compute column widths from actual data.
 		addrW := 5
 		agentW := 5
-		for _, t := range targets {
-			addrW = maxInt(addrW, len(t.addr))
-			agentW = maxInt(agentW, len(t.agent))
+		for _, p := range filteredPlan {
+			addrW = maxInt(addrW, len(p.Addr))
+			agentW = maxInt(agentW, len(p.AgentName))
 		}
 
 		var conflictCount int
 
-		for _, t := range targets {
-			is, err := skill.Open(t.addr, t.agent, app.Cfg, app.St)
-			if err != nil {
-				fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, t.addr, agentW, t.agent, err)
-				continue
-			}
-			result, err := is.Status()
-			if err != nil {
-				fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, t.addr, agentW, t.agent, err)
+		for _, p := range filteredPlan {
+			if p.Err != nil {
+				fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, p.Addr, agentW, p.AgentName, p.Err)
 				continue
 			}
 
-			if !result.HasUpstream {
-				// Nothing to do — but report if locally modified
-				if result.IsModified {
-					fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, yellow("locally modified (no upstream change)"))
+			switch p.Action {
+			case skill.UpdateAlreadyCurrent:
+				// Nothing to do
+			case skill.UpdateAvailable:
+				token := app.Cfg.TokenForRepo(repoNameFromAddr(p.Addr))
+				if !dryRun {
+					is, openErr := skill.Open(p.Addr, p.AgentName, app.Cfg, app.St)
+					if openErr != nil {
+						fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, p.Addr, agentW, p.AgentName, openErr)
+						continue
+					}
+					if err := is.Update(token); err != nil {
+						return err
+					}
+					fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, green("updated"))
+				} else {
+					fmt.Printf("  %-*s  %-*s  [dry-run] would update\n", addrW, p.Addr, agentW, p.AgentName)
 				}
-				continue
-			}
-
-			if result.IsConflict {
-				token := app.Cfg.TokenForRepo(repoNameFromAddr(t.addr))
+			case skill.UpdateLocallyModified:
+				fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, yellow("locally modified (no upstream change)"))
+			case skill.UpdateConflict:
+				token := app.Cfg.TokenForRepo(repoNameFromAddr(p.Addr))
 				switch {
 				case forceRemote:
 					if !dryRun {
+						is, openErr := skill.Open(p.Addr, p.AgentName, app.Cfg, app.St)
+						if openErr != nil {
+							fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, p.Addr, agentW, p.AgentName, openErr)
+							continue
+						}
 						if _, err := is.Resolve(skill.ResolveForceRemote, token, ""); err != nil {
 							return err
 						}
-						fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("force-remote applied"))
+						fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, green("force-remote applied"))
 					} else {
-						fmt.Printf("  %-*s  %-*s  [dry-run] would force-remote\n", addrW, t.addr, agentW, t.agent)
+						fmt.Printf("  %-*s  %-*s  [dry-run] would force-remote\n", addrW, p.Addr, agentW, p.AgentName)
 					}
 
 				case forceLocal:
 					if !dryRun {
+						is, openErr := skill.Open(p.Addr, p.AgentName, app.Cfg, app.St)
+						if openErr != nil {
+							fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, p.Addr, agentW, p.AgentName, openErr)
+							continue
+						}
 						if _, err := is.Resolve(skill.ResolveForceLocal, token, ""); err != nil {
 							return err
 						}
-						fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("force-local applied (pushed to remote)"))
+						fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, green("force-local applied (pushed to remote)"))
 					} else {
-						fmt.Printf("  %-*s  %-*s  [dry-run] would force-local (push to remote)\n", addrW, t.addr, agentW, t.agent)
+						fmt.Printf("  %-*s  %-*s  [dry-run] would force-local (push to remote)\n", addrW, p.Addr, agentW, p.AgentName)
 					}
 
 				case doMerge:
 					if !dryRun {
+						is, openErr := skill.Open(p.Addr, p.AgentName, app.Cfg, app.St)
+						if openErr != nil {
+							fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, p.Addr, agentW, p.AgentName, openErr)
+							continue
+						}
 						mergeStrategy := skill.ResolveMerge
 						effectiveLLMAgent := llmAgent
 						if llmAgent != "" {
@@ -171,31 +233,21 @@ the upstream_sha recorded at fork time as the common base.`,
 						llmResolved, err := is.Resolve(mergeStrategy, token, effectiveLLMAgent)
 						switch {
 						case errors.Is(err, skill.ErrMergeConflicts):
-							fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, yellow("merged — conflicts written, resolve manually or use --llm"))
+							fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, yellow("merged — conflicts written, resolve manually or use --llm"))
 						case err != nil:
 							return err
 						case llmResolved:
-							fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("merged + LLM resolved"))
+							fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, green("merged + LLM resolved"))
 						default:
-							fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("merged cleanly"))
+							fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, green("merged cleanly"))
 						}
 					} else {
-						fmt.Printf("  %-*s  %-*s  [dry-run] would merge\n", addrW, t.addr, agentW, t.agent)
+						fmt.Printf("  %-*s  %-*s  [dry-run] would merge\n", addrW, p.Addr, agentW, p.AgentName)
 					}
 
 				default:
-					fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, red("CONFLICT: local modified + upstream changed — use --force-remote, --force-local, or --merge"))
+					fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, red("CONFLICT: local modified + upstream changed — use --force-remote, --force-local, or --merge"))
 					conflictCount++
-				}
-			} else {
-				// Safe update: not locally modified
-				if !dryRun {
-					if err := is.Update(app.Cfg.TokenForRepo(repoNameFromAddr(t.addr))); err != nil {
-						return err
-					}
-					fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("updated"))
-				} else {
-					fmt.Printf("  %-*s  %-*s  [dry-run] would update\n", addrW, t.addr, agentW, t.agent)
 				}
 			}
 		}

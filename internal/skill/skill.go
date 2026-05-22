@@ -107,14 +107,21 @@ func remove(addr, agentName string, cfg *config.Config, st *state.State, force b
 
 // isModified returns true if the installed skill directory has changed since installation.
 func isModified(rec state.InstalledSkillRecord) (bool, error) {
-	if _, err := os.Stat(rec.LocalPath); os.IsNotExist(err) {
-		return false, nil
+	modified, _, err := isModifiedWithHash(rec)
+	return modified, err
+}
+
+// isModifiedWithHash is like isModified but also returns the current on-disk hash,
+// allowing callers to reuse the hash without a second ComputeHash call.
+func isModifiedWithHash(rec state.InstalledSkillRecord) (modified bool, currentHash string, err error) {
+	if _, statErr := os.Stat(rec.LocalPath); os.IsNotExist(statErr) {
+		return false, "", nil
 	}
-	current, err := ComputeHash(rec.LocalPath)
+	currentHash, err = ComputeHash(rec.LocalPath)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
-	return current != rec.InstalledHash, nil
+	return currentHash != rec.InstalledHash, currentHash, nil
 }
 
 // ComputeHash returns a deterministic SHA-256 digest of all file contents in dir,

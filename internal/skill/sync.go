@@ -88,7 +88,7 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 			}
 			hasUpstream := baselineSHA != headSHA
 
-			modified, modErr := isModified(rec)
+			modified, installedHash, modErr := isModifiedWithHash(rec)
 			if modErr != nil {
 				item.Err = fmt.Errorf("checking local modifications: %w", modErr)
 				plan = append(plan, item)
@@ -102,9 +102,8 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 				// InstalledHash is merely stale (e.g. after a --force-remote reset) and
 				// there is no real conflict — treat it as already-current.
 				if upstreamDir := upstreamCacheDirFor(addr, rec, st); upstreamDir != "" {
-					installedHash, iErr := ComputeHash(rec.LocalPath)
 					upstreamHash, uErr := ComputeHash(upstreamDir)
-					if iErr == nil && uErr == nil && installedHash == upstreamHash {
+					if uErr == nil && installedHash == upstreamHash {
 						item.Action = SyncAlreadyCurrent
 						break
 					}
@@ -207,9 +206,13 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 			}
 			results = append(results, SyncResult{item.Addr, item.AgentName, SyncPublished, nil})
 		default: // SyncAlreadyCurrent
-			// Refresh a stale InstalledHash/InstalledAtSHA so the phantom conflict
-			// cannot reappear on the next sync.
-			if rec, ok := st.InstalledSkills[item.Addr][item.AgentName]; ok {
+			// For non-forked skills, refresh a stale InstalledHash/InstalledAtSHA so
+			// the phantom conflict cannot reappear on the next sync.
+			// Forked skills are skipped: snapshotInstalled only refreshes InstalledAtSHA
+			// (from the fork's own repo), not UpstreamSHA, so calling it on a fork
+			// would leave hasUpstream=true on the next ReconcilePlan and trigger a
+			// spurious SyncUpdated.
+			if rec, ok := st.InstalledSkills[item.Addr][item.AgentName]; ok && !isFork(rec) {
 				if currentHash, hashErr := ComputeHash(rec.LocalPath); hashErr == nil && currentHash != rec.InstalledHash {
 					if snapErr := snapshotInstalled(item.Addr, item.AgentName, st); snapErr != nil {
 						results = append(results, SyncResult{item.Addr, item.AgentName, SyncAlreadyCurrent, snapErr})

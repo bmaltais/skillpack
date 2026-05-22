@@ -78,6 +78,9 @@ Use --no-fetch to skip the network call and report against cached state.`,
 			return rows[i].agentName < rows[j].agentName
 		})
 
+		// Detect skills with missing fork provenance (best-effort heuristic).
+		forkCandidateUpstream := skill.ForkCandidateMap(st)
+
 		// Compute column widths from actual data.
 		addrW := len("Skill")
 		agentW := len("Agent")
@@ -121,6 +124,8 @@ Use --no-fetch to skip the network call and report against cached state.`,
 			}
 			if row.upstreamAddr != "" {
 				statusStr += "  [fork of " + row.upstreamAddr + "]"
+			} else if upstream, ok := forkCandidateUpstream[row.addr]; ok {
+				statusStr += "  " + yellow("[fork? → "+upstream+"]")
 			}
 			fmt.Printf("  %-*s  %-*s  %s\n", addrW, row.addr, agentW, row.agentName, statusStr)
 		}

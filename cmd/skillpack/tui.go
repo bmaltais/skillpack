@@ -109,6 +109,7 @@ const (
 	modeForkSelectRepo
 	modeForkResolveChoice
 	modeAdoptSelectRepo
+	modeRegisterForkInput
 )
 
 // --- Model ---
@@ -150,6 +151,11 @@ type model struct {
 	updateBanner    string // e.g. "v0.3.0" — shown as a banner when set
 	bannerSelection int    // 0=Update, 1=Skip
 	pendingMessage  string // message to show after next async completes
+
+	// Fork candidate registration
+	forkCandidates    map[string]string // addr → candidate upstream addr
+	registerForkAddr  string            // skill addr being registered
+	registerForkInput string            // current input buffer (editable upstream addr)
 
 	// Unmanaged panel
 	unmanagedEntries []unmanagedEntry
@@ -327,7 +333,8 @@ func sampleData() ([]string, map[string][]repo.SkillInfo) {
 // --- Async message types ---
 
 type statusDoneMsg struct {
-	info map[string]map[string]string
+	info           map[string]map[string]string
+	forkCandidates map[string]string // addr → first candidate upstream addr
 }
 
 type syncDoneMsg struct {
@@ -382,6 +389,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case statusDoneMsg:
 		m.statusInfo = msg.info
+		m.forkCandidates = msg.forkCandidates
 		m.busy = ""
 		if m.pendingMessage != "" {
 			m.message = m.pendingMessage
@@ -582,6 +590,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "q":
 					return m, tea.Quit
 				case "r":
+					// If the selected skill is a fork candidate, offer to register provenance.
+					if m.statusCursor < len(m.statusRows) {
+						row := m.statusRows[m.statusCursor]
+						if upstream, ok := m.forkCandidates[row.addr]; ok {
+							m.registerForkAddr = row.addr
+							m.registerForkInput = upstream
+							m.inputMode = modeRegisterForkInput
+							m.message = ""
+							return m, nil
+						}
+					}
+					// Otherwise refresh status.
 					m.busy = "Refreshing status..."
 					m.message = ""
 					return m, m.cmdCheckStatus()
@@ -758,6 +778,25 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 			}
 		case tea.KeyEnter:
 			m.doAdopt()
+		case tea.KeyCtrlC:
+			return *m, tea.Quit
+		}
+
+	case modeRegisterForkInput:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.inputMode = modeNormal
+			m.message = ""
+		case tea.KeyEnter:
+			m.doRegisterForkProvenance()
+		case tea.KeyBackspace:
+			if len(m.registerForkInput) > 0 {
+				m.registerForkInput = m.registerForkInput[:len(m.registerForkInput)-1]
+			}
+		case tea.KeyRunes:
+			m.registerForkInput += msg.String()
+		case tea.KeySpace:
+			m.registerForkInput += " "
 		case tea.KeyCtrlC:
 			return *m, tea.Quit
 		}
@@ -984,6 +1023,26 @@ func (m *model) doAdopt() {
 	m.inputMode = modeNormal
 }
 
+func (m *model) doRegisterForkProvenance() {
+	addr := m.registerForkAddr
+	upstream := strings.TrimSpace(m.registerForkInput)
+	if upstream == "" {
+		m.message = "✗ Upstream address cannot be empty"
+		m.inputMode = modeNormal
+		return
+	}
+	token := m.cfg.TokenForRepo(repoNameFromAddr(addr))
+	if err := skill.RegisterForkProvenance(addr, upstream, token, m.st); err != nil {
+		m.message = fmt.Sprintf("✗ Register failed: %v", err)
+		m.inputMode = modeNormal
+		return
+	}
+	// Remove from candidates map so the badge clears immediately.
+	delete(m.forkCandidates, addr)
+	m.message = fmt.Sprintf("✓ Registered %s as fork of %s", addr, upstream)
+	m.inputMode = modeNormal
+}
+
 func (m *model) startFork() {
 	if m.cursorRow < 0 || m.cursorRow >= len(m.rows) {
 		return
@@ -1177,7 +1236,9 @@ func (m *model) cmdCheckStatus() tea.Cmd {
 				}
 			}
 		}
-		return statusDoneMsg{info: info}
+
+		// Detect skills with missing fork provenance.
+		return statusDoneMsg{info: info, forkCandidates: skill.ForkCandidateMap(stCopy)}
 	}
 }
 
@@ -1734,6 +1795,23 @@ func (m model) upstreamAddr(addr string) string {
 }
 
 func (m model) viewStatus(b *strings.Builder) {
+	// Register fork provenance input overlay
+	if m.inputMode == modeRegisterForkInput {
+		b.WriteString("\n")
+		b.WriteString(inputStyle.Render(fmt.Sprintf(" Register fork provenance for %q", m.registerForkAddr)))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render(" Upstream skill address:"))
+		b.WriteString("\n")
+		b.WriteString(inputStyle.Render(fmt.Sprintf("   %s▌", m.registerForkInput)))
+		b.WriteString("\n\n")
+		b.WriteString(dimStyle.Render(" Enter to confirm • Esc to cancel"))
+		b.WriteString("\n")
+		if m.message != "" {
+			b.WriteString(msgStyle.Render(" " + m.message))
+		}
+		return
+	}
+
 	b.WriteString("\n")
 
 	if len(m.statusRows) == 0 {
@@ -1826,6 +1904,11 @@ func (m model) viewStatus(b *strings.Builder) {
 				addr = addr[:addrW-1] + "…"
 			}
 
+			// Append [fork?] badge when the skill is a detected fork candidate.
+			if _, isCandidate := m.forkCandidates[row.addr]; isCandidate {
+				statusStyled += "  " + modifiedStyle.Render("[fork?]")
+			}
+
 			line := fmt.Sprintf(" %-*s  %-*s  ", addrW, addr, agentW, row.agentName)
 			if isSelected {
 				b.WriteString(selectedStyle.Render(line))
@@ -1862,7 +1945,16 @@ func (m model) viewStatus(b *strings.Builder) {
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render(" ↑↓ navigate  u update selected  S sync all  r refresh  U self-update  Tab switch  q quit"))
+
+	// Show context-sensitive help for r key depending on selected row.
+	rHelp := "r refresh"
+	if m.statusCursor < len(m.statusRows) {
+		row := m.statusRows[m.statusCursor]
+		if _, ok := m.forkCandidates[row.addr]; ok {
+			rHelp = "r register fork"
+		}
+	}
+	b.WriteString(helpStyle.Render(fmt.Sprintf(" ↑↓ navigate  u update selected  S sync all  %s  U self-update  Tab switch  q quit", rHelp)))
 	b.WriteString("\n")
 	if m.message != "" {
 		b.WriteString(msgStyle.Render(" " + m.message))

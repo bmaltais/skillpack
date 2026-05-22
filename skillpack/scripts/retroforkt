@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# retroforkt — retroactively add .skillpack-fork metadata for a manually-forked skill
+#
+# Usage: retroforkt <my-repo> <skill-name> <upstream-addr>
+#   my-repo       — your fork repo name           (e.g. bmaltais-skills)
+#   skill-name    — skill basename in your repo    (e.g. triage)
+#   upstream-addr — full upstream skill address    (e.g. mattpocock-skills/skills/engineering/triage)
+#
+# Example:
+#   retroforkt bmaltais-skills triage mattpocock-skills/skills/engineering/triage
+#   retroforkt bmaltais-skills grill-me mattpocock-skills/skills/productivity/grill-me
+
+set -euo pipefail
+
+if [[ $# -ne 3 ]]; then
+  echo "Usage: retroforkt <my-repo> <skill-name> <upstream-addr>" >&2
+  exit 1
+fi
+
+MY_REPO="$1"
+SKILL_NAME="$2"
+UPSTREAM_ADDR="$3"
+
+SKILLPACK_DIR="${HOME}/.skillpack"
+REPOS_DIR="${SKILLPACK_DIR}/repos"
+STATE_FILE="${SKILLPACK_DIR}/state.json"
+
+MY_REPO_DIR="${REPOS_DIR}/${MY_REPO}"
+SKILL_DIR="${MY_REPO_DIR}/${SKILL_NAME}"
+FORK_META="${SKILL_DIR}/.skillpack-fork"
+
+# Derive upstream repo name (first path component of upstream-addr)
+UPSTREAM_REPO="${UPSTREAM_ADDR%%/*}"
+UPSTREAM_REPO_DIR="${REPOS_DIR}/${UPSTREAM_REPO}"
+
+# --- Validate ---
+if [[ ! -d "$SKILL_DIR" ]]; then
+  echo "error: skill directory not found: $SKILL_DIR" >&2
+  exit 1
+fi
+if [[ ! -d "$UPSTREAM_REPO_DIR" ]]; then
+  echo "error: upstream repo not found: $UPSTREAM_REPO_DIR" >&2
+  echo "       run: skillpack repo update ${UPSTREAM_REPO}" >&2
+  exit 1
+fi
+
+# --- 1. Get upstream SHA ---
+UPSTREAM_SHA=$(cd "$UPSTREAM_REPO_DIR" && git rev-parse HEAD)
+echo "upstream SHA: $UPSTREAM_SHA"
+
+# --- 2. Write .skillpack-fork into repo cache ---
+cat > "$FORK_META" << EOF
+{
+  "upstream_addr": "${UPSTREAM_ADDR}",
+  "upstream_sha": "${UPSTREAM_SHA}"
+}
+EOF
+echo "wrote: $FORK_META"
+
+# --- 3. Commit and push ---
+(
+  cd "$MY_REPO_DIR"
+  git add "${SKILL_NAME}/.skillpack-fork"
+  git commit -m "skillpack: add fork provenance metadata for ${SKILL_NAME}"
+  git push
+)
+
+# --- 4. Copy to each agent's installed skill directory ---
+AGENT_DIRS=(
+  "${HOME}/.copilot/skills"
+  "${HOME}/.claude/skills"
+  "${HOME}/.hermes/skills"
+  "${HOME}/.pi/agent/skills"
+)
+for dir in "${AGENT_DIRS[@]}"; do
+  target="${dir}/${SKILL_NAME}"
+  if [[ -d "$target" ]]; then
+    cp "$FORK_META" "${target}/.skillpack-fork"
+    echo "wrote: ${target}/.skillpack-fork"
+  fi
+done
+
+# --- 5. Patch state.json ---
+SKILL_KEY="${MY_REPO}/${SKILL_NAME}"
+python3 - "$STATE_FILE" "$SKILL_KEY" "$UPSTREAM_ADDR" "$UPSTREAM_SHA" << 'PYEOF'
+import json, sys
+state_file, skill_key, upstream_addr, upstream_sha = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+with open(state_file) as f:
+    s = json.load(f)
+agents = s["installed_skills"].get(skill_key, {})
+if not agents:
+    print(f"warning: {skill_key!r} not found in state.json — skipping state patch")
+    sys.exit(0)
+for agent in agents:
+    s["installed_skills"][skill_key][agent]["upstream_addr"] = upstream_addr
+    s["installed_skills"][skill_key][agent]["upstream_sha"] = upstream_sha
+    print(f"  updated state: {skill_key} [{agent}]")
+with open(state_file, "w") as f:
+    json.dump(s, f, indent=2)
+    f.write("\n")
+PYEOF
+
+echo ""
+echo "done. verify with: skillpack status --no-fetch | grep ${SKILL_NAME}"

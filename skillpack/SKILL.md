@@ -152,6 +152,15 @@ will be missing the metadata file in the repo cache. They still display correctl
 if state has `UpstreamAddr` set, but anyone who installs from your repo won't
 inherit the provenance.
 
+> **Preferred approach — use the helper script:**
+> ```bash
+> skillpack/scripts/retroforkt <my-repo> <skill-name> <upstream-addr>
+> # e.g.
+> skillpack/scripts/retroforkt bmaltais-skills triage mattpocock-skills/skills/engineering/triage
+> ```
+> The script handles all four steps (write file, commit+push, copy to agents, patch state.json)
+> atomically. Use the manual steps below only if the script is not available.
+
 > **Why not `skillpack fork` again?**
 > `skillpack fork` blocks multi-hop forks: once a skill is already tracked in
 > state as a fork (has `UpstreamAddr`), running `fork` on it will fail with

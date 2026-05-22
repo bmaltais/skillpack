@@ -145,6 +145,68 @@ On install, this metadata is imported into state so `update` and `sync` can trac
 After forking, `skillpack update` detects upstream changes as conflicts.
 Use `skillpack update --merge <addr>` (or `--merge --llm`) to pull them in.
 
+### Retroactively Adding Missing Fork Metadata
+
+Skills forked before `.skillpack-fork` tracking was introduced (or forked manually)
+will be missing the metadata file in the repo cache. They still display correctly
+if state has `UpstreamAddr` set, but anyone who installs from your repo won't
+inherit the provenance.
+
+> **Why not `skillpack fork` again?**
+> `skillpack fork` blocks multi-hop forks: once a skill is already tracked in
+> state as a fork (has `UpstreamAddr`), running `fork` on it will fail with
+> *"multi-hop forks are not supported"*. Manual metadata injection is the only
+> path.
+
+**Detect affected skills** (skills in state with an upstream but no file on disk):
+
+```bash
+find ~/.skillpack/repos -mindepth 2 -maxdepth 2 -name "SKILL.md" \
+  | while read f; do
+      dir=$(dirname "$f")
+      skill=$(basename "$dir")
+      repo=$(basename "$(dirname "$dir")")
+      [ ! -f "$dir/.skillpack-fork" ] && echo "$repo/$skill"
+    done
+```
+
+Cross-reference the output against `skillpack status` — any skill listed there
+as `[fork of ...]` that also appears above is missing the file.
+
+To fix, write the file directly into the repo cache and commit+push:
+
+```bash
+# 1. Get the upstream HEAD SHA
+UPSTREAM_SHA=$(cd ~/.skillpack/repos/<upstream-repo> && git rev-parse HEAD)
+
+# 2. Write the metadata file
+cat > ~/.skillpack/repos/<my-repo>/<skill-name>/.skillpack-fork << EOF
+{
+  "upstream_addr": "<upstream-repo>/path/to/skill",
+  "upstream_sha": "$UPSTREAM_SHA"
+}
+EOF
+
+# 3. Commit and push
+cd ~/.skillpack/repos/<my-repo>
+git add <skill-name>/.skillpack-fork
+git commit -m "skillpack: add fork provenance metadata for <skill-name>"
+git push
+```
+
+Also copy the file into each agent's installed copy so local state stays consistent:
+
+```bash
+FORK_META=~/.skillpack/repos/<my-repo>/<skill-name>/.skillpack-fork
+for dir in ~/.copilot/skills ~/.claude/skills ~/.hermes/skills ~/.pi/agent/skills; do
+  target="$dir/<skill-name>"
+  [ -d "$target" ] && cp "$FORK_META" "$target/.skillpack-fork" && echo "wrote $target/.skillpack-fork"
+done
+```
+
+After this, `skillpack status` will show `[fork of ...]` and anyone installing
+from your repo will automatically get the provenance.
+
 ### Self-Update
 
 ```bash

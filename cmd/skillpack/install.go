@@ -5,9 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/skill"
-	"github.com/bmaltais/skillpack/internal/state"
 )
 
 var installCmd = &cobra.Command{
@@ -24,23 +22,19 @@ var installCmd = &cobra.Command{
 		allAgents, _ := cmd.Flags().GetBool("all-agents")
 		skipExisting, _ := cmd.Flags().GetBool("skip-existing")
 
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		st, err := state.Load()
-		if err != nil {
-			return err
+		app := AppFromCtx(cmd.Context())
+		if app == nil {
+			return fmt.Errorf("configuration not available")
 		}
 
-		targets, err := resolveAgents(agentName, allAgents, cfg)
+		targets, err := resolveAgents(agentName, allAgents, app.Cfg)
 		if err != nil {
 			return err
 		}
 
 		for _, target := range targets {
 			fmt.Printf("Installing %s for %s...\n", addr, target)
-			if err := skill.Install(addr, target, cfg, st, skipExisting); err != nil {
+			if err := skill.Install(addr, target, app.Cfg, app.St, skipExisting); err != nil {
 				return err
 			}
 			fmt.Printf("  installed\n")

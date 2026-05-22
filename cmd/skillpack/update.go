@@ -8,9 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/skill"
-	"github.com/bmaltais/skillpack/internal/state"
 )
 
 // llmNoOptDefVal is the sentinel value cobra injects when --llm is given without
@@ -64,13 +62,9 @@ the upstream_sha recorded at fork time as the common base.`,
 			return fmt.Errorf("--llm requires --merge")
 		}
 
-		st, err := state.Load()
-		if err != nil {
-			return err
-		}
-		cfg, err := config.Load()
-		if err != nil {
-			return err
+		app := AppFromCtx(cmd.Context())
+		if app == nil {
+			return fmt.Errorf("configuration not available")
 		}
 
 		type target struct{ addr, agent string }
@@ -79,7 +73,7 @@ the upstream_sha recorded at fork time as the common base.`,
 		if len(args) > 0 {
 			// Specific skill: check for all agents that have it installed (or filter by --agent)
 			addr := args[0]
-			agents, ok := st.InstalledSkills[addr]
+			agents, ok := app.St.InstalledSkills[addr]
 			if !ok {
 				return fmt.Errorf("skill %q is not installed", addr)
 			}
@@ -91,13 +85,13 @@ the upstream_sha recorded at fork time as the common base.`,
 			}
 		} else {
 			// All installed skills
-			addrs := make([]string, 0, len(st.InstalledSkills))
-			for addr := range st.InstalledSkills {
+			addrs := make([]string, 0, len(app.St.InstalledSkills))
+			for addr := range app.St.InstalledSkills {
 				addrs = append(addrs, addr)
 			}
 			sort.Strings(addrs)
 			for _, addr := range addrs {
-				for agent := range st.InstalledSkills[addr] {
+				for agent := range app.St.InstalledSkills[addr] {
 					if agentFilter != "" && agent != agentFilter {
 						continue
 					}
@@ -122,7 +116,7 @@ the upstream_sha recorded at fork time as the common base.`,
 		var conflictCount int
 
 		for _, t := range targets {
-			result, err := skill.CheckUpdate(t.addr, t.agent, st)
+			result, err := skill.CheckUpdate(t.addr, t.agent, app.St)
 			if err != nil {
 				fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, t.addr, agentW, t.agent, err)
 				continue
@@ -140,7 +134,7 @@ the upstream_sha recorded at fork time as the common base.`,
 				switch {
 				case forceRemote:
 					if !dryRun {
-						if _, err := skill.Resolve(t.addr, t.agent, skill.ResolveForceRemote, cfg.TokenForRepo(repoNameFromAddr(t.addr)), "", st); err != nil {
+						if _, err := skill.Resolve(t.addr, t.agent, skill.ResolveForceRemote, app.Cfg.TokenForRepo(repoNameFromAddr(t.addr)), "", app.St); err != nil {
 							return err
 						}
 						fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("force-remote applied"))
@@ -150,7 +144,7 @@ the upstream_sha recorded at fork time as the common base.`,
 
 				case forceLocal:
 					if !dryRun {
-						if _, err := skill.Resolve(t.addr, t.agent, skill.ResolveForceLocal, cfg.TokenForRepo(repoNameFromAddr(t.addr)), "", st); err != nil {
+						if _, err := skill.Resolve(t.addr, t.agent, skill.ResolveForceLocal, app.Cfg.TokenForRepo(repoNameFromAddr(t.addr)), "", app.St); err != nil {
 							return err
 						}
 						fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("force-local applied (pushed to remote)"))
@@ -165,11 +159,11 @@ the upstream_sha recorded at fork time as the common base.`,
 						if llmAgent != "" {
 							mergeStrategy = skill.ResolveLLM
 							if effectiveLLMAgent == llmNoOptDefVal {
-								effectiveLLMAgent = cfg.DefaultAgent
+								effectiveLLMAgent = app.Cfg.DefaultAgent
 							}
 						}
-						token := cfg.TokenForRepo(repoNameFromAddr(t.addr))
-						llmResolved, err := skill.Resolve(t.addr, t.agent, mergeStrategy, token, effectiveLLMAgent, st)
+						token := app.Cfg.TokenForRepo(repoNameFromAddr(t.addr))
+						llmResolved, err := skill.Resolve(t.addr, t.agent, mergeStrategy, token, effectiveLLMAgent, app.St)
 						switch {
 						case errors.Is(err, skill.ErrMergeConflicts):
 							fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, yellow("merged — conflicts written, resolve manually or use --llm"))
@@ -191,7 +185,7 @@ the upstream_sha recorded at fork time as the common base.`,
 			} else {
 				// Safe update: not locally modified
 				if !dryRun {
-					if err := skill.ApplyUpdate(t.addr, t.agent, cfg.TokenForRepo(repoNameFromAddr(t.addr)), st); err != nil {
+					if err := skill.ApplyUpdate(t.addr, t.agent, app.Cfg.TokenForRepo(repoNameFromAddr(t.addr)), app.St); err != nil {
 						return err
 					}
 					fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("updated"))

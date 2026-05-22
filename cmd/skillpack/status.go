@@ -7,10 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/skill"
-	"github.com/bmaltais/skillpack/internal/state"
 )
 
 var statusCmd = &cobra.Command{
@@ -29,22 +27,19 @@ Use --no-fetch to skip the network call and report against cached state.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		noFetch, _ := cmd.Flags().GetBool("no-fetch")
 
-		st, err := state.Load()
-		if err != nil {
-			fmt.Printf("error: could not load state: %v\n", err)
-			return nil
+		app := AppFromCtx(cmd.Context())
+		if app == nil {
+			return fmt.Errorf("configuration not available")
 		}
+
+		st := app.St
 
 		if len(st.InstalledSkills) == 0 {
 			fmt.Println("No installed skills.")
 			return nil
 		}
 
-		cfg, cfgErr := config.Load()
-		tokenFor := func(string) string { return "" }
-		if cfgErr == nil {
-			tokenFor = cfg.TokenForRepo
-		}
+		tokenFor := app.Cfg.TokenForRepo
 
 		if !noFetch {
 			fmt.Println("Fetching repos...")

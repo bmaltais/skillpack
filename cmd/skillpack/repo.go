@@ -28,46 +28,42 @@ var repoAddCmd = &cobra.Command{
 			name = repo.NameFromURL(url)
 		}
 
-		st, err := state.Load()
-		if err != nil {
-			return err
-		}
-		cfg, err := config.Load()
-		if err != nil {
-			return err
+		app := AppFromCtx(cmd.Context())
+		if app == nil {
+			return fmt.Errorf("configuration not available")
 		}
 
 		// Check for name/URL collision BEFORE touching credentials.
-		if rec, exists := st.Repos[name]; exists {
+		if rec, exists := app.St.Repos[name]; exists {
 			if rec.URL != url {
 				return fmt.Errorf("repo name %q is already used for %s — use --name to pick a different name", name, rec.URL)
 			}
 			// Same URL: just update the token (no re-clone needed).
 			if token != "" {
-				cfg.Credentials[name] = token
-				if err := config.Save(cfg); err != nil {
+				app.Cfg.Credentials[name] = token
+				if err := config.Save(app.Cfg); err != nil {
 					return err
 				}
 			}
-			skills, _ := repo.DiscoverSkills(name, st)
+			skills, _ := repo.DiscoverSkills(name, app.St)
 			fmt.Printf("Repo %q already registered — token updated. %d skill(s) available.\n", name, len(skills))
 			return nil
 		}
 
 		// Save token AFTER collision check passes.
 		if token != "" {
-			cfg.Credentials[name] = token
-			if err := config.Save(cfg); err != nil {
+			app.Cfg.Credentials[name] = token
+			if err := config.Save(app.Cfg); err != nil {
 				return err
 			}
 		}
 
 		fmt.Printf("Cloning %s as %q...\n", url, name)
-		if err := repo.Add(name, url, cfg.TokenForRepo(name), st); err != nil {
+		if err := repo.Add(name, url, app.Cfg.TokenForRepo(name), app.St); err != nil {
 			return err
 		}
 
-		skills, _ := repo.DiscoverSkills(name, st)
+		skills, _ := repo.DiscoverSkills(name, app.St)
 		fmt.Printf("Repo %q registered — %d skill(s) available.\n", name, len(skills))
 		return nil
 	},
@@ -77,11 +73,11 @@ var repoListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List registered skill repositories",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		st, err := state.Load()
-		if err != nil {
-			return err
+		app := AppFromCtx(cmd.Context())
+		if app == nil {
+			return fmt.Errorf("configuration not available")
 		}
-		if len(st.Repos) == 0 {
+		if len(app.St.Repos) == 0 {
 			fmt.Println("No repositories registered. Run: skillpack repo add <url>")
 			return nil
 		}
@@ -93,8 +89,8 @@ var repoListCmd = &cobra.Command{
 		var entries []repoEntry
 		nameW := 4
 		urlW := 3
-		for name, rec := range st.Repos {
-			skills, _ := repo.DiscoverSkills(name, st)
+		for name, rec := range app.St.Repos {
+			skills, _ := repo.DiscoverSkills(name, app.St)
 			entries = append(entries, repoEntry{name, rec.URL, len(skills)})
 			nameW = maxInt(nameW, len(name))
 			urlW = maxInt(urlW, len(rec.URL))
@@ -112,11 +108,11 @@ var repoRemoveCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		st, err := state.Load()
-		if err != nil {
-			return err
+		app := AppFromCtx(cmd.Context())
+		if app == nil {
+			return fmt.Errorf("configuration not available")
 		}
-		if err := repo.Remove(name, st); err != nil {
+		if err := repo.Remove(name, app.St); err != nil {
 			return err
 		}
 		fmt.Printf("Repo %q unregistered (local clone kept at ~/.skillpack/repos/%s)\n", name, name)
@@ -128,18 +124,14 @@ var repoUpdateCmd = &cobra.Command{
 	Use:   "update [<name>]",
 	Short: "Pull latest changes for one or all registered repos",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		st, err := state.Load()
-		if err != nil {
-			return err
-		}
-		cfg, err := config.Load()
-		if err != nil {
-			return err
+		app := AppFromCtx(cmd.Context())
+		if app == nil {
+			return fmt.Errorf("configuration not available")
 		}
 
 		names := args
 		if len(names) == 0 {
-			for name := range st.Repos {
+			for name := range app.St.Repos {
 				names = append(names, name)
 			}
 		}
@@ -147,7 +139,7 @@ var repoUpdateCmd = &cobra.Command{
 		var errs []string
 		for _, name := range names {
 			fmt.Printf("Updating %s...\n", name)
-			if err := repo.Update(name, cfg.TokenForRepo(name), st); err != nil {
+			if err := repo.Update(name, app.Cfg.TokenForRepo(name), app.St); err != nil {
 				errs = append(errs, fmt.Sprintf("  %s: %v", name, err))
 			}
 		}
@@ -171,20 +163,16 @@ var repoRenameCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		oldName, newName := args[0], args[1]
 
-		st, err := state.Load()
-		if err != nil {
-			return err
-		}
-		cfg, err := config.Load()
-		if err != nil {
-			return err
+		app := AppFromCtx(cmd.Context())
+		if app == nil {
+			return fmt.Errorf("configuration not available")
 		}
 
-		rec, ok := st.Repos[oldName]
+		rec, ok := app.St.Repos[oldName]
 		if !ok {
 			return fmt.Errorf("repo %q not found", oldName)
 		}
-		if _, exists := st.Repos[newName]; exists {
+		if _, exists := app.St.Repos[newName]; exists {
 			return fmt.Errorf("repo %q already exists", newName)
 		}
 
@@ -197,34 +185,34 @@ var repoRenameCmd = &cobra.Command{
 		// Update in-memory state before touching disk so that if a save
 		// fails nothing on disk has changed yet.
 		rec.CachePath = newCachePath
-		delete(st.Repos, oldName)
-		st.Repos[newName] = rec
+		delete(app.St.Repos, oldName)
+		app.St.Repos[newName] = rec
 
 		// Rekey installed skills. Collect first, then apply to avoid
 		// mutating the map while ranging over it.
 		type rekey struct{ oldAddr, newAddr string }
 		prefix := oldName + "/"
 		var rekeys []rekey
-		for addr := range st.InstalledSkills {
+		for addr := range app.St.InstalledSkills {
 			if strings.HasPrefix(addr, prefix) {
 				rekeys = append(rekeys, rekey{addr, newName + "/" + addr[len(prefix):]})
 			}
 		}
 		for _, rk := range rekeys {
-			if err := st.RecordRenameAddr(rk.oldAddr, rk.newAddr); err != nil {
+			if err := app.St.RecordRenameAddr(rk.oldAddr, rk.newAddr); err != nil {
 				return fmt.Errorf("renaming skill address %q: %w", rk.oldAddr, err)
 			}
 		}
 
 		// Save state and config before renaming the directory.
 		// If either save fails, the disk is unchanged and the user can retry.
-		if err := state.Save(st); err != nil {
+		if err := state.Save(app.St); err != nil {
 			return err
 		}
-		if token, ok := cfg.Credentials[oldName]; ok {
-			cfg.Credentials[newName] = token
-			delete(cfg.Credentials, oldName)
-			if err := config.Save(cfg); err != nil {
+		if token, ok := app.Cfg.Credentials[oldName]; ok {
+			app.Cfg.Credentials[newName] = token
+			delete(app.Cfg.Credentials, oldName)
+			if err := config.Save(app.Cfg); err != nil {
 				return err
 			}
 		}

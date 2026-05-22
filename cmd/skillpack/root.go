@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -26,11 +27,23 @@ var rootCmd = &cobra.Command{
 Skills live in git repositories and are installed as directories into
 each agent's skill folder (e.g. ~/.claude/skills/, ~/.copilot/skills/).`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// self-update and status are config-independent; skip wizard to avoid side effects.
-		if cmd.Name() == "self-update" || cmd.Name() == "status" || cmd.Name() == "tui" {
+		// self-update is config-independent; skip to avoid side effects.
+		if cmd.Name() == "self-update" || cmd.Name() == "tui" {
 			return nil
 		}
-		return ensureConfig()
+		if err := ensureConfig(); err != nil {
+			return err
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		st, err := state.Load()
+		if err != nil {
+			return err
+		}
+		cmd.SetContext(context.WithValue(cmd.Context(), appKey{}, &App{Cfg: cfg, St: st}))
+		return nil
 	},
 	SilenceUsage: true,
 }

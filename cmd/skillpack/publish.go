@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -56,7 +55,7 @@ Two modes:
 		if agentName == "" {
 			agentName = app.Cfg.DefaultAgent
 		}
-		repoName := strings.SplitN(addr, "/", 2)[0]
+repoName := repoNameFromAddr(addr)
 
 		is, err := skill.Open(addr, agentName, app.Cfg, app.St)
 		if err != nil {

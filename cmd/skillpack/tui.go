@@ -1077,8 +1077,7 @@ func (m *model) updateSelectedSkill() {
 		return
 	}
 
-	repoName := strings.SplitN(row.addr, "/", 2)[0]
-	token := m.cfg.TokenForRepo(repoName)
+	token := m.cfg.TokenForRepo(repoNameFromAddr(row.addr))
 	is, err := skill.Open(row.addr, row.agentName, m.cfg, m.st)
 	if err != nil {
 		m.message = fmt.Sprintf("✗ Update failed: %v", err)

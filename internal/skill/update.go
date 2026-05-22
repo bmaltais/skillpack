@@ -21,7 +21,7 @@ func safeShortSHA(sha string) string {
 	return sha[:8]
 }
 
-// SnapshotInstalled refreshes InstalledHash and InstalledAtSHA in state to
+// snapshotInstalled refreshes InstalledHash and InstalledAtSHA in state to
 // reflect the current on-disk contents of the installed skill directory.
 // Call this after a successful merge or LLM conflict resolution on a
 // non-forked skill so that subsequent update/sync commands use the resolved
@@ -57,7 +57,7 @@ type UpdateResult struct {
 	IsConflict  bool // both upstream changed and locally modified
 }
 
-// CheckUpdate checks whether an installed skill has upstream changes or local modifications.
+// checkUpdate checks whether an installed skill has upstream changes or local modifications.
 func checkUpdate(addr, agentName string, st *state.State) (*UpdateResult, error) {
 	agents, ok := st.InstalledSkills[addr]
 	if !ok {

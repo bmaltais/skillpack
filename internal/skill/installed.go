@@ -31,6 +31,11 @@ type InstalledSkill struct {
 // Open returns an InstalledSkill handle for addr+agentName. It errors if the
 // skill is not currently installed (i.e. not recorded in st.InstalledSkills).
 // CachePath is resolved from st.Repos using the repo portion of addr.
+//
+// InstalledSkill is a value type (not a pointer) — it holds a snapshot of the
+// record at construction time plus pointers to the shared cfg and st so that
+// method calls operate on live state. Callers should not store InstalledSkill
+// values across mutations made by other callers.
 func Open(addr, agentName string, cfg *config.Config, st *state.State) (InstalledSkill, error) {
 	agents, ok := st.InstalledSkills[addr]
 	if !ok {

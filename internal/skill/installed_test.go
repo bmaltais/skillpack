@@ -131,7 +131,7 @@ func TestOpen_IsFork_Delegation(t *testing.T) {
 	}
 }
 
-func TestInstalledSkill_Remove_ErrorsWhenLocalPathMissing(t *testing.T) {
+func TestInstalledSkill_Remove_SucceedsOnMissingPath(t *testing.T) {
 	addr := "my-repo/my-skill"
 	st := &state.State{
 		Repos: map[string]state.RepoRecord{},
@@ -171,7 +171,7 @@ func TestInstalledSkill_IsModified_NotModified(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	// Non-existent path → hash will be empty string → matches empty InstalledHash → not modified
+	// Non-existent path → isModified returns (false, nil) directly via the os.IsNotExist early-return
 	modified, err := is.IsModified()
 	if err != nil {
 		t.Fatalf("IsModified: %v", err)

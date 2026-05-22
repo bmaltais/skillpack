@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/state"
 )
@@ -21,11 +23,12 @@ func TestAppFromCtx_WithApp(t *testing.T) {
 		Agents:       map[string]config.AgentConfig{"claude-code": {SkillDir: "/tmp/claude/skills"}},
 	}
 	st := &state.State{
-		Repos:         make(map[string]state.RepoRecord),
+		Repos:           make(map[string]state.RepoRecord),
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
 	}
 
-	cmd := rootCmd
+	// Use a fresh command so the test does not mutate the global rootCmd.
+	cmd := &cobra.Command{Use: "test"}
 	cmd.SetContext(context.WithValue(context.Background(), appKey{}, &App{Cfg: cfg, St: st}))
 
 	got := AppFromCtx(cmd.Context())

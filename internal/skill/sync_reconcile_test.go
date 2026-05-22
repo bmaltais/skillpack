@@ -294,7 +294,7 @@ func TestReconcilePlan_IsModifiedError(t *testing.T) {
 // ─── Fork skills ─────────────────────────────────────────────────────────────
 
 // makeForkState builds a State with one forked skill.
-// upstreamRepoName is the repo holding the upstream origin.
+// upstreamAddr is the full skill address in the upstream origin repo.
 // installedAtSHA is from the fork's own repo (irrelevant for upstream detection).
 // upstreamSHA is the stored upstream HEAD at fork time.
 // Pass overrideHash to simulate a locally modified installed copy.

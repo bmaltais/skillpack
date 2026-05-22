@@ -43,9 +43,10 @@ type SyncPlanItem struct {
 //
 // repoHeads maps repo name to the current HEAD SHA in the local cache (obtained
 // by the caller, e.g. via CollectRepoHeads, after any desired repo pulls).
-// Upstream-change detection compares InstalledAtSHA against the provided HEAD;
-// this is a coarser check than a file-level diff — a commit touching only unrelated
-// parts of the repo will still produce a SyncUpdated action.
+// Upstream-change detection compares InstalledAtSHA (non-forks) or UpstreamSHA
+// (forks) against the provided HEAD. This is a coarser check than a file-level
+// diff — a commit touching only unrelated parts of the repo will still produce
+// a SyncUpdated action.
 //
 // Local-modification detection calls IsModified, which hashes the installed
 // directory (local file reads; no git or network operations).

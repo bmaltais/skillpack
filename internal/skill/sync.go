@@ -66,7 +66,7 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 			if headSHA == "" {
 				// Repo not found in repoHeads — state is inconsistent or the repo was removed.
 				var missingRepo string
-					if IsFork(rec) {
+				if isFork(rec) {
 					missingRepo = strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
 				} else {
 					missingRepo = strings.SplitN(addr, "/", 2)[0]
@@ -78,7 +78,7 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 
 			hasUpstream := rec.InstalledAtSHA != headSHA
 
-			modified, modErr := IsModified(rec)
+			modified, modErr := isModified(rec)
 			if modErr != nil {
 				item.Err = fmt.Errorf("checking local modifications: %w", modErr)
 				plan = append(plan, item)
@@ -102,7 +102,7 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 // repoHeadForRecord returns the relevant HEAD SHA for a skill record:
 // the upstream repo HEAD for forked skills, the skill's own repo HEAD otherwise.
 func repoHeadForRecord(addr string, rec state.InstalledSkillRecord, repoHeads map[string]string) string {
-	if IsFork(rec) {
+	if isFork(rec) {
 		upstreamRepoName := strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
 		return repoHeads[upstreamRepoName]
 	}
@@ -126,9 +126,9 @@ func CollectRepoHeads(st *state.State) (map[string]string, error) {
 }
 
 // ApplySync executes a plan produced by ReconcilePlan, applying updates,
-// publishing local edits, and collecting conflicts. State is persisted at the
-// end of the call only when at least one update or publish succeeded — it is
-// not written on a no-op plan (all already-current / conflict / error items).
+// publishing local edits, and collecting conflicts. State persistence is
+// handled by applyUpdate and publish individually — ApplySync does not write
+// state itself.
 //
 // SyncConflict items are collected into the returned conflicts slice without
 // being applied; callers that wish to resolve them should do so and call
@@ -143,7 +143,6 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 	}
 	results = make([]SyncResult, 0, len(plan))
 	conflicts = make([]SyncResult, 0, len(plan))
-	mutated := false
 	for _, item := range plan {
 		if item.Err != nil {
 			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: item.Err})
@@ -154,26 +153,19 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 		case SyncConflict:
 			conflicts = append(conflicts, SyncResult{item.Addr, item.AgentName, SyncConflict, nil})
 		case SyncUpdated:
-			if applyErr := ApplyUpdate(item.Addr, item.AgentName, tokenFor(repoName), st); applyErr != nil {
+			if applyErr := applyUpdate(item.Addr, item.AgentName, tokenFor(repoName), st); applyErr != nil {
 				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: applyErr})
 				continue
 			}
 			results = append(results, SyncResult{item.Addr, item.AgentName, SyncUpdated, nil})
-			mutated = true
 		case SyncPublished:
-			if pubErr := Publish(item.Addr, item.AgentName, tokenFor(repoName), st); pubErr != nil {
+			if pubErr := publish(item.Addr, item.AgentName, tokenFor(repoName), st); pubErr != nil {
 				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: pubErr})
 				continue
 			}
 			results = append(results, SyncResult{item.Addr, item.AgentName, SyncPublished, nil})
-			mutated = true
 		default: // SyncAlreadyCurrent
 			results = append(results, SyncResult{item.Addr, item.AgentName, SyncAlreadyCurrent, nil})
-		}
-	}
-	if mutated {
-		if saveErr := state.Save(st); saveErr != nil {
-			return results, conflicts, saveErr
 		}
 	}
 	return results, conflicts, nil

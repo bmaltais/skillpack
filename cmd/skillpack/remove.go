@@ -47,7 +47,11 @@ var removeCmd = &cobra.Command{
 
 		for _, target := range targets {
 			fmt.Printf("Removing %s from %s...\n", addr, target)
-			if err := skill.Remove(addr, target, app.Cfg, app.St, force); err != nil {
+			is, err := skill.Open(addr, target, app.Cfg, app.St)
+			if err != nil {
+				return err
+			}
+			if err := is.Remove(force); err != nil {
 				return err
 			}
 			fmt.Printf("  removed\n")

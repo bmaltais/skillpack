@@ -60,7 +60,11 @@ After forking:
 			return err
 		}
 
-		newAddr, err := skill.Fork(addr, forkRepo, agentName, token, mode, app.St)
+		is, err := skill.Open(addr, agentName, app.Cfg, app.St)
+		if err != nil {
+			return err
+		}
+		newAddr, err := is.Fork(forkRepo, token, mode)
 		if err != nil {
 			return err
 		}

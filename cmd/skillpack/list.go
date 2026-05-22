@@ -63,7 +63,10 @@ var listCmd = &cobra.Command{
 				if agentFilter != "" && agentName != agentFilter {
 					continue
 				}
-				mod, _ := skill.IsModified(rec)
+				var mod bool
+				if is, openErr := skill.Open(addr, agentName, app.Cfg, st); openErr == nil {
+					mod, _ = is.IsModified()
+				}
 				if modifiedOnly && !mod {
 					continue
 				}

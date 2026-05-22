@@ -1,16 +1,15 @@
-package skill_test
+package skill
 
 import (
 	"errors"
 	"strings"
 	"testing"
 
-	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
 func TestResolve_UnknownStrategy(t *testing.T) {
-	_, err := skill.Resolve("repo/my-skill", "copilot", "bogus-strategy", "", "", nil)
+	_, err := resolve("repo/my-skill", "copilot", "bogus-strategy", "", "", nil)
 	if err == nil {
 		t.Fatal("expected error for unknown strategy, got nil")
 	}
@@ -22,13 +21,13 @@ func TestResolve_UnknownStrategy(t *testing.T) {
 func TestResolveStrategy_Constants(t *testing.T) {
 	// Ensure the exported constants are distinct and non-empty — guards against
 	// accidental blank-string or duplicate assignments as more strategies land.
-	strategies := []skill.ResolveStrategy{
-		skill.ResolveForceRemote,
-		skill.ResolveForceLocal,
-		skill.ResolveMerge,
-		skill.ResolveLLM,
+	strategies := []ResolveStrategy{
+		ResolveForceRemote,
+		ResolveForceLocal,
+		ResolveMerge,
+		ResolveLLM,
 	}
-	seen := make(map[skill.ResolveStrategy]bool)
+	seen := make(map[ResolveStrategy]bool)
 	for _, s := range strategies {
 		if s == "" {
 			t.Errorf("ResolveStrategy constant must not be empty")
@@ -43,10 +42,10 @@ func TestResolveStrategy_Constants(t *testing.T) {
 // TestErrMergeConflicts_IsDistinct verifies the sentinel is non-nil and has
 // a non-empty message — guards against accidental zero-value assignment.
 func TestErrMergeConflicts_IsDistinct(t *testing.T) {
-	if skill.ErrMergeConflicts == nil {
+	if ErrMergeConflicts == nil {
 		t.Fatal("ErrMergeConflicts must not be nil")
 	}
-	if skill.ErrMergeConflicts.Error() == "" {
+	if ErrMergeConflicts.Error() == "" {
 		t.Error("ErrMergeConflicts must have a non-empty message")
 	}
 }
@@ -58,7 +57,7 @@ func TestResolve_ResolveMerge_NotInstalled(t *testing.T) {
 		Repos:           make(map[string]state.RepoRecord),
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
 	}
-	_, err := skill.Resolve("no-repo/no-skill", "copilot", skill.ResolveMerge, "", "", st)
+	_, err := resolve("no-repo/no-skill", "copilot", ResolveMerge, "", "", st)
 	if err == nil {
 		t.Fatal("expected error for uninstalled skill, got nil")
 	}
@@ -71,7 +70,7 @@ func TestResolve_ResolveLLM_EmptyAgentName(t *testing.T) {
 		Repos:           make(map[string]state.RepoRecord),
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
 	}
-	_, err := skill.Resolve("no-repo/no-skill", "copilot", skill.ResolveLLM, "", "", st)
+	_, err := resolve("no-repo/no-skill", "copilot", ResolveLLM, "", "", st)
 	if err == nil {
 		t.Fatal("expected error for empty llmAgentName, got nil")
 	}
@@ -87,7 +86,7 @@ func TestResolve_ResolveLLM_NotInstalled(t *testing.T) {
 		Repos:           make(map[string]state.RepoRecord),
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
 	}
-	_, err := skill.Resolve("no-repo/no-skill", "copilot", skill.ResolveLLM, "", "claude-code", st)
+	_, err := resolve("no-repo/no-skill", "copilot", ResolveLLM, "", "claude-code", st)
 	if err == nil {
 		t.Fatal("expected error for uninstalled skill, got nil")
 	}
@@ -102,7 +101,7 @@ func TestResolve_ResolveLLM_NotInstalled(t *testing.T) {
 // This cannot exercise the full MergeSkill path without a git repo, but it verifies
 // that ErrMergeConflicts is properly comparable using errors.Is.
 func TestResolve_ErrMergeConflicts_ErrorsIs(t *testing.T) {
-	if !errors.Is(skill.ErrMergeConflicts, skill.ErrMergeConflicts) {
+	if !errors.Is(ErrMergeConflicts, ErrMergeConflicts) {
 		t.Error("ErrMergeConflicts must satisfy errors.Is with itself")
 	}
 }

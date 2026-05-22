@@ -11,9 +11,9 @@ import (
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
-// IsFork reports whether a skill record represents a forked skill — one that
+// isFork reports whether a skill record represents a forked skill — one that
 // was copied from an upstream origin and may need upstream-sync operations.
-func IsFork(rec state.InstalledSkillRecord) bool {
+func isFork(rec state.InstalledSkillRecord) bool {
 	return rec.UpstreamAddr != ""
 }
 
@@ -47,7 +47,7 @@ const (
 	ForkModeRegister
 )
 
-// Fork copies an installed skill into the user's own repo, commits, pushes,
+// fork copies an installed skill into the user's own repo, commits, pushes,
 // and re-registers state so the skill is now tracked under the fork address.
 // The original skill address and upstream HEAD SHA are recorded in state so
 // future update/sync commands can detect and merge upstream origin changes.
@@ -57,7 +57,7 @@ const (
 // agentName — which agent's installed copy to fork
 // token     — optional OAuth/PAT token for pushing to forkRepo over HTTPS
 // mode      — how to handle unknown provenance at the destination
-func Fork(addr, forkRepo, agentName, token string, mode ForkMode, st *state.State) (newAddr string, err error) {
+func fork(addr, forkRepo, agentName, token string, mode ForkMode, st *state.State) (newAddr string, err error) {
 	// Validate skill is installed
 	agents, ok := st.InstalledSkills[addr]
 	if !ok {
@@ -70,7 +70,7 @@ func Fork(addr, forkRepo, agentName, token string, mode ForkMode, st *state.Stat
 
 	// Prevent forking a fork (multi-hop)
 	for sourceAgentName, sourceRec := range agents {
-		if IsFork(sourceRec) {
+		if isFork(sourceRec) {
 			return "", fmt.Errorf(
 				"skill %q is already a fork of %q for agent %q — multi-hop forks are not supported",
 				addr, sourceRec.UpstreamAddr, sourceAgentName,
@@ -224,15 +224,14 @@ func Fork(addr, forkRepo, agentName, token string, mode ForkMode, st *state.Stat
 	return newAddr, nil
 }
 
-// PushForkAfterLLM is the exported counterpart of pushForkAfterMerge for use
-// after LLM conflict resolution. It looks up the upstream origin HEAD SHA and
+// pushForkAfterLLM is called after LLM conflict resolution. It looks up the upstream origin HEAD SHA and
 // commits the resolved installed files to the fork repo.
-func PushForkAfterLLM(addr, agentName, token string, st *state.State) error {
+func pushForkAfterLLM(addr, agentName, token string, st *state.State) error {
 	rec, ok := st.InstalledSkills[addr][agentName]
 	if !ok {
 		return fmt.Errorf("skill %q not installed for agent %q", addr, agentName)
 	}
-	if !IsFork(rec) {
+	if !isFork(rec) {
 		return nil // non-forked skill — nothing to push
 	}
 	upstreamRepoName := strings.SplitN(rec.UpstreamAddr, "/", 2)[0]

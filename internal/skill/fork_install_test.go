@@ -1,4 +1,4 @@
-package skill_test
+package skill
 
 import (
 	"encoding/json"
@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/bmaltais/skillpack/internal/config"
-	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
 	gogit "github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
@@ -39,7 +38,7 @@ func TestInstall_LoadsForkProvenanceMetadata(t *testing.T) {
 	}
 
 	addr := "bmaltais-skills/skills/engineering/improve-codebase-architecture"
-	if err := skill.Install(addr, "claude-code", cfg, st, false); err != nil {
+	if err := Install(addr, "claude-code", cfg, st, false); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -67,7 +66,7 @@ func TestFork_ExistingDestinationWithSameUpstream_ReforksInPlace(t *testing.T) {
 
 	installedDir := t.TempDir()
 	writeFile(t, filepath.Join(installedDir, "SKILL.md"), "# Local installed content")
-	hash, err := skill.ComputeHash(installedDir)
+	hash, err := ComputeHash(installedDir)
 	if err != nil {
 		t.Fatalf("ComputeHash: %v", err)
 	}
@@ -95,7 +94,7 @@ func TestFork_ExistingDestinationWithSameUpstream_ReforksInPlace(t *testing.T) {
 		},
 	}
 
-	gotAddr, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", skill.ForkModeAuto, st)
+	gotAddr, err := fork(addr, "bmaltais-skills", "claude-code", "", ForkModeAuto, st)
 	if err != nil {
 		t.Fatalf("Fork: %v", err)
 	}
@@ -156,13 +155,13 @@ func TestFork_MovesAllInstalledAgentsToForkAddress(t *testing.T) {
 
 	claudeInstalledDir := t.TempDir()
 	writeFile(t, filepath.Join(claudeInstalledDir, "SKILL.md"), "# Claude local installed content")
-	claudeHash, err := skill.ComputeHash(claudeInstalledDir)
+	claudeHash, err := ComputeHash(claudeInstalledDir)
 	if err != nil {
 		t.Fatalf("ComputeHash(claude): %v", err)
 	}
 	copilotInstalledDir := t.TempDir()
 	writeFile(t, filepath.Join(copilotInstalledDir, "SKILL.md"), "# Copilot local installed content")
-	copilotHash, err := skill.ComputeHash(copilotInstalledDir)
+	copilotHash, err := ComputeHash(copilotInstalledDir)
 	if err != nil {
 		t.Fatalf("ComputeHash(copilot): %v", err)
 	}
@@ -188,7 +187,7 @@ func TestFork_MovesAllInstalledAgentsToForkAddress(t *testing.T) {
 		},
 	}
 
-	gotAddr, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", skill.ForkModeAuto, st)
+	gotAddr, err := fork(addr, "bmaltais-skills", "claude-code", "", ForkModeAuto, st)
 	if err != nil {
 		t.Fatalf("Fork: %v", err)
 	}
@@ -261,7 +260,7 @@ func TestFork_ExistingDestinationWithMatchingUpstream_AllowsRemainingAgentMigrat
 
 	copilotInstalledDir := t.TempDir()
 	writeFile(t, filepath.Join(copilotInstalledDir, "SKILL.md"), "# Copilot local installed content")
-	copilotHash, err := skill.ComputeHash(copilotInstalledDir)
+	copilotHash, err := ComputeHash(copilotInstalledDir)
 	if err != nil {
 		t.Fatalf("ComputeHash(copilot): %v", err)
 	}
@@ -289,7 +288,7 @@ func TestFork_ExistingDestinationWithMatchingUpstream_AllowsRemainingAgentMigrat
 		},
 	}
 
-	if _, err := skill.Fork(addr, "bmaltais-skills", "copilot", "", skill.ForkModeAuto, st); err != nil {
+	if _, err := fork(addr, "bmaltais-skills", "copilot", "", ForkModeAuto, st); err != nil {
 		t.Fatalf("Fork: %v", err)
 	}
 	if _, ok := st.InstalledSkills[addr]; ok {
@@ -312,7 +311,7 @@ func TestFork_ExistingDestinationWithDifferentUpstream_ReturnsError(t *testing.T
 
 	installedDir := t.TempDir()
 	writeFile(t, filepath.Join(installedDir, "SKILL.md"), "# Local installed content")
-	hash, _ := skill.ComputeHash(installedDir)
+	hash, _ := ComputeHash(installedDir)
 
 	forkCache := t.TempDir()
 	writeFile(t, filepath.Join(forkCache, "improve-codebase-architecture", "SKILL.md"), "# Existing")
@@ -339,7 +338,7 @@ func TestFork_ExistingDestinationWithDifferentUpstream_ReturnsError(t *testing.T
 		},
 	}
 
-	_, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", skill.ForkModeAuto, st)
+	_, err := fork(addr, "bmaltais-skills", "claude-code", "", ForkModeAuto, st)
 	if err == nil {
 		t.Fatal("expected error for conflicting upstream")
 	}
@@ -356,7 +355,7 @@ func TestFork_ExistingDestinationWithoutState_ReturnsError(t *testing.T) {
 
 	installedDir := t.TempDir()
 	writeFile(t, filepath.Join(installedDir, "SKILL.md"), "# Local installed content")
-	hash, _ := skill.ComputeHash(installedDir)
+	hash, _ := ComputeHash(installedDir)
 
 	forkCache := t.TempDir()
 	writeFile(t, filepath.Join(forkCache, "improve-codebase-architecture", "SKILL.md"), "# Existing")
@@ -377,7 +376,7 @@ func TestFork_ExistingDestinationWithoutState_ReturnsError(t *testing.T) {
 		},
 	}
 
-	_, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", skill.ForkModeAuto, st)
+	_, err := fork(addr, "bmaltais-skills", "claude-code", "", ForkModeAuto, st)
 	if err == nil {
 		t.Fatal("expected error for unknown-provenance existing destination skill")
 	}
@@ -401,7 +400,7 @@ func TestFork_ForkModeOverride_ReplacesExistingDestination(t *testing.T) {
 
 	installedDir := t.TempDir()
 	writeFile(t, filepath.Join(installedDir, "SKILL.md"), "# Local installed content")
-	hash, err := skill.ComputeHash(installedDir)
+	hash, err := ComputeHash(installedDir)
 	if err != nil {
 		t.Fatalf("ComputeHash: %v", err)
 	}
@@ -424,7 +423,7 @@ func TestFork_ForkModeOverride_ReplacesExistingDestination(t *testing.T) {
 		},
 	}
 
-	gotAddr, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", skill.ForkModeOverride, st)
+	gotAddr, err := fork(addr, "bmaltais-skills", "claude-code", "", ForkModeOverride, st)
 	if err != nil {
 		t.Fatalf("Fork with ForkModeOverride: %v", err)
 	}
@@ -467,7 +466,7 @@ func TestFork_ForkModeRegister_KeepsExistingDestinationContents(t *testing.T) {
 
 	installedDir := t.TempDir()
 	writeFile(t, filepath.Join(installedDir, "SKILL.md"), "# Local installed content")
-	hash, err := skill.ComputeHash(installedDir)
+	hash, err := ComputeHash(installedDir)
 	if err != nil {
 		t.Fatalf("ComputeHash: %v", err)
 	}
@@ -490,7 +489,7 @@ func TestFork_ForkModeRegister_KeepsExistingDestinationContents(t *testing.T) {
 		},
 	}
 
-	gotAddr, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", skill.ForkModeRegister, st)
+	gotAddr, err := fork(addr, "bmaltais-skills", "claude-code", "", ForkModeRegister, st)
 	if err != nil {
 		t.Fatalf("Fork with ForkModeRegister: %v", err)
 	}
@@ -526,7 +525,7 @@ func TestFork_ForkModeRegister_NonExistentDestination_ReturnsError(t *testing.T)
 
 	installedDir := t.TempDir()
 	writeFile(t, filepath.Join(installedDir, "SKILL.md"), "# Local installed content")
-	hash, _ := skill.ComputeHash(installedDir)
+	hash, _ := ComputeHash(installedDir)
 
 	forkCache := t.TempDir() // destination dir does NOT exist inside forkCache
 
@@ -546,7 +545,7 @@ func TestFork_ForkModeRegister_NonExistentDestination_ReturnsError(t *testing.T)
 		},
 	}
 
-	_, err := skill.Fork(addr, "bmaltais-skills", "claude-code", "", skill.ForkModeRegister, st)
+	_, err := fork(addr, "bmaltais-skills", "claude-code", "", ForkModeRegister, st)
 	if err == nil {
 		t.Fatal("expected error when register mode used with non-existent destination")
 	}

@@ -61,7 +61,12 @@ Use --no-fetch to skip the network call and report against cached state.`,
 		var rows []row
 		for addr, agents := range st.InstalledSkills {
 			for agentName, rec := range agents {
-				r, checkErr := skill.CheckUpdate(addr, agentName, st)
+				is, openErr := skill.Open(addr, agentName, app.Cfg, st)
+				if openErr != nil {
+					rows = append(rows, row{addr, agentName, rec.UpstreamAddr, nil, openErr})
+					continue
+				}
+				r, checkErr := is.Status()
 				rows = append(rows, row{addr, agentName, rec.UpstreamAddr, r, checkErr})
 			}
 		}

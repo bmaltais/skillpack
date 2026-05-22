@@ -171,7 +171,13 @@ Resolve conflicts at sync time with:
 						effectiveLLMAgent = app.Cfg.DefaultAgent
 					}
 				}
-				llmResolved, mergeErr := skill.Resolve(c.Addr, c.AgentName, mergeStrategy, token, effectiveLLMAgent, app.St)
+				is, openErr := skill.Open(c.Addr, c.AgentName, app.Cfg, app.St)
+				if openErr != nil {
+					fmt.Printf("  %-*s  %-*s  merge error: %v\n", addrW, c.Addr, agentW, c.AgentName, openErr)
+					errCount++
+					continue
+				}
+				llmResolved, mergeErr := is.Resolve(mergeStrategy, token, effectiveLLMAgent)
 				switch {
 				case errors.Is(mergeErr, skill.ErrMergeConflicts):
 					fmt.Printf("  %-*s  %-*s  %s\n", addrW, c.Addr, agentW, c.AgentName, yellow("merged — conflicts written, resolve manually or use --llm"))

@@ -9,10 +9,10 @@ import (
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
-// Publish pushes local edits of an installed skill back to the remote repo.
-// Semantically equivalent to ForceLocal: the local copy wins unconditionally.
-func Publish(addr, agentName, token string, st *state.State) error {
-	return ForceLocal(addr, agentName, token, st)
+// publish pushes local edits of an installed skill back to the remote repo.
+// Semantically equivalent to forceLocal: the local copy wins unconditionally.
+func publish(addr, agentName, token string, st *state.State) error {
+	return forceLocal(addr, agentName, token, st)
 }
 
 // PublishNew copies a local skill directory into the named repo, commits, and pushes.

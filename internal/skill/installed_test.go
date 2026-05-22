@@ -84,7 +84,7 @@ func TestOpen_PopulatesCachePath(t *testing.T) {
 	}
 }
 
-func TestOpen_ErrorsOnMissingRepo(t *testing.T) {
+func TestOpen_EmptyCachePathOnMissingRepo(t *testing.T) {
 	addr := "missing-repo/some-skill"
 	st := &state.State{
 		Repos: map[string]state.RepoRecord{}, // repo not registered
@@ -96,9 +96,12 @@ func TestOpen_ErrorsOnMissingRepo(t *testing.T) {
 	}
 	cfg := &config.Config{}
 
-	_, err := skill.Open(addr, "claude-code", cfg, st)
-	if err == nil {
-		t.Fatal("expected error when repo is not in state, got nil")
+	is, err := skill.Open(addr, "claude-code", cfg, st)
+	if err != nil {
+		t.Fatalf("Open should succeed even when repo is not registered, got: %v", err)
+	}
+	if is.CachePath != "" {
+		t.Errorf("CachePath should be empty when repo is not registered, got %q", is.CachePath)
 	}
 }
 
@@ -125,5 +128,78 @@ func TestOpen_IsFork_Delegation(t *testing.T) {
 	}
 	if !is.IsFork() {
 		t.Error("expected IsFork() to return true for skill with UpstreamAddr set")
+	}
+}
+
+func TestInstalledSkill_Remove_SucceedsOnMissingPath(t *testing.T) {
+	addr := "my-repo/my-skill"
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			addr: {
+				"claude-code": {LocalPath: "/tmp/nonexistent-path-xyz/my-skill"},
+			},
+		},
+	}
+	cfg := &config.Config{}
+
+	is, err := skill.Open(addr, "claude-code", cfg, st)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	// Remove on a path that doesn't exist should still succeed (os.RemoveAll is idempotent)
+	// but state should be cleaned up.
+	if err := is.Remove(false); err != nil {
+		t.Errorf("Remove on missing path should not error (os.RemoveAll is idempotent), got: %v", err)
+	}
+}
+
+func TestInstalledSkill_IsModified_NotModified(t *testing.T) {
+	// Open on a record with no local path — IsModified should report false.
+	addr := "my-repo/my-skill"
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			addr: {
+				"claude-code": {LocalPath: "/tmp/nonexistent-path-for-ismod-test"},
+			},
+		},
+	}
+	cfg := &config.Config{}
+
+	is, err := skill.Open(addr, "claude-code", cfg, st)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	// Non-existent path → isModified returns (false, nil) directly via the os.IsNotExist early-return
+	modified, err := is.IsModified()
+	if err != nil {
+		t.Fatalf("IsModified: %v", err)
+	}
+	if modified {
+		t.Error("expected IsModified to return false for non-existent path with empty installed hash")
+	}
+}
+
+func TestInstalledSkill_Status_ErrorsWhenCachePathEmpty(t *testing.T) {
+	// Status requires CachePath; if repo is not registered CachePath is empty.
+	addr := "missing-repo/some-skill"
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			addr: {
+				"claude-code": {LocalPath: "/tmp/skills/some-skill"},
+			},
+		},
+	}
+	cfg := &config.Config{}
+
+	is, err := skill.Open(addr, "claude-code", cfg, st)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	_, err = is.Status()
+	if err == nil {
+		t.Fatal("expected error from Status when CachePath is empty (repo not registered)")
 	}
 }

@@ -848,12 +848,13 @@ func (m *model) handleSkillToggle() {
 
 	if m.installed[addr][agent] {
 		// Remove
-		if err := skill.Remove(addr, agent, m.cfg, m.st, true); err != nil {
+		is, err := skill.Open(addr, agent, m.cfg, m.st)
+		if err != nil {
 			m.message = fmt.Sprintf("✗ Remove failed: %v", err)
 			return
 		}
-		if err := state.Save(m.st); err != nil {
-			m.message = fmt.Sprintf("✗ Save failed: %v", err)
+		if err := is.Remove(true); err != nil {
+			m.message = fmt.Sprintf("✗ Remove failed: %v", err)
 			return
 		}
 		m.installed[addr][agent] = false
@@ -1046,14 +1047,15 @@ func (m *model) execFork(targetRepo string, mode skill.ForkMode) {
 	agent := m.agents[m.cursorCol]
 	token := m.cfg.TokenForRepo(targetRepo)
 
-	newAddr, err := skill.Fork(m.forkAddr, targetRepo, agent, token, mode, m.st)
+	is, err := skill.Open(m.forkAddr, agent, m.cfg, m.st)
 	if err != nil {
 		m.message = fmt.Sprintf("✗ Fork failed: %v", err)
 		m.inputMode = modeNormal
 		return
 	}
-	if err := state.Save(m.st); err != nil {
-		m.message = fmt.Sprintf("✗ Save failed: %v", err)
+	newAddr, err := is.Fork(targetRepo, token, mode)
+	if err != nil {
+		m.message = fmt.Sprintf("✗ Fork failed: %v", err)
 		m.inputMode = modeNormal
 		return
 	}
@@ -1075,14 +1077,14 @@ func (m *model) updateSelectedSkill() {
 		return
 	}
 
-	repoName := strings.SplitN(row.addr, "/", 2)[0]
-	token := m.cfg.TokenForRepo(repoName)
-	if err := skill.ApplyUpdate(row.addr, row.agentName, token, m.st); err != nil {
+	token := m.cfg.TokenForRepo(repoNameFromAddr(row.addr))
+	is, err := skill.Open(row.addr, row.agentName, m.cfg, m.st)
+	if err != nil {
 		m.message = fmt.Sprintf("✗ Update failed: %v", err)
 		return
 	}
-	if err := state.Save(m.st); err != nil {
-		m.message = fmt.Sprintf("✗ Save failed: %v", err)
+	if err := is.Update(token); err != nil {
+		m.message = fmt.Sprintf("✗ Update failed: %v", err)
 		return
 	}
 
@@ -1153,7 +1155,12 @@ func (m *model) cmdCheckStatus() tea.Cmd {
 		for addr, agents := range stCopy.InstalledSkills {
 			info[addr] = make(map[string]string)
 			for agentName := range agents {
-				r, err := skill.CheckUpdate(addr, agentName, stCopy)
+				is, openErr := skill.Open(addr, agentName, cfg, stCopy)
+				if openErr != nil {
+					info[addr][agentName] = "error"
+					continue
+				}
+				r, err := is.Status()
 				if err != nil {
 					info[addr][agentName] = "error"
 					continue
@@ -1717,11 +1724,9 @@ func (m model) viewSkills(b *strings.Builder) {
 }
 
 // upstreamAddr returns the upstream skill address for a forked skill, or "" if
-// the skill at addr is not a fork. It checks all agent records and returns the
-// first non-empty UpstreamAddr found.
 func (m model) upstreamAddr(addr string) string {
 	for _, rec := range m.st.InstalledSkills[addr] {
-		if skill.IsFork(rec) {
+		if rec.UpstreamAddr != "" {
 			return rec.UpstreamAddr
 		}
 	}

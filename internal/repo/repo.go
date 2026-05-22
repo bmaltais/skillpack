@@ -73,7 +73,7 @@ func Add(name, url, token string, st *state.State) error {
 		CachePath:   cachePath,
 		LastUpdated: time.Now(),
 	}
-	return nil
+	return state.Save(st)
 }
 
 // Remove unregisters a repo from state. The local cache clone is kept on disk.
@@ -82,7 +82,7 @@ func Remove(name string, st *state.State) error {
 		return fmt.Errorf("repo %q not found", name)
 	}
 	delete(st.Repos, name)
-	return nil
+	return state.Save(st)
 }
 
 // NewCachePath returns the absolute path where a repo named name would be cached.
@@ -158,7 +158,7 @@ func Update(name, token string, st *state.State) error {
 
 	rec.LastUpdated = time.Now()
 	st.Repos[name] = rec
-	return nil
+	return state.Save(st)
 }
 
 // resolveRemoteHEAD returns the hash the remote tip the local worktree tracks.

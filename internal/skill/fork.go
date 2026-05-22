@@ -218,6 +218,9 @@ func Fork(addr, forkRepo, agentName, token string, mode ForkMode, st *state.Stat
 		}
 	}
 
+	if err := state.Save(st); err != nil {
+		return "", err
+	}
 	return newAddr, nil
 }
 
@@ -286,11 +289,14 @@ func pushForkAfterMerge(addr, agentName, token string, upstreamHeadSHA string, s
 		commitSHA = result.CommitHash
 	}
 
-	return st.RecordInstall(addr, agentName, state.InstalledSkillRecord{
+	if err := st.RecordInstall(addr, agentName, state.InstalledSkillRecord{
 		InstalledAtSHA: commitSHA,
 		InstalledHash:  hash,
 		LocalPath:      rec.LocalPath,
 		UpstreamAddr:   rec.UpstreamAddr,
 		UpstreamSHA:    upstreamHeadSHA,
-	})
+	}); err != nil {
+		return err
+	}
+	return state.Save(st)
 }

@@ -18,6 +18,7 @@ import (
 )
 
 func TestInstall_LoadsForkProvenanceMetadata(t *testing.T) {
+	setupHome(t)
 	cacheDir := t.TempDir()
 	skillRelPath := filepath.Join("skills", "engineering", "improve-codebase-architecture")
 	writeFile(t, filepath.Join(cacheDir, skillRelPath, "SKILL.md"), "# Skill")
@@ -52,6 +53,7 @@ func TestInstall_LoadsForkProvenanceMetadata(t *testing.T) {
 }
 
 func TestFork_ExistingDestinationWithSameUpstream_ReforksInPlace(t *testing.T) {
+	setupHome(t)
 	upstreamCache := t.TempDir()
 	writeFile(t, filepath.Join(upstreamCache, "skills", "engineering", "improve-codebase-architecture", "SKILL.md"), "# Upstream")
 	_, _ = initRepoWithCommit(t, upstreamCache, "upstream commit")
@@ -140,6 +142,7 @@ func TestFork_ExistingDestinationWithSameUpstream_ReforksInPlace(t *testing.T) {
 }
 
 func TestFork_MovesAllInstalledAgentsToForkAddress(t *testing.T) {
+	setupHome(t)
 	upstreamCache := t.TempDir()
 	writeFile(t, filepath.Join(upstreamCache, "skills", "engineering", "improve-codebase-architecture", "SKILL.md"), "# Upstream")
 	_, _ = initRepoWithCommit(t, upstreamCache, "upstream commit")
@@ -244,6 +247,7 @@ func TestFork_MovesAllInstalledAgentsToForkAddress(t *testing.T) {
 }
 
 func TestFork_ExistingDestinationWithMatchingUpstream_AllowsRemainingAgentMigration(t *testing.T) {
+	setupHome(t)
 	upstreamCache := t.TempDir()
 	writeFile(t, filepath.Join(upstreamCache, "skills", "engineering", "improve-codebase-architecture", "SKILL.md"), "# Upstream")
 	_, _ = initRepoWithCommit(t, upstreamCache, "upstream commit")
@@ -301,6 +305,7 @@ func TestFork_ExistingDestinationWithMatchingUpstream_AllowsRemainingAgentMigrat
 }
 
 func TestFork_ExistingDestinationWithDifferentUpstream_ReturnsError(t *testing.T) {
+	setupHome(t)
 	upstreamCache := t.TempDir()
 	writeFile(t, filepath.Join(upstreamCache, "skills", "engineering", "improve-codebase-architecture", "SKILL.md"), "# Upstream")
 	_, _ = initRepoWithCommit(t, upstreamCache, "upstream commit")
@@ -344,6 +349,7 @@ func TestFork_ExistingDestinationWithDifferentUpstream_ReturnsError(t *testing.T
 }
 
 func TestFork_ExistingDestinationWithoutState_ReturnsError(t *testing.T) {
+	setupHome(t)
 	upstreamCache := t.TempDir()
 	writeFile(t, filepath.Join(upstreamCache, "skills", "engineering", "improve-codebase-architecture", "SKILL.md"), "# Upstream")
 	_, _ = initRepoWithCommit(t, upstreamCache, "upstream commit")
@@ -381,6 +387,7 @@ func TestFork_ExistingDestinationWithoutState_ReturnsError(t *testing.T) {
 }
 
 func TestFork_ForkModeOverride_ReplacesExistingDestination(t *testing.T) {
+	setupHome(t)
 	upstreamCache := t.TempDir()
 	writeFile(t, filepath.Join(upstreamCache, "skills", "engineering", "improve-codebase-architecture", "SKILL.md"), "# Upstream")
 	_, _ = initRepoWithCommit(t, upstreamCache, "upstream commit")
@@ -446,6 +453,7 @@ func TestFork_ForkModeOverride_ReplacesExistingDestination(t *testing.T) {
 }
 
 func TestFork_ForkModeRegister_KeepsExistingDestinationContents(t *testing.T) {
+	setupHome(t)
 	upstreamCache := t.TempDir()
 	writeFile(t, filepath.Join(upstreamCache, "skills", "engineering", "improve-codebase-architecture", "SKILL.md"), "# Upstream")
 	_, _ = initRepoWithCommit(t, upstreamCache, "upstream commit")
@@ -511,6 +519,7 @@ func TestFork_ForkModeRegister_KeepsExistingDestinationContents(t *testing.T) {
 }
 
 func TestFork_ForkModeRegister_NonExistentDestination_ReturnsError(t *testing.T) {
+	setupHome(t)
 	upstreamCache := t.TempDir()
 	writeFile(t, filepath.Join(upstreamCache, "skills", "engineering", "improve-codebase-architecture", "SKILL.md"), "# Upstream")
 	_, _ = initRepoWithCommit(t, upstreamCache, "upstream commit")

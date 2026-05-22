@@ -45,7 +45,7 @@ var installCmd = &cobra.Command{
 			}
 			fmt.Printf("  installed\n")
 		}
-		return state.Save(st)
+		return nil
 	},
 }
 

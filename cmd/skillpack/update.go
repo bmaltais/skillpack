@@ -120,7 +120,6 @@ the upstream_sha recorded at fork time as the common base.`,
 		}
 
 		var conflictCount int
-		changed := false
 
 		for _, t := range targets {
 			result, err := skill.CheckUpdate(t.addr, t.agent, st)
@@ -145,7 +144,6 @@ the upstream_sha recorded at fork time as the common base.`,
 							return err
 						}
 						fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("force-remote applied"))
-						changed = true
 					} else {
 						fmt.Printf("  %-*s  %-*s  [dry-run] would force-remote\n", addrW, t.addr, agentW, t.agent)
 					}
@@ -156,7 +154,6 @@ the upstream_sha recorded at fork time as the common base.`,
 							return err
 						}
 						fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("force-local applied (pushed to remote)"))
-						changed = true
 					} else {
 						fmt.Printf("  %-*s  %-*s  [dry-run] would force-local (push to remote)\n", addrW, t.addr, agentW, t.agent)
 					}
@@ -180,10 +177,8 @@ the upstream_sha recorded at fork time as the common base.`,
 							return err
 						case llmResolved:
 							fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("merged + LLM resolved"))
-							changed = true
 						default:
 							fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("merged cleanly"))
-							changed = true
 						}
 					} else {
 						fmt.Printf("  %-*s  %-*s  [dry-run] would merge\n", addrW, t.addr, agentW, t.agent)
@@ -200,16 +195,9 @@ the upstream_sha recorded at fork time as the common base.`,
 						return err
 					}
 					fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("updated"))
-					changed = true
 				} else {
 					fmt.Printf("  %-*s  %-*s  [dry-run] would update\n", addrW, t.addr, agentW, t.agent)
 				}
-			}
-		}
-
-		if changed {
-			if err := state.Save(st); err != nil {
-				return err
 			}
 		}
 

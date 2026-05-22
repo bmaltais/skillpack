@@ -166,7 +166,6 @@ Resolve conflicts at sync time with:
 				current++
 			}
 		}
-		stateMutated := false
 		for _, c := range conflicts {
 			if doMerge {
 				token := cfg.TokenForRepo(repoNameFromAddr(c.Addr))
@@ -186,11 +185,9 @@ Resolve conflicts at sync time with:
 					fmt.Printf("  %-*s  %-*s  merge error: %v\n", addrW, c.Addr, agentW, c.AgentName, mergeErr)
 					errCount++
 				case llmResolved:
-					stateMutated = true
 					published++
 					fmt.Printf("  %-*s  %-*s  %s\n", addrW, c.Addr, agentW, c.AgentName, green("merged + LLM resolved"))
 				default:
-					stateMutated = true
 					fmt.Printf("  %-*s  %-*s  %s\n", addrW, c.Addr, agentW, c.AgentName, green("merged cleanly"))
 				}
 			} else {
@@ -208,14 +205,8 @@ Resolve conflicts at sync time with:
 		}
 		fmt.Println()
 
-		// state.Save for updates and publishes is handled inside skill.ApplySync
-		// (called by skill.Sync). Save here only when a merge or LLM operation
-		// actually mutated state (clean merge or successful LLM resolution).
-		if stateMutated {
-			if saveErr := state.Save(st); saveErr != nil {
-				return saveErr
-			}
-		}
+		// Internal functions (skill.Resolve, skill.ApplySync) persist state
+		// themselves — no explicit save needed here.
 
 		if len(conflicts) > 0 && !doMerge {
 			return fmt.Errorf(

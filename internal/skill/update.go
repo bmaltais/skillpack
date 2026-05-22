@@ -42,7 +42,10 @@ func SnapshotInstalled(addr, agentName string, st *state.State) error {
 	}
 	rec.InstalledHash = hash
 	rec.InstalledAtSHA = headSHA
-	return st.RecordInstall(addr, agentName, rec)
+	if err := st.RecordInstall(addr, agentName, rec); err != nil {
+		return err
+	}
+	return state.Save(st)
 }
 
 // UpdateResult describes the state of an installed skill relative to upstream.
@@ -106,7 +109,10 @@ func ApplyUpdate(addr, agentName, token string, st *state.State) error {
 		if err := copyDir(upstreamInfo.FullPath, rec.LocalPath); err != nil {
 			return fmt.Errorf("copying upstream skill: %w", err)
 		}
-		return pushForkAfterMerge(addr, agentName, token, upstreamHeadSHA, st)
+		if err := pushForkAfterMerge(addr, agentName, token, upstreamHeadSHA, st); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	skillInfo, err := repo.FindSkill(addr, st)
@@ -129,11 +135,14 @@ func ApplyUpdate(addr, agentName, token string, st *state.State) error {
 	if err != nil {
 		return err
 	}
-	return st.RecordInstall(addr, agentName, state.InstalledSkillRecord{
+	if err := st.RecordInstall(addr, agentName, state.InstalledSkillRecord{
 		InstalledAtSHA: sha,
 		InstalledHash:  hash,
 		LocalPath:      rec.LocalPath,
-	})
+	}); err != nil {
+		return err
+	}
+	return state.Save(st)
 }
 
 // ForceRemote overwrites the installed skill with the cache (upstream) version, discarding local changes.
@@ -200,7 +209,10 @@ func ForceLocal(addr, agentName, token string, st *state.State) error {
 			newRec.UpstreamSHA = upstreamSHA
 		}
 	}
-	return st.RecordInstall(addr, agentName, newRec)
+	if err := st.RecordInstall(addr, agentName, newRec); err != nil {
+		return err
+	}
+	return state.Save(st)
 }
 
 // MergeSkill performs a file-level three-way merge between the installed skill (ours)

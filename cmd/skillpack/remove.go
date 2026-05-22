@@ -58,7 +58,7 @@ var removeCmd = &cobra.Command{
 			}
 			fmt.Printf("  removed\n")
 		}
-		return state.Save(st)
+		return nil
 	},
 }
 

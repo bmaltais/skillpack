@@ -31,18 +31,18 @@ Two modes:
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 
 		app := AppFromCtx(cmd.Context())
-			if app == nil {
-				return fmt.Errorf("configuration not available")
-			}
+		if app == nil {
+			return fmt.Errorf("configuration not available")
+		}
 
-			// New-skill mode: --repo flag provided
-			if repoFlag != "" {
-				localDir := args[0]
-				if dryRun {
-					fmt.Printf("  [dry-run] would add %q to repo %q\n", localDir, repoFlag)
-					return nil
-				}
-				addr, err := skill.PublishNew(localDir, repoFlag, app.Cfg.TokenForRepo(repoFlag), app.St)
+		// New-skill mode: --repo flag provided
+		if repoFlag != "" {
+			localDir := args[0]
+			if dryRun {
+				fmt.Printf("  [dry-run] would add %q to repo %q\n", localDir, repoFlag)
+				return nil
+			}
+			addr, err := skill.PublishNew(localDir, repoFlag, app.Cfg.TokenForRepo(repoFlag), app.St)
 			if err != nil {
 				return err
 			}

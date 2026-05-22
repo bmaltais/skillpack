@@ -55,14 +55,12 @@ After forking:
 
 		token := app.Cfg.TokenForRepo(forkRepo)
 
-		st := app.St
-
 		mode, err := parseForkMode(forkModeStr)
 		if err != nil {
 			return err
 		}
 
-		newAddr, err := skill.Fork(addr, forkRepo, agentName, token, mode, st)
+		newAddr, err := skill.Fork(addr, forkRepo, agentName, token, mode, app.St)
 		if err != nil {
 			return err
 		}

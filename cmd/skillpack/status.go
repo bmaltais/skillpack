@@ -29,8 +29,7 @@ Use --no-fetch to skip the network call and report against cached state.`,
 
 		app := AppFromCtx(cmd.Context())
 		if app == nil {
-			fmt.Printf("error: configuration not available\n")
-			return nil
+			return fmt.Errorf("configuration not available")
 		}
 
 		st := app.St
@@ -40,10 +39,7 @@ Use --no-fetch to skip the network call and report against cached state.`,
 			return nil
 		}
 
-		tokenFor := func(string) string { return "" }
-		if app.Cfg != nil {
-			tokenFor = app.Cfg.TokenForRepo
-		}
+		tokenFor := app.Cfg.TokenForRepo
 
 		if !noFetch {
 			fmt.Println("Fetching repos...")

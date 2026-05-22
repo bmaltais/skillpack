@@ -26,10 +26,11 @@ var listCmd = &cobra.Command{
 		available, _ := cmd.Flags().GetBool("available")
 		repoFilter, _ := cmd.Flags().GetString("repo")
 
-		st, err := state.Load()
-		if err != nil {
-			return err
+		app := AppFromCtx(cmd.Context())
+		if app == nil {
+			return fmt.Errorf("configuration not available")
 		}
+		st := app.St
 
 		// --available: browse skills in registered repos
 		if available {

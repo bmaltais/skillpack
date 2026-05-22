@@ -6,9 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/skill"
-	"github.com/bmaltais/skillpack/internal/state"
 )
 
 var publishCmd = &cobra.Command{
@@ -32,23 +30,19 @@ Two modes:
 		repoFlag, _ := cmd.Flags().GetString("repo")
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
+		app := AppFromCtx(cmd.Context())
+			if app == nil {
+				return fmt.Errorf("configuration not available")
+			}
 
-		// New-skill mode: --repo flag provided
-		if repoFlag != "" {
-			localDir := args[0]
-			if dryRun {
-				fmt.Printf("  [dry-run] would add %q to repo %q\n", localDir, repoFlag)
-				return nil
-			}
-			st, err := state.Load()
-			if err != nil {
-				return err
-			}
-			addr, err := skill.PublishNew(localDir, repoFlag, cfg.TokenForRepo(repoFlag), st)
+			// New-skill mode: --repo flag provided
+			if repoFlag != "" {
+				localDir := args[0]
+				if dryRun {
+					fmt.Printf("  [dry-run] would add %q to repo %q\n", localDir, repoFlag)
+					return nil
+				}
+				addr, err := skill.PublishNew(localDir, repoFlag, app.Cfg.TokenForRepo(repoFlag), app.St)
 			if err != nil {
 				return err
 			}
@@ -60,24 +54,19 @@ Two modes:
 		// Existing-skill mode: publish installed edits for an address
 		addr := args[0]
 		if agentName == "" {
-			agentName = cfg.DefaultAgent
+			agentName = app.Cfg.DefaultAgent
 		}
 		repoName := strings.SplitN(addr, "/", 2)[0]
 
-		st, err := state.Load()
-		if err != nil {
-			return err
-		}
-
 		// Verify it's installed
-		if agents, ok := st.InstalledSkills[addr]; !ok {
+		if agents, ok := app.St.InstalledSkills[addr]; !ok {
 			return fmt.Errorf("skill %q is not installed", addr)
 		} else if _, ok := agents[agentName]; !ok {
 			return fmt.Errorf("skill %q is not installed for agent %q", addr, agentName)
 		}
 
 		if dryRun {
-			modified, err := skill.IsModified(st.InstalledSkills[addr][agentName])
+			modified, err := skill.IsModified(app.St.InstalledSkills[addr][agentName])
 			if err != nil {
 				return err
 			}
@@ -89,7 +78,7 @@ Two modes:
 			return nil
 		}
 
-		if err := skill.Publish(addr, agentName, cfg.TokenForRepo(repoName), st); err != nil {
+		if err := skill.Publish(addr, agentName, app.Cfg.TokenForRepo(repoName), app.St); err != nil {
 			return err
 		}
 		fmt.Printf("  Published: %s (%s)\n", addr, agentName)

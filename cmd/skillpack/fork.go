@@ -5,9 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/skill"
-	"github.com/bmaltais/skillpack/internal/state"
 )
 
 func parseForkMode(s string) (skill.ForkMode, error) {
@@ -47,20 +45,17 @@ After forking:
 		agentName, _ := cmd.Flags().GetString("agent")
 		forkModeStr, _ := cmd.Flags().GetString("fork-mode")
 
-		cfg, err := config.Load()
-		if err != nil {
-			return err
+		app := AppFromCtx(cmd.Context())
+		if app == nil {
+			return fmt.Errorf("configuration not available")
 		}
 		if agentName == "" {
-			agentName = cfg.DefaultAgent
+			agentName = app.Cfg.DefaultAgent
 		}
 
-		token := cfg.TokenForRepo(forkRepo)
+		token := app.Cfg.TokenForRepo(forkRepo)
 
-		st, err := state.Load()
-		if err != nil {
-			return err
-		}
+		st := app.St
 
 		mode, err := parseForkMode(forkModeStr)
 		if err != nil {

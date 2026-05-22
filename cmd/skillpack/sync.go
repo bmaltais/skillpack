@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
 )
@@ -34,17 +33,12 @@ Resolve conflicts at sync time with:
 			return fmt.Errorf("--llm requires --merge")
 		}
 
-		st, err := state.Load()
-		if err != nil {
-			return err
+		app := AppFromCtx(cmd.Context())
+		if app == nil {
+			return fmt.Errorf("configuration not available")
 		}
 
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-
-		if len(st.InstalledSkills) == 0 {
+		if len(app.St.InstalledSkills) == 0 {
 			fmt.Println("No installed skills to sync.")
 			return nil
 		}
@@ -53,17 +47,17 @@ Resolve conflicts at sync time with:
 		if dryRun {
 			prefix = "[dry-run] "
 		}
-		fmt.Printf("%sSyncing %d installed skill(s)...\n", prefix, countInstalled(st))
+		fmt.Printf("%sSyncing %d installed skill(s)...\n", prefix, countInstalled(app.St))
 
 		// Dry-run: use ReconcilePlan (pure, no applying changes) to show what
 		// would happen. Repo caches are not pulled — output reflects current
 		// local cache state, matching the previous behaviour.
 		if dryRun {
-			repoHeads, headErr := skill.CollectRepoHeads(st)
+			repoHeads, headErr := skill.CollectRepoHeads(app.St)
 			if headErr != nil {
 				return headErr
 			}
-			plan := skill.ReconcilePlan(st, repoHeads)
+			plan := skill.ReconcilePlan(app.St, repoHeads)
 
 			// Sort for stable output.
 			sort.Slice(plan, func(i, j int) bool {
@@ -124,7 +118,7 @@ Resolve conflicts at sync time with:
 			return nil
 		}
 
-		results, conflicts, err := skill.Sync(false, cfg.TokenForRepo, st)
+		results, conflicts, err := skill.Sync(false, app.Cfg.TokenForRepo, app.St)
 		if err != nil {
 			return err
 		}
@@ -168,16 +162,16 @@ Resolve conflicts at sync time with:
 		}
 		for _, c := range conflicts {
 			if doMerge {
-				token := cfg.TokenForRepo(repoNameFromAddr(c.Addr))
+				token := app.Cfg.TokenForRepo(repoNameFromAddr(c.Addr))
 				mergeStrategy := skill.ResolveMerge
 				effectiveLLMAgent := llmAgent
 				if llmAgent != "" {
 					mergeStrategy = skill.ResolveLLM
 					if effectiveLLMAgent == llmNoOptDefVal {
-						effectiveLLMAgent = cfg.DefaultAgent
+						effectiveLLMAgent = app.Cfg.DefaultAgent
 					}
 				}
-				llmResolved, mergeErr := skill.Resolve(c.Addr, c.AgentName, mergeStrategy, token, effectiveLLMAgent, st)
+				llmResolved, mergeErr := skill.Resolve(c.Addr, c.AgentName, mergeStrategy, token, effectiveLLMAgent, app.St)
 				switch {
 				case errors.Is(mergeErr, skill.ErrMergeConflicts):
 					fmt.Printf("  %-*s  %-*s  %s\n", addrW, c.Addr, agentW, c.AgentName, yellow("merged — conflicts written, resolve manually or use --llm"))

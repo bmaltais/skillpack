@@ -5,9 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/skill"
-	"github.com/bmaltais/skillpack/internal/state"
 )
 
 var removeCmd = &cobra.Command{
@@ -24,18 +22,14 @@ var removeCmd = &cobra.Command{
 		allAgents, _ := cmd.Flags().GetBool("all-agents")
 		force, _ := cmd.Flags().GetBool("force")
 
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		st, err := state.Load()
-		if err != nil {
-			return err
+		app := AppFromCtx(cmd.Context())
+		if app == nil {
+			return fmt.Errorf("configuration not available")
 		}
 
 		var targets []string
 		if allAgents {
-			if agents, ok := st.InstalledSkills[addr]; ok {
+			if agents, ok := app.St.InstalledSkills[addr]; ok {
 				for name := range agents {
 					targets = append(targets, name)
 				}
@@ -45,7 +39,7 @@ var removeCmd = &cobra.Command{
 			}
 		} else {
 			var err error
-			targets, err = resolveAgents(agentName, false, cfg)
+			targets, err = resolveAgents(agentName, false, app.Cfg)
 			if err != nil {
 				return err
 			}
@@ -53,7 +47,7 @@ var removeCmd = &cobra.Command{
 
 		for _, target := range targets {
 			fmt.Printf("Removing %s from %s...\n", addr, target)
-			if err := skill.Remove(addr, target, cfg, st, force); err != nil {
+			if err := skill.Remove(addr, target, app.Cfg, app.St, force); err != nil {
 				return err
 			}
 			fmt.Printf("  removed\n")

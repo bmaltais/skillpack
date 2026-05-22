@@ -41,14 +41,21 @@ const (
 // The returned bool is true when the ResolveLLM pipeline was invoked (MergeSkill
 // detected conflicts and LLMResolveConflicts was called). It is only meaningful
 // when err == nil; callers must not inspect it when err != nil.
-func Resolve(addr, agentName string, strategy ResolveStrategy, token, llmAgentName string, st *state.State) (bool, error) {
+// resolve executes the requested conflict resolution strategy for an installed skill.
+// token is the auth token for git operations against the skill's remote repo.
+// llmAgentName is only used for the ResolveLLM strategy; pass "" for all others.
+//
+// The returned bool is true when the ResolveLLM pipeline was invoked (mergeSkill
+// detected conflicts and LLMResolveConflicts was called). It is only meaningful
+// when err == nil; callers must not inspect it when err != nil.
+func resolve(addr, agentName string, strategy ResolveStrategy, token, llmAgentName string, st *state.State) (bool, error) {
 	switch strategy {
 	case ResolveForceRemote:
-		return false, ForceRemote(addr, agentName, token, st)
+		return false, forceRemote(addr, agentName, token, st)
 	case ResolveForceLocal:
-		return false, ForceLocal(addr, agentName, token, st)
+		return false, forceLocal(addr, agentName, token, st)
 	case ResolveMerge:
-		hadConflicts, err := MergeSkill(addr, agentName, token, st)
+		hadConflicts, err := mergeSkill(addr, agentName, token, st)
 		if err != nil {
 			return false, err
 		}
@@ -60,7 +67,7 @@ func Resolve(addr, agentName string, strategy ResolveStrategy, token, llmAgentNa
 		if llmAgentName == "" {
 			return false, fmt.Errorf("ResolveLLM requires a non-empty llmAgentName")
 		}
-		hadConflicts, err := MergeSkill(addr, agentName, token, st)
+		hadConflicts, err := mergeSkill(addr, agentName, token, st)
 		if err != nil {
 			return false, err
 		}
@@ -76,13 +83,13 @@ func Resolve(addr, agentName string, strategy ResolveStrategy, token, llmAgentNa
 			return false, err
 		}
 		rec := st.InstalledSkills[addr][agentName]
-		if IsFork(rec) {
-			if err := PushForkAfterLLM(addr, agentName, token, st); err != nil {
+		if isFork(rec) {
+			if err := pushForkAfterLLM(addr, agentName, token, st); err != nil {
 				return false, err
 			}
 			return true, nil
 		}
-		if err := SnapshotInstalled(addr, agentName, st); err != nil {
+		if err := snapshotInstalled(addr, agentName, st); err != nil {
 			return false, err
 		}
 		return true, nil

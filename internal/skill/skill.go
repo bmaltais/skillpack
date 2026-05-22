@@ -74,8 +74,8 @@ func Install(addr, agentName string, cfg *config.Config, st *state.State, skipEx
 	return state.Save(st)
 }
 
-// Remove deletes an installed skill from an agent's skill dir.
-func Remove(addr, agentName string, cfg *config.Config, st *state.State, force bool) error {
+// remove deletes an installed skill from an agent's skill dir.
+func remove(addr, agentName string, cfg *config.Config, st *state.State, force bool) error {
 	agents, ok := st.InstalledSkills[addr]
 	if !ok {
 		return fmt.Errorf("skill %q is not installed", addr)
@@ -86,7 +86,7 @@ func Remove(addr, agentName string, cfg *config.Config, st *state.State, force b
 	}
 
 	if !force {
-		modified, err := IsModified(rec)
+		modified, err := isModified(rec)
 		if err != nil {
 			return err
 		}
@@ -105,8 +105,8 @@ func Remove(addr, agentName string, cfg *config.Config, st *state.State, force b
 	return state.Save(st)
 }
 
-// IsModified returns true if the installed skill directory has changed since installation.
-func IsModified(rec state.InstalledSkillRecord) (bool, error) {
+// isModified returns true if the installed skill directory has changed since installation.
+func isModified(rec state.InstalledSkillRecord) (bool, error) {
 	if _, err := os.Stat(rec.LocalPath); os.IsNotExist(err) {
 		return false, nil
 	}

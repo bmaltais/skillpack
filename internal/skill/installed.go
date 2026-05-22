@@ -58,6 +58,9 @@ func Open(addr, agentName string, cfg *config.Config, st *state.State) (Installe
 }
 
 // resolveCachePath extracts the repo name from addr and returns its CachePath.
+// Returns an empty string (no error) when the repo is not registered — callers
+// that need a valid CachePath (e.g. Update, Fork) will fail with a clear message
+// at use time; callers that do not (e.g. Remove) work correctly with an empty path.
 func resolveCachePath(addr string, st *state.State) (string, error) {
 	parts := strings.SplitN(addr, "/", 2)
 	if len(parts) < 2 {
@@ -66,61 +69,60 @@ func resolveCachePath(addr string, st *state.State) (string, error) {
 	repoName := parts[0]
 	rec, ok := st.Repos[repoName]
 	if !ok {
-		return "", fmt.Errorf("repo %q not registered; run 'skillpack repo add' to register it", repoName)
+		return "", nil
 	}
 	return rec.CachePath, nil
 }
 
-// Remove removes the installed skill. Delegates to skill.Remove.
+// Remove removes the installed skill.
 func (s InstalledSkill) Remove(force bool) error {
-	return Remove(s.Addr, s.AgentName, s.cfg, s.st, force)
+	return remove(s.Addr, s.AgentName, s.cfg, s.st, force)
 }
 
-// Update checks for an upstream change and applies it. Delegates to
-// skill.ApplyUpdate. The token is used for forked skills that need a push.
+// Update checks for an upstream change and applies it.
+// The token is used for forked skills that need a push.
 func (s InstalledSkill) Update(token string) error {
-	return ApplyUpdate(s.Addr, s.AgentName, token, s.st)
+	return applyUpdate(s.Addr, s.AgentName, token, s.st)
 }
 
 // ForceRemote overwrites the installed skill with the upstream cache version.
-// Delegates to skill.ForceRemote.
 func (s InstalledSkill) ForceRemote(token string) error {
-	return ForceRemote(s.Addr, s.AgentName, token, s.st)
+	return forceRemote(s.Addr, s.AgentName, token, s.st)
 }
 
-// ForceLocal copies the locally-installed skill back into the repo cache and
-// pushes. Delegates to skill.ForceLocal.
+// ForceLocal copies the locally-installed skill back into the repo cache and pushes.
 func (s InstalledSkill) ForceLocal(token string) error {
-	return ForceLocal(s.Addr, s.AgentName, token, s.st)
+	return forceLocal(s.Addr, s.AgentName, token, s.st)
 }
 
-// Merge performs a three-way merge between the installed skill and the upstream
-// cache. Delegates to skill.MergeSkill.
+// Merge performs a three-way merge between the installed skill and the upstream cache.
 func (s InstalledSkill) Merge(token string) (hasConflicts bool, err error) {
-	return MergeSkill(s.Addr, s.AgentName, token, s.st)
+	return mergeSkill(s.Addr, s.AgentName, token, s.st)
 }
 
-// Fork forks the skill into forkRepo. Delegates to skill.Fork.
+// Fork forks the skill into forkRepo.
 func (s InstalledSkill) Fork(forkRepo, token string, mode ForkMode) (newAddr string, err error) {
-	return Fork(s.Addr, forkRepo, s.AgentName, token, mode, s.st)
+	return fork(s.Addr, forkRepo, s.AgentName, token, mode, s.st)
 }
 
 // Publish copies the locally-modified skill back to the repo cache and pushes.
-// Delegates to skill.Publish.
 func (s InstalledSkill) Publish(token string) error {
-	return Publish(s.Addr, s.AgentName, token, s.st)
+	return publish(s.Addr, s.AgentName, token, s.st)
 }
 
-// Resolve resolves a conflict using the given strategy. Delegates to
-// skill.Resolve.
+// Resolve resolves a conflict using the given strategy.
 func (s InstalledSkill) Resolve(strategy ResolveStrategy, token, llmAgentName string) (bool, error) {
-	return Resolve(s.Addr, s.AgentName, strategy, token, llmAgentName, s.st)
+	return resolve(s.Addr, s.AgentName, strategy, token, llmAgentName, s.st)
 }
 
-// PushForkAfterLLM pushes a fork after an LLM-assisted edit. Delegates to
-// skill.PushForkAfterLLM.
+// PushForkAfterLLM pushes a fork after an LLM-assisted edit.
 func (s InstalledSkill) PushForkAfterLLM(token string) error {
-	return PushForkAfterLLM(s.Addr, s.AgentName, token, s.st)
+	return pushForkAfterLLM(s.Addr, s.AgentName, token, s.st)
+}
+
+// Status returns the update state of this installed skill relative to upstream.
+func (s InstalledSkill) Status() (*UpdateResult, error) {
+	return checkUpdate(s.Addr, s.AgentName, s.st)
 }
 
 // IsModified reports whether the installed skill has been locally modified
@@ -137,7 +139,7 @@ func (s InstalledSkill) IsModified() (bool, error) {
 	if !ok {
 		return false, fmt.Errorf("skill %q is no longer installed for agent %q", s.Addr, s.AgentName)
 	}
-	return IsModified(rec)
+	return isModified(rec)
 }
 
 // IsFork reports whether this installed skill is a fork of an upstream skill.
@@ -147,8 +149,8 @@ func (s InstalledSkill) IsModified() (bool, error) {
 func (s InstalledSkill) IsFork() bool {
 	if agents, ok := s.st.InstalledSkills[s.Addr]; ok {
 		if rec, ok := agents[s.AgentName]; ok {
-			return IsFork(rec)
+			return isFork(rec)
 		}
 	}
-	return IsFork(s.Rec)
+	return isFork(s.Rec)
 }

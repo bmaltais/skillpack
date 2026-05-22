@@ -1,18 +1,17 @@
-package skill_test
+package skill
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
 // TestCheckUpdate_NotInstalled verifies a useful error when the skill isn't in state.
 func TestCheckUpdate_NotInstalled(t *testing.T) {
 	st := emptyState()
-	_, err := skill.CheckUpdate("no-repo/no-skill", "claude-code", st)
+	_, err := checkUpdate("no-repo/no-skill", "claude-code", st)
 	if err == nil {
 		t.Error("expected error for uninstalled skill")
 	}
@@ -30,7 +29,7 @@ func TestApplyUpdate(t *testing.T) {
 	installDir := filepath.Join(installRoot, "debugger")
 	writeFile(t, filepath.Join(installDir, "SKILL.md"), "# Old Skill\nOld content.")
 
-	oldHash, _ := skill.ComputeHash(installDir)
+	oldHash, _ := ComputeHash(installDir)
 
 	st := &state.State{
 		Repos: map[string]state.RepoRecord{
@@ -52,7 +51,7 @@ func TestApplyUpdate(t *testing.T) {
 	rec := st.InstalledSkills["my-repo/coding/debugger"]["claude-code"]
 
 	// Before update: hash matches (not modified)
-	modified, err := skill.IsModified(rec)
+	modified, err := isModified(rec)
 	if err != nil {
 		t.Fatalf("IsModified: %v", err)
 	}
@@ -63,7 +62,7 @@ func TestApplyUpdate(t *testing.T) {
 	// Simulate user editing the installed skill
 	writeFile(t, filepath.Join(installDir, "SKILL.md"), "# Locally edited")
 
-	modified, err = skill.IsModified(rec)
+	modified, err = isModified(rec)
 	if err != nil {
 		t.Fatalf("IsModified after edit: %v", err)
 	}
@@ -130,7 +129,7 @@ func TestMergeSkill_ConflictMarkers(t *testing.T) {
 // TestPathUnderSkill is tested indirectly via DiscoverSkills; tested here for edge cases.
 func TestUpdateResult_ConflictFlag(t *testing.T) {
 	// IsConflict = HasUpstream && IsModified
-	r := skill.UpdateResult{
+	r := UpdateResult{
 		Addr:        "repo/skill",
 		AgentName:   "claude-code",
 		HasUpstream: true,
@@ -141,7 +140,7 @@ func TestUpdateResult_ConflictFlag(t *testing.T) {
 		t.Error("expected IsConflict to be true when both upstream and modified")
 	}
 
-	r2 := skill.UpdateResult{HasUpstream: true, IsModified: false, IsConflict: false}
+	r2 := UpdateResult{HasUpstream: true, IsModified: false, IsConflict: false}
 	if r2.IsConflict {
 		t.Error("expected no conflict when not locally modified")
 	}

@@ -58,15 +58,13 @@ Two modes:
 		}
 		repoName := strings.SplitN(addr, "/", 2)[0]
 
-		// Verify it's installed
-		if agents, ok := app.St.InstalledSkills[addr]; !ok {
-			return fmt.Errorf("skill %q is not installed", addr)
-		} else if _, ok := agents[agentName]; !ok {
-			return fmt.Errorf("skill %q is not installed for agent %q", addr, agentName)
+		is, err := skill.Open(addr, agentName, app.Cfg, app.St)
+		if err != nil {
+			return err
 		}
 
 		if dryRun {
-			modified, err := skill.IsModified(app.St.InstalledSkills[addr][agentName])
+			modified, err := is.IsModified()
 			if err != nil {
 				return err
 			}
@@ -78,7 +76,7 @@ Two modes:
 			return nil
 		}
 
-		if err := skill.Publish(addr, agentName, app.Cfg.TokenForRepo(repoName), app.St); err != nil {
+		if err := is.Publish(app.Cfg.TokenForRepo(repoName)); err != nil {
 			return err
 		}
 		fmt.Printf("  Published: %s (%s)\n", addr, agentName)

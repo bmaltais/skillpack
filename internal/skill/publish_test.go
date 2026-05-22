@@ -1,11 +1,10 @@
-package skill_test
+package skill
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
@@ -15,7 +14,7 @@ func TestPublishNew_MissingDir(t *testing.T) {
 		Repos:           map[string]state.RepoRecord{"my-repo": {CachePath: "/nonexistent"}},
 		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{},
 	}
-	_, err := skill.PublishNew("/does/not/exist", "my-repo", "", st)
+	_, err := PublishNew("/does/not/exist", "my-repo", "", st)
 	if err == nil {
 		t.Error("expected error for missing directory")
 	}
@@ -29,7 +28,7 @@ func TestPublishNew_MissingSkillMD(t *testing.T) {
 		Repos:           map[string]state.RepoRecord{"my-repo": {CachePath: "/nonexistent"}},
 		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{},
 	}
-	_, err := skill.PublishNew(dir, "my-repo", "", st)
+	_, err := PublishNew(dir, "my-repo", "", st)
 	if err == nil {
 		t.Error("expected error for missing SKILL.md")
 	}
@@ -43,7 +42,7 @@ func TestPublishNew_UnknownRepo(t *testing.T) {
 		Repos:           map[string]state.RepoRecord{},
 		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{},
 	}
-	_, err := skill.PublishNew(dir, "unknown-repo", "", st)
+	_, err := PublishNew(dir, "unknown-repo", "", st)
 	if err == nil {
 		t.Error("expected error for unregistered repo")
 	}
@@ -51,13 +50,13 @@ func TestPublishNew_UnknownRepo(t *testing.T) {
 
 // TestSyncResult_Actions verifies the SyncAction constants are distinct strings.
 func TestSyncResult_Actions(t *testing.T) {
-	actions := []skill.SyncAction{
-		skill.SyncUpdated,
-		skill.SyncPublished,
-		skill.SyncConflict,
-		skill.SyncAlreadyCurrent,
+	actions := []SyncAction{
+		SyncUpdated,
+		SyncPublished,
+		SyncConflict,
+		SyncAlreadyCurrent,
 	}
-	seen := make(map[skill.SyncAction]bool)
+	seen := make(map[SyncAction]bool)
 	for _, a := range actions {
 		if seen[a] {
 			t.Errorf("duplicate SyncAction value: %q", a)
@@ -75,7 +74,7 @@ func TestSync_EmptyState(t *testing.T) {
 		Repos:           map[string]state.RepoRecord{},
 		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{},
 	}
-	results, conflicts, err := skill.Sync(true /* dry-run */, nil, st)
+	results, conflicts, err := Sync(true /* dry-run */, nil, st)
 	if err != nil {
 		t.Fatalf("Sync on empty state: %v", err)
 	}
@@ -93,7 +92,7 @@ func TestPublish_NotInstalled(t *testing.T) {
 		Repos:           map[string]state.RepoRecord{},
 		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{},
 	}
-	err := skill.Publish("repo/skill", "claude-code", "", st)
+	err := publish("repo/skill", "claude-code", "", st)
 	if err == nil {
 		t.Error("expected error publishing uninstalled skill")
 	}
@@ -125,7 +124,7 @@ func TestPublishNew_SkillNameExtraction(t *testing.T) {
 		}
 
 		// Should fail at "repo not found" (before any path logic), not panic
-		_, err := skill.PublishNew(skillDir, "no-repo", "", st)
+		_, err := PublishNew(skillDir, "no-repo", "", st)
 		if err == nil {
 			t.Errorf("input %q: expected error for missing repo", c.input)
 		}

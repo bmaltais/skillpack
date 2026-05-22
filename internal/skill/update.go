@@ -26,7 +26,7 @@ func safeShortSHA(sha string) string {
 // Call this after a successful merge or LLM conflict resolution on a
 // non-forked skill so that subsequent update/sync commands use the resolved
 // files as the new baseline.
-func SnapshotInstalled(addr, agentName string, st *state.State) error {
+func snapshotInstalled(addr, agentName string, st *state.State) error {
 	rec, ok := st.InstalledSkills[addr][agentName]
 	if !ok {
 		return fmt.Errorf("skill %q not installed for agent %q", addr, agentName)
@@ -58,7 +58,7 @@ type UpdateResult struct {
 }
 
 // CheckUpdate checks whether an installed skill has upstream changes or local modifications.
-func CheckUpdate(addr, agentName string, st *state.State) (*UpdateResult, error) {
+func checkUpdate(addr, agentName string, st *state.State) (*UpdateResult, error) {
 	agents, ok := st.InstalledSkills[addr]
 	if !ok {
 		return nil, fmt.Errorf("skill %q is not installed", addr)
@@ -68,7 +68,7 @@ func CheckUpdate(addr, agentName string, st *state.State) (*UpdateResult, error)
 		return nil, fmt.Errorf("skill %q is not installed for agent %q", addr, agentName)
 	}
 
-	modified, err := IsModified(rec)
+	modified, err := isModified(rec)
 	if err != nil {
 		return nil, err
 	}
@@ -88,10 +88,10 @@ func CheckUpdate(addr, agentName string, st *state.State) (*UpdateResult, error)
 // ApplyUpdate copies the current cache version of a skill to the installed dir.
 // For forked skills it copies from the upstream origin, then commits and pushes to the fork repo.
 // The caller must confirm there is no conflict before calling this.
-func ApplyUpdate(addr, agentName, token string, st *state.State) error {
+func applyUpdate(addr, agentName, token string, st *state.State) error {
 	rec := st.InstalledSkills[addr][agentName]
 
-	if IsFork(rec) {
+	if isFork(rec) {
 		// Forked skill: take files from the upstream origin, then push to fork.
 		upstreamInfo, err := repo.FindSkill(rec.UpstreamAddr, st)
 		if err != nil {
@@ -146,13 +146,13 @@ func ApplyUpdate(addr, agentName, token string, st *state.State) error {
 }
 
 // ForceRemote overwrites the installed skill with the cache (upstream) version, discarding local changes.
-func ForceRemote(addr, agentName, token string, st *state.State) error {
-	return ApplyUpdate(addr, agentName, token, st)
+func forceRemote(addr, agentName, token string, st *state.State) error {
+	return applyUpdate(addr, agentName, token, st)
 }
 
 // ForceLocal copies the installed skill back to the repo cache, commits, pushes to main,
 // and updates state so the installed copy is considered canonical.
-func ForceLocal(addr, agentName, token string, st *state.State) error {
+func forceLocal(addr, agentName, token string, st *state.State) error {
 	skillInfo, err := repo.FindSkill(addr, st)
 	if err != nil {
 		return err
@@ -203,7 +203,7 @@ func ForceLocal(addr, agentName, token string, st *state.State) error {
 	}
 	// For forked skills, acknowledge that upstream changes have been dealt with
 	// by updating UpstreamSHA to the current upstream HEAD.
-	if IsFork(rec) {
+	if isFork(rec) {
 		upstreamRepoName := strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
 		if upstreamSHA, shaErr := repo.HeadSHA(upstreamRepoName, st); shaErr == nil {
 			newRec.UpstreamSHA = upstreamSHA
@@ -224,10 +224,10 @@ func ForceLocal(addr, agentName, token string, st *state.State) error {
 // Returns true if any file had a conflict (conflict markers written to installed files).
 // On a clean merge, state is updated. For forked skills, the merged result is also
 // committed and pushed to the fork repo.
-func MergeSkill(addr, agentName, token string, st *state.State) (hasConflicts bool, err error) {
+func mergeSkill(addr, agentName, token string, st *state.State) (hasConflicts bool, err error) {
 	rec := st.InstalledSkills[addr][agentName]
 
-	if IsFork(rec) {
+	if isFork(rec) {
 		return mergeForkSkill(addr, agentName, token, rec, st)
 	}
 
@@ -272,7 +272,7 @@ func MergeSkill(addr, agentName, token string, st *state.State) (hasConflicts bo
 	}
 
 	if !hasConflicts {
-		if err := SnapshotInstalled(addr, agentName, st); err != nil {
+		if err := snapshotInstalled(addr, agentName, st); err != nil {
 			return false, err
 		}
 	}
@@ -353,7 +353,7 @@ func mergeForkSkill(addr, agentName, token string, rec state.InstalledSkillRecor
 // For normal skills: checks between installed_at_sha and repo HEAD.
 // For forked skills: checks upstream origin between upstream_sha and upstream HEAD.
 func hasUpstreamChange(addr string, rec state.InstalledSkillRecord, st *state.State) (bool, error) {
-	if IsFork(rec) {
+	if isFork(rec) {
 		return hasUpstreamOriginChange(rec, st)
 	}
 

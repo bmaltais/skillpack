@@ -1,4 +1,4 @@
-package skill_test
+package skill
 
 // Tests that internal mutating functions persist state to disk themselves,
 // without any explicit state.Save call at the cmd layer.
@@ -11,7 +11,6 @@ import (
 
 	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/repo"
-	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
@@ -66,7 +65,7 @@ func TestInstall_PersistsStateToDisk(t *testing.T) {
 	}
 
 	addr := "test-repo/my-skill"
-	if err := skill.Install(addr, "test-agent", cfg, st, false); err != nil {
+	if err := Install(addr, "test-agent", cfg, st, false); err != nil {
 		t.Fatalf("skill.Install: %v", err)
 	}
 
@@ -87,7 +86,7 @@ func TestRemove_PersistsStateToDisk(t *testing.T) {
 	installedDir := t.TempDir()
 	writeFile(t, filepath.Join(installedDir, "SKILL.md"), "# My Skill")
 
-	hash, err := skill.ComputeHash(installedDir)
+	hash, err := ComputeHash(installedDir)
 	if err != nil {
 		t.Fatalf("ComputeHash: %v", err)
 	}
@@ -112,7 +111,7 @@ func TestRemove_PersistsStateToDisk(t *testing.T) {
 
 	cfg := &config.Config{}
 
-	if err := skill.Remove(addr, "test-agent", cfg, st, false); err != nil {
+	if err := remove(addr, "test-agent", cfg, st, false); err != nil {
 		t.Fatalf("skill.Remove: %v", err)
 	}
 

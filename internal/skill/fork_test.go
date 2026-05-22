@@ -1,4 +1,4 @@
-package skill_test
+package skill
 
 import (
 	"os"
@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
@@ -16,7 +15,7 @@ import (
 
 func TestIsFork_FalseForPlainSkill(t *testing.T) {
 	rec := state.InstalledSkillRecord{LocalPath: "/some/path", InstalledAtSHA: "abc", InstalledHash: "h"}
-	if skill.IsFork(rec) {
+	if isFork(rec) {
 		t.Error("expected IsFork to return false for a skill with no UpstreamAddr")
 	}
 }
@@ -27,7 +26,7 @@ func TestIsFork_TrueForForkedSkill(t *testing.T) {
 		UpstreamAddr: "origin-repo/debugger",
 		UpstreamSHA:  "deadbeef",
 	}
-	if !skill.IsFork(rec) {
+	if !isFork(rec) {
 		t.Error("expected IsFork to return true for a skill with UpstreamAddr set")
 	}
 }
@@ -49,7 +48,7 @@ func TestLLMResolveConflicts_NoConflicts(t *testing.T) {
 		return "", nil
 	}
 
-	if err := skill.LLMResolveConflicts("my-fork/debugger", "claude-code", resolver, st); err != nil {
+	if err := LLMResolveConflicts("my-fork/debugger", "claude-code", resolver, st); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -80,7 +79,7 @@ func TestLLMResolveConflicts_ResolvesMarkers(t *testing.T) {
 		return resolvedContent, nil
 	}
 
-	if err := skill.LLMResolveConflicts("my-fork/debugger", "claude-code", resolver, st); err != nil {
+	if err := LLMResolveConflicts("my-fork/debugger", "claude-code", resolver, st); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -106,7 +105,7 @@ func TestLLMResolveConflicts_ErrorOnRemainingMarkers(t *testing.T) {
 		return "<<<<<<< still broken\nfoo\n=======\nbar\n>>>>>>> end\n", nil
 	}
 
-	err := skill.LLMResolveConflicts("my-fork/debugger", "claude-code", resolver, st)
+	err := LLMResolveConflicts("my-fork/debugger", "claude-code", resolver, st)
 	if err == nil {
 		t.Fatal("expected error when LLM response still has conflict markers")
 	}
@@ -124,7 +123,7 @@ func TestLLMResolveConflicts_ErrorOnRemainingMarkers(t *testing.T) {
 // TestLLMResolveConflicts_NotInstalled returns an error for unknown addr.
 func TestLLMResolveConflicts_NotInstalled(t *testing.T) {
 	st := emptyState()
-	err := skill.LLMResolveConflicts("no-repo/no-skill", "claude-code", func(string) (string, error) { return "", nil }, st)
+	err := LLMResolveConflicts("no-repo/no-skill", "claude-code", func(string) (string, error) { return "", nil }, st)
 	if err == nil {
 		t.Error("expected error for uninstalled skill")
 	}
@@ -159,7 +158,7 @@ func TestNonForkedSkillRecord_UpstreamFieldsEmpty(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "SKILL.md"), "content")
 
-	hash, _ := skill.ComputeHash(dir)
+	hash, _ := ComputeHash(dir)
 	rec := state.InstalledSkillRecord{
 		InstalledAtSHA: "sha1",
 		InstalledHash:  hash,
@@ -174,7 +173,7 @@ func TestNonForkedSkillRecord_UpstreamFieldsEmpty(t *testing.T) {
 	}
 
 	// IsModified should still work for non-forked records
-	modified, err := skill.IsModified(rec)
+	modified, err := isModified(rec)
 	if err != nil {
 		t.Fatalf("IsModified: %v", err)
 	}

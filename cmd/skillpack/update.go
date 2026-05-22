@@ -116,7 +116,12 @@ the upstream_sha recorded at fork time as the common base.`,
 		var conflictCount int
 
 		for _, t := range targets {
-			result, err := skill.CheckUpdate(t.addr, t.agent, app.St)
+			is, err := skill.Open(t.addr, t.agent, app.Cfg, app.St)
+			if err != nil {
+				fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, t.addr, agentW, t.agent, err)
+				continue
+			}
+			result, err := is.Status()
 			if err != nil {
 				fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, t.addr, agentW, t.agent, err)
 				continue
@@ -131,10 +136,11 @@ the upstream_sha recorded at fork time as the common base.`,
 			}
 
 			if result.IsConflict {
+				token := app.Cfg.TokenForRepo(repoNameFromAddr(t.addr))
 				switch {
 				case forceRemote:
 					if !dryRun {
-						if _, err := skill.Resolve(t.addr, t.agent, skill.ResolveForceRemote, app.Cfg.TokenForRepo(repoNameFromAddr(t.addr)), "", app.St); err != nil {
+						if _, err := is.Resolve(skill.ResolveForceRemote, token, ""); err != nil {
 							return err
 						}
 						fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("force-remote applied"))
@@ -144,7 +150,7 @@ the upstream_sha recorded at fork time as the common base.`,
 
 				case forceLocal:
 					if !dryRun {
-						if _, err := skill.Resolve(t.addr, t.agent, skill.ResolveForceLocal, app.Cfg.TokenForRepo(repoNameFromAddr(t.addr)), "", app.St); err != nil {
+						if _, err := is.Resolve(skill.ResolveForceLocal, token, ""); err != nil {
 							return err
 						}
 						fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("force-local applied (pushed to remote)"))
@@ -162,8 +168,7 @@ the upstream_sha recorded at fork time as the common base.`,
 								effectiveLLMAgent = app.Cfg.DefaultAgent
 							}
 						}
-						token := app.Cfg.TokenForRepo(repoNameFromAddr(t.addr))
-						llmResolved, err := skill.Resolve(t.addr, t.agent, mergeStrategy, token, effectiveLLMAgent, app.St)
+						llmResolved, err := is.Resolve(mergeStrategy, token, effectiveLLMAgent)
 						switch {
 						case errors.Is(err, skill.ErrMergeConflicts):
 							fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, yellow("merged — conflicts written, resolve manually or use --llm"))
@@ -185,7 +190,7 @@ the upstream_sha recorded at fork time as the common base.`,
 			} else {
 				// Safe update: not locally modified
 				if !dryRun {
-					if err := skill.ApplyUpdate(t.addr, t.agent, app.Cfg.TokenForRepo(repoNameFromAddr(t.addr)), app.St); err != nil {
+					if err := is.Update(app.Cfg.TokenForRepo(repoNameFromAddr(t.addr))); err != nil {
 						return err
 					}
 					fmt.Printf("  %-*s  %-*s  %s\n", addrW, t.addr, agentW, t.agent, green("updated"))

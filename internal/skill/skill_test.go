@@ -1,11 +1,10 @@
-package skill_test
+package skill
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
@@ -14,11 +13,11 @@ func TestComputeHash_Deterministic(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "SKILL.md"), "# My Skill\nDoes things.")
 	writeFile(t, filepath.Join(dir, "references", "api.md"), "API details.")
 
-	h1, err := skill.ComputeHash(dir)
+	h1, err := ComputeHash(dir)
 	if err != nil {
 		t.Fatalf("first hash: %v", err)
 	}
-	h2, err := skill.ComputeHash(dir)
+	h2, err := ComputeHash(dir)
 	if err != nil {
 		t.Fatalf("second hash: %v", err)
 	}
@@ -31,11 +30,11 @@ func TestComputeHash_ChangesOnEdit(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "SKILL.md"), "original content")
 
-	h1, _ := skill.ComputeHash(dir)
+	h1, _ := ComputeHash(dir)
 
 	writeFile(t, filepath.Join(dir, "SKILL.md"), "modified content")
 
-	h2, _ := skill.ComputeHash(dir)
+	h2, _ := ComputeHash(dir)
 
 	if h1 == h2 {
 		t.Error("hash should change when file content changes")
@@ -46,11 +45,11 @@ func TestComputeHash_ChangesOnNewFile(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "SKILL.md"), "content")
 
-	h1, _ := skill.ComputeHash(dir)
+	h1, _ := ComputeHash(dir)
 
 	writeFile(t, filepath.Join(dir, "extra.md"), "new file")
 
-	h2, _ := skill.ComputeHash(dir)
+	h2, _ := ComputeHash(dir)
 
 	if h1 == h2 {
 		t.Error("hash should change when a file is added")
@@ -61,19 +60,19 @@ func TestComputeHash_IgnoresForkMetadataFile(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "SKILL.md"), "content")
 
-	h1, err := skill.ComputeHash(dir)
+	h1, err := ComputeHash(dir)
 	if err != nil {
 		t.Fatalf("first hash: %v", err)
 	}
 
 	writeFile(t, filepath.Join(dir, ".skillpack-fork"), `{"upstream_addr":"source/skill","upstream_sha":"abc123"}`)
-	h2, err := skill.ComputeHash(dir)
+	h2, err := ComputeHash(dir)
 	if err != nil {
 		t.Fatalf("second hash: %v", err)
 	}
 
 	writeFile(t, filepath.Join(dir, ".skillpack-fork"), `{"upstream_addr":"source/skill","upstream_sha":"def456"}`)
-	h3, err := skill.ComputeHash(dir)
+	h3, err := ComputeHash(dir)
 	if err != nil {
 		t.Fatalf("third hash: %v", err)
 	}
@@ -87,13 +86,13 @@ func TestIsModified_NotModified(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "SKILL.md"), "content")
 
-	hash, _ := skill.ComputeHash(dir)
+	hash, _ := ComputeHash(dir)
 	rec := state.InstalledSkillRecord{
 		InstalledHash: hash,
 		LocalPath:     dir,
 	}
 
-	modified, err := skill.IsModified(rec)
+	modified, err := isModified(rec)
 	if err != nil {
 		t.Fatalf("IsModified: %v", err)
 	}
@@ -106,7 +105,7 @@ func TestIsModified_Modified(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "SKILL.md"), "original")
 
-	hash, _ := skill.ComputeHash(dir)
+	hash, _ := ComputeHash(dir)
 
 	// Simulate user editing the file after installation
 	writeFile(t, filepath.Join(dir, "SKILL.md"), "edited by user")
@@ -116,7 +115,7 @@ func TestIsModified_Modified(t *testing.T) {
 		LocalPath:     dir,
 	}
 
-	modified, err := skill.IsModified(rec)
+	modified, err := isModified(rec)
 	if err != nil {
 		t.Fatalf("IsModified: %v", err)
 	}
@@ -130,7 +129,7 @@ func TestIsModified_MissingDir(t *testing.T) {
 		InstalledHash: "sha256:anything",
 		LocalPath:     "/nonexistent/path/to/skill",
 	}
-	modified, err := skill.IsModified(rec)
+	modified, err := isModified(rec)
 	if err != nil {
 		t.Fatalf("IsModified on missing dir should not error: %v", err)
 	}
@@ -151,12 +150,12 @@ func TestComputeHash_SymlinkRoot(t *testing.T) {
 		t.Skipf("symlink not supported on this platform: %v", err)
 	}
 
-	hashViaLink, err := skill.ComputeHash(linkDir)
+	hashViaLink, err := ComputeHash(linkDir)
 	if err != nil {
 		t.Fatalf("ComputeHash via symlink: %v", err)
 	}
 
-	hashViaReal, err := skill.ComputeHash(realDir)
+	hashViaReal, err := ComputeHash(realDir)
 	if err != nil {
 		t.Fatalf("ComputeHash via real dir: %v", err)
 	}

@@ -66,7 +66,7 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 			if headSHA == "" {
 				// Repo not found in repoHeads — state is inconsistent or the repo was removed.
 				var missingRepo string
-					if IsFork(rec) {
+					if isFork(rec) {
 					missingRepo = strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
 				} else {
 					missingRepo = strings.SplitN(addr, "/", 2)[0]
@@ -78,7 +78,7 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 
 			hasUpstream := rec.InstalledAtSHA != headSHA
 
-			modified, modErr := IsModified(rec)
+			modified, modErr := isModified(rec)
 			if modErr != nil {
 				item.Err = fmt.Errorf("checking local modifications: %w", modErr)
 				plan = append(plan, item)
@@ -102,7 +102,7 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 // repoHeadForRecord returns the relevant HEAD SHA for a skill record:
 // the upstream repo HEAD for forked skills, the skill's own repo HEAD otherwise.
 func repoHeadForRecord(addr string, rec state.InstalledSkillRecord, repoHeads map[string]string) string {
-	if IsFork(rec) {
+	if isFork(rec) {
 		upstreamRepoName := strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
 		return repoHeads[upstreamRepoName]
 	}
@@ -154,14 +154,14 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 		case SyncConflict:
 			conflicts = append(conflicts, SyncResult{item.Addr, item.AgentName, SyncConflict, nil})
 		case SyncUpdated:
-			if applyErr := ApplyUpdate(item.Addr, item.AgentName, tokenFor(repoName), st); applyErr != nil {
+			if applyErr := applyUpdate(item.Addr, item.AgentName, tokenFor(repoName), st); applyErr != nil {
 				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: applyErr})
 				continue
 			}
 			results = append(results, SyncResult{item.Addr, item.AgentName, SyncUpdated, nil})
 			mutated = true
 		case SyncPublished:
-			if pubErr := Publish(item.Addr, item.AgentName, tokenFor(repoName), st); pubErr != nil {
+			if pubErr := publish(item.Addr, item.AgentName, tokenFor(repoName), st); pubErr != nil {
 				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: pubErr})
 				continue
 			}

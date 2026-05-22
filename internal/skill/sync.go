@@ -2,6 +2,7 @@ package skill
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/bmaltais/skillpack/internal/gitops"
@@ -87,7 +88,7 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 			}
 			hasUpstream := baselineSHA != headSHA
 
-			modified, modErr := isModified(rec)
+			modified, installedHash, modErr := isModifiedWithHash(rec)
 			if modErr != nil {
 				item.Err = fmt.Errorf("checking local modifications: %w", modErr)
 				plan = append(plan, item)
@@ -96,6 +97,17 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 
 			switch {
 			case hasUpstream && modified:
+				// Before reporting a conflict, check whether the installed files are
+				// byte-identical to the upstream cache. If they are, the stored
+				// InstalledHash is merely stale (e.g. after a --force-remote reset) and
+				// there is no real conflict — treat it as already-current.
+				if upstreamDir := upstreamCacheDirFor(addr, rec, st); upstreamDir != "" {
+					upstreamHash, uErr := ComputeHash(upstreamDir)
+					if uErr == nil && installedHash == upstreamHash {
+						item.Action = SyncAlreadyCurrent
+						break
+					}
+				}
 				item.Action = SyncConflict
 			case hasUpstream && !modified:
 				item.Action = SyncUpdated
@@ -106,6 +118,26 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 		}
 	}
 	return plan
+}
+
+// upstreamCacheDirFor returns the filesystem path of the upstream cache
+// directory for the given skill record. For non-forked skills this is
+// <repo.CachePath>/<relPath>; for forked skills the upstream repo is used.
+// Returns "" if the path cannot be determined (missing repo, malformed addr).
+func upstreamCacheDirFor(addr string, rec state.InstalledSkillRecord, st *state.State) string {
+	srcAddr := addr
+	if isFork(rec) {
+		srcAddr = rec.UpstreamAddr
+	}
+	parts := strings.SplitN(srcAddr, "/", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	repoRec, ok := st.Repos[parts[0]]
+	if !ok {
+		return ""
+	}
+	return filepath.Join(repoRec.CachePath, filepath.FromSlash(parts[1]))
 }
 
 // repoHeadForRecord returns the relevant HEAD SHA for a skill record:
@@ -174,6 +206,20 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 			}
 			results = append(results, SyncResult{item.Addr, item.AgentName, SyncPublished, nil})
 		default: // SyncAlreadyCurrent
+			// For non-forked skills, refresh a stale InstalledHash/InstalledAtSHA so
+			// the phantom conflict cannot reappear on the next sync.
+			// Forked skills are skipped: snapshotInstalled only refreshes InstalledAtSHA
+			// (from the fork's own repo), not UpstreamSHA, so calling it on a fork
+			// would leave hasUpstream=true on the next ReconcilePlan and trigger a
+			// spurious SyncUpdated.
+			if rec, ok := st.InstalledSkills[item.Addr][item.AgentName]; ok && !isFork(rec) {
+				if currentHash, hashErr := ComputeHash(rec.LocalPath); hashErr == nil && currentHash != rec.InstalledHash {
+					if snapErr := snapshotInstalled(item.Addr, item.AgentName, st); snapErr != nil {
+						results = append(results, SyncResult{item.Addr, item.AgentName, SyncAlreadyCurrent, snapErr})
+						continue
+					}
+				}
+			}
 			results = append(results, SyncResult{item.Addr, item.AgentName, SyncAlreadyCurrent, nil})
 		}
 	}

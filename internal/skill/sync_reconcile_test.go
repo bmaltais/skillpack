@@ -519,3 +519,52 @@ func TestApplySync_NilTokenFor(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// ─── Phantom conflict ────────────────────────────────────────────────────────
+
+// TestReconcilePlan_PhantomConflict: installed files are byte-identical to the
+// upstream cache but InstalledHash is stale and InstalledAtSHA lags behind HEAD.
+// ReconcilePlan must return SyncAlreadyCurrent, not SyncConflict.
+func TestReconcilePlan_PhantomConflict(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	const skillContent = "# Skill content X"
+	const addr = "myrepo/coding/debugger"
+	const agentName = "copilot"
+
+	// Build installed dir with content X; stale hash simulates a prior
+	// --force-remote reset that left InstalledHash out of date.
+	st, _ := makeInstalledState(t, addr, agentName, skillContent, "sha-old", "sha256:stale-hash")
+	installDir := st.InstalledSkills[addr][agentName].LocalPath
+
+	// Build upstream cache dir at <cachePath>/coding/debugger with the same content X.
+	cacheRoot := st.Repos["myrepo"].CachePath
+	upstreamDir := filepath.Join(cacheRoot, "coding", "debugger")
+	writeFile(t, filepath.Join(upstreamDir, "SKILL.md"), skillContent)
+
+	// HEAD has advanced past InstalledAtSHA, so hasUpstream = true.
+	repoHeads := map[string]string{"myrepo": "sha-new"}
+
+	// Sanity: installed and upstream dirs must have identical content hashes.
+	installedHash, err := skill.ComputeHash(installDir)
+	if err != nil {
+		t.Fatalf("ComputeHash(installed): %v", err)
+	}
+	upstreamHash, err := skill.ComputeHash(upstreamDir)
+	if err != nil {
+		t.Fatalf("ComputeHash(upstream): %v", err)
+	}
+	if installedHash != upstreamHash {
+		t.Fatalf("test setup error: hashes differ (installed=%s, upstream=%s)", installedHash, upstreamHash)
+	}
+
+	plan := skill.ReconcilePlan(st, repoHeads)
+
+	item := planByAddr(plan, addr, agentName)
+	if item.Err != nil {
+		t.Fatalf("unexpected error: %v", item.Err)
+	}
+	if item.Action != skill.SyncAlreadyCurrent {
+		t.Errorf("want SyncAlreadyCurrent for phantom conflict, got %q", item.Action)
+	}
+}

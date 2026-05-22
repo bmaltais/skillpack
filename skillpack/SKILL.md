@@ -204,8 +204,22 @@ for dir in ~/.copilot/skills ~/.claude/skills ~/.hermes/skills ~/.pi/agent/skill
 done
 ```
 
-After this, `skillpack status` will show `[fork of ...]` and anyone installing
-from your repo will automatically get the provenance.
+After this, anyone installing from your repo will automatically get the provenance.
+
+**If `skillpack status` still doesn't show `[fork of ...]`**, state has no `UpstreamAddr`
+(skill was added to the repo manually, never via `skillpack fork`). Patch it directly:
+
+```bash
+python3 << 'PYEOF'
+import json
+STATE = "/home/YOUR_USER/.skillpack/state.json"  # adjust path
+with open(STATE) as f: s = json.load(f)
+for agent in s["installed_skills"].get("<my-repo>/<skill-name>", {}):
+    s["installed_skills"]["<my-repo>/<skill-name>"][agent]["upstream_addr"] = "<upstream-repo>/path/to/skill"
+    s["installed_skills"]["<my-repo>/<skill-name>"][agent]["upstream_sha"] = "<upstream-sha>"
+with open(STATE, "w") as f: json.dump(s, f, indent=2); f.write("\n")
+PYEOF
+```
 
 ### Self-Update
 

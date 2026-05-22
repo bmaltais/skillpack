@@ -66,7 +66,7 @@ func resolveCachePath(addr string, st *state.State) (string, error) {
 	repoName := parts[0]
 	rec, ok := st.Repos[repoName]
 	if !ok {
-		return "", fmt.Errorf("repo %q for skill %q not found in state", repoName, addr)
+		return "", fmt.Errorf("repo %q not registered; run 'skillpack repo add' to register it", repoName)
 	}
 	return rec.CachePath, nil
 }
@@ -124,13 +124,31 @@ func (s InstalledSkill) PushForkAfterLLM(token string) error {
 }
 
 // IsModified reports whether the installed skill has been locally modified
-// since install time. Delegates to skill.IsModified.
+// since install time. It re-reads the current record from state so that the
+// result is accurate even after Update/Merge/Fork operations that may have
+// changed the stored InstalledHash. Returns an error if the record is no
+// longer present in state.
 func (s InstalledSkill) IsModified() (bool, error) {
-	return IsModified(s.Rec)
+	agents, ok := s.st.InstalledSkills[s.Addr]
+	if !ok {
+		return false, fmt.Errorf("skill %q is no longer installed", s.Addr)
+	}
+	rec, ok := agents[s.AgentName]
+	if !ok {
+		return false, fmt.Errorf("skill %q is no longer installed for agent %q", s.Addr, s.AgentName)
+	}
+	return IsModified(rec)
 }
 
 // IsFork reports whether this installed skill is a fork of an upstream skill.
-// Delegates to skill.IsFork.
+// It re-reads the current record from state so that the result reflects any
+// Fork/Resolve operations performed after Open() was called. Falls back to the
+// snapshot record captured at Open() time if the entry is no longer in state.
 func (s InstalledSkill) IsFork() bool {
+	if agents, ok := s.st.InstalledSkills[s.Addr]; ok {
+		if rec, ok := agents[s.AgentName]; ok {
+			return IsFork(rec)
+		}
+	}
 	return IsFork(s.Rec)
 }

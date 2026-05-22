@@ -188,6 +188,7 @@ func skillAddrs(skills []repo.SkillInfo) []string {
 //  1. Update() returns no error (previously it returned non-fast-forward).
 //  2. The cache HEAD matches the remote HEAD (hard reset succeeded).
 func TestUpdate_DivergedCache(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	sig := &object.Signature{Name: "Test", Email: "test@example.com", When: time.Now()}
 
 	// --- set up "remote" (plain, non-bare) repo with one commit ---

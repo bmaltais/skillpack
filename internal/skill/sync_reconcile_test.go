@@ -11,22 +11,32 @@ import (
 )
 
 // makeInstalledState builds a minimal State with one installed skill.
+// makeSkillDir creates a temp install directory containing SKILL.md with the
+// given content, computes its hash, and returns (dir, realHash, storedHash).
+// If overrideHash is non-empty the storedHash differs from realHash, simulating
+// a locally modified skill.
+func makeSkillDir(t *testing.T, content, overrideHash string) (dir, realHash, storedHash string) {
+	t.Helper()
+	dir = t.TempDir()
+	writeFile(t, filepath.Join(dir, "SKILL.md"), content)
+	var err error
+	realHash, err = skill.ComputeHash(dir)
+	if err != nil {
+		t.Fatalf("ComputeHash: %v", err)
+	}
+	storedHash = realHash
+	if overrideHash != "" {
+		storedHash = overrideHash
+	}
+	return dir, realHash, storedHash
+}
+
 // installContent is written to a temp dir and its hash stored in state,
 // so the skill starts as unmodified. Pass a different hash via overrideHash
 // to simulate a locally modified skill.
 func makeInstalledState(t *testing.T, addr, agentName, installContent, installedAtSHA, overrideHash string) (*state.State, string) {
 	t.Helper()
-	installDir := t.TempDir()
-	writeFile(t, filepath.Join(installDir, "SKILL.md"), installContent)
-
-	hash, err := skill.ComputeHash(installDir)
-	if err != nil {
-		t.Fatalf("ComputeHash: %v", err)
-	}
-	storedHash := hash
-	if overrideHash != "" {
-		storedHash = overrideHash // force "modified" appearance
-	}
+	installDir, hash, storedHash := makeSkillDir(t, installContent, overrideHash)
 
 	repoName := splitRepoName(addr)
 	st := &state.State{
@@ -300,16 +310,7 @@ func TestReconcilePlan_IsModifiedError(t *testing.T) {
 // Pass overrideHash to simulate a locally modified installed copy.
 func makeForkState(t *testing.T, addr, agentName, upstreamAddr, installedAtSHA, upstreamSHA, overrideHash string) *state.State {
 	t.Helper()
-	installDir := t.TempDir()
-	writeFile(t, filepath.Join(installDir, "SKILL.md"), "# Forked skill")
-	hash, err := skill.ComputeHash(installDir)
-	if err != nil {
-		t.Fatalf("ComputeHash: %v", err)
-	}
-	storedHash := hash
-	if overrideHash != "" {
-		storedHash = overrideHash
-	}
+	installDir, _, storedHash := makeSkillDir(t, "# Forked skill", overrideHash)
 	forkRepoName := splitRepoName(addr)
 	upstreamRepoName := splitRepoName(upstreamAddr)
 	st := &state.State{

@@ -342,6 +342,13 @@ type syncDoneMsg struct {
 	st      *state.State // updated state after sync
 }
 
+type registerForkDoneMsg struct {
+	addr     string
+	upstream string
+	st       *state.State // updated state on success; nil on error
+	err      error
+}
+
 type selfUpdateDoneMsg struct {
 	summary string
 }
@@ -435,6 +442,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.busy = "Refreshing status..."
 			m.pendingMessage = msg.summary
 			return m, m.cmdCheckStatus()
+		}
+		return m, nil
+
+	case registerForkDoneMsg:
+		m.busy = ""
+		if msg.err != nil {
+			m.message = fmt.Sprintf("✗ Register failed: %v", msg.err)
+		} else {
+			if msg.st != nil {
+				*m.st = *msg.st
+			}
+			delete(m.forkCandidates, msg.addr)
+			m.message = fmt.Sprintf("✓ Registered %s as fork of %s", msg.addr, msg.upstream)
 		}
 		return m, nil
 
@@ -788,7 +808,15 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 			m.inputMode = modeNormal
 			m.message = ""
 		case tea.KeyEnter:
-			m.doRegisterForkProvenance()
+			upstream := strings.TrimSpace(m.registerForkInput)
+			if upstream == "" {
+				m.message = "✗ Upstream address cannot be empty"
+				m.inputMode = modeNormal
+				return *m, nil
+			}
+			m.inputMode = modeNormal
+			m.busy = "Registering fork provenance..."
+			return *m, m.cmdRegisterForkProvenance(m.registerForkAddr, upstream)
 		case tea.KeyBackspace:
 			if len(m.registerForkInput) > 0 {
 				m.registerForkInput = m.registerForkInput[:len(m.registerForkInput)-1]
@@ -1023,24 +1051,17 @@ func (m *model) doAdopt() {
 	m.inputMode = modeNormal
 }
 
-func (m *model) doRegisterForkProvenance() {
-	addr := m.registerForkAddr
-	upstream := strings.TrimSpace(m.registerForkInput)
-	if upstream == "" {
-		m.message = "✗ Upstream address cannot be empty"
-		m.inputMode = modeNormal
-		return
+func (m *model) cmdRegisterForkProvenance(addr, upstream string) tea.Cmd {
+	cfg := m.cfg
+	token := cfg.TokenForRepo(repoNameFromAddr(addr))
+	stCopy := cloneState(m.st)
+	return func() tea.Msg {
+		err := skill.RegisterForkProvenance(addr, upstream, token, stCopy)
+		if err != nil {
+			return registerForkDoneMsg{addr: addr, upstream: upstream, err: err}
+		}
+		return registerForkDoneMsg{addr: addr, upstream: upstream, st: stCopy}
 	}
-	token := m.cfg.TokenForRepo(repoNameFromAddr(addr))
-	if err := skill.RegisterForkProvenance(addr, upstream, token, m.st); err != nil {
-		m.message = fmt.Sprintf("✗ Register failed: %v", err)
-		m.inputMode = modeNormal
-		return
-	}
-	// Remove from candidates map so the badge clears immediately.
-	delete(m.forkCandidates, addr)
-	m.message = fmt.Sprintf("✓ Registered %s as fork of %s", addr, upstream)
-	m.inputMode = modeNormal
 }
 
 func (m *model) startFork() {

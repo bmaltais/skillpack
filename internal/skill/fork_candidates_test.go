@@ -10,8 +10,9 @@ import (
 )
 
 // makeRepoCache creates a fake repo cache directory structure under a temp dir.
-// skills is a map of skillName → slice of relPath subdirs to create under skillName.
-// For each skill, a SKILL.md file is written.
+// skills is a slice of relative paths (e.g. "triage", "coding/debugger") to
+// create as skill directories. For each entry, a SKILL.md file is written at
+// that path inside the cache root.
 func makeRepoCache(t *testing.T, skills []string) string {
 	t.Helper()
 	root := t.TempDir()

@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/bmaltais/skillpack/internal/gitops"
@@ -37,7 +38,22 @@ func DetectForkCandidates(st *state.State) ([]ForkCandidate, error) {
 
 	var candidates []ForkCandidate
 
-	for addr, agents := range st.InstalledSkills {
+	// Sort installed skill addresses for deterministic output.
+	addrs := make([]string, 0, len(st.InstalledSkills))
+	for addr := range st.InstalledSkills {
+		addrs = append(addrs, addr)
+	}
+	sort.Strings(addrs)
+
+	// Sort repo names so the first match is stable across runs.
+	repoNames := make([]string, 0, len(st.Repos))
+	for name := range st.Repos {
+		repoNames = append(repoNames, name)
+	}
+	sort.Strings(repoNames)
+
+	for _, addr := range addrs {
+		agents := st.InstalledSkills[addr]
 		// Skip skills that are already tracked as forks.
 		hasProvenance := false
 		for _, rec := range agents {
@@ -53,11 +69,12 @@ func DetectForkCandidates(st *state.State) ([]ForkCandidate, error) {
 		ownRepo := strings.SplitN(addr, "/", 2)[0]
 		basename := filepath.Base(addr)
 
-		for repoName, repoRec := range st.Repos {
+		// Use the first (lexicographically smallest) repo that matches, for stability.
+		for _, repoName := range repoNames {
 			if repoName == ownRepo {
 				continue
 			}
-			upstream, err := findSkillInRepo(repoRec.CachePath, repoName, basename)
+			upstream, err := findSkillInRepo(st.Repos[repoName].CachePath, repoName, basename)
 			if err != nil || upstream == "" {
 				continue
 			}
@@ -65,6 +82,7 @@ func DetectForkCandidates(st *state.State) ([]ForkCandidate, error) {
 				Addr:              addr,
 				CandidateUpstream: upstream,
 			})
+			break // first match wins; repos are sorted so the choice is stable
 		}
 	}
 
@@ -116,23 +134,23 @@ func RegisterForkProvenance(addr, upstreamAddr, token string, st *state.State) e
 		return fmt.Errorf("skill %q is not installed", addr)
 	}
 
-	// Resolve the skill's own repo cache path.
-	ownRepo := strings.SplitN(addr, "/", 2)[0]
-	ownRepoRec, ok := st.Repos[ownRepo]
-	if !ok {
-		return fmt.Errorf("repo %q is not registered", ownRepo)
+	// Resolve the skill's cache path via its full address (supports nested paths,
+	// e.g. "my-repo/coding/debugger" → cachePath/coding/debugger).
+	skillInfo, err := repo.FindSkill(addr, st)
+	if err != nil {
+		return fmt.Errorf("resolving skill %q in repo cache: %w", addr, err)
 	}
-	skillName := filepath.Base(addr)
-	skillCachePath := filepath.Join(ownRepoRec.CachePath, skillName)
-	if _, err := os.Stat(skillCachePath); err != nil {
-		return fmt.Errorf("skill directory not found in repo cache at %s: %w", skillCachePath, err)
+	skillCachePath := skillInfo.FullPath
+	ownRepoRec := st.Repos[skillInfo.RepoName]
+
+	// Validate that upstreamAddr points to an existing skill in its repo cache,
+	// so we don't write a broken UpstreamAddr into state.
+	if _, err := repo.FindSkill(upstreamAddr, st); err != nil {
+		return fmt.Errorf("upstream skill %q not found; ensure the repo is registered and cached: %w", upstreamAddr, err)
 	}
 
 	// Resolve the upstream repo name and get its HEAD SHA.
 	upstreamRepo := strings.SplitN(upstreamAddr, "/", 2)[0]
-	if _, ok := st.Repos[upstreamRepo]; !ok {
-		return fmt.Errorf("upstream repo %q is not registered; run: skillpack repo update %s", upstreamRepo, upstreamRepo)
-	}
 	upstreamSHA, err := repo.HeadSHA(upstreamRepo, st)
 	if err != nil {
 		return fmt.Errorf("reading HEAD SHA for upstream repo %q: %w", upstreamRepo, err)
@@ -143,11 +161,11 @@ func RegisterForkProvenance(addr, upstreamAddr, token string, st *state.State) e
 		return fmt.Errorf("writing fork metadata to repo cache: %w", err)
 	}
 
-	// 2. Commit and push.
+	// 2. Commit and push (skillInfo.RelPath is the path relative to repo root).
 	_, err = gitops.CommitAndPush(
 		ownRepoRec.CachePath,
-		skillName,
-		fmt.Sprintf("skillpack: add fork provenance metadata for %s", skillName),
+		skillInfo.RelPath,
+		fmt.Sprintf("skillpack: add fork provenance metadata for %s", addr),
 		ownRepoRec.URL,
 		token,
 	)

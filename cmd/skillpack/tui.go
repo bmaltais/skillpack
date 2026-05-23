@@ -2062,11 +2062,15 @@ func (m model) viewRepos(b *strings.Builder) {
 		b.WriteString("\n")
 	}
 
+	// Scroll offset: keep cursor within viewport
+	offset := 0
+	if m.repoCursor >= maxRows {
+		offset = m.repoCursor - maxRows + 1
+	}
+
 	displayed := 0
-	for i, entry := range m.repoList {
-		if displayed >= maxRows {
-			break
-		}
+	for i := offset; i < len(m.repoList) && displayed < maxRows; i++ {
+		entry := m.repoList[i]
 		name := entry.name
 		if len(name) > repoNameColW {
 			name = name[:repoNameColW-1] + "…"
@@ -2166,11 +2170,15 @@ func (m model) viewUnmanaged(b *strings.Builder) {
 			pathColW = 5
 		}
 
+		// Scroll offset: keep cursor within viewport
+		offset := 0
+		if m.unmanagedCursor >= maxRows {
+			offset = m.unmanagedCursor - maxRows + 1
+		}
+
 		displayed := 0
-		for i, entry := range m.unmanagedEntries {
-			if displayed >= maxRows {
-				break
-			}
+		for i := offset; i < len(m.unmanagedEntries) && displayed < maxRows; i++ {
+			entry := m.unmanagedEntries[i]
 			name := entry.skillName
 			if len(name) > nameColW {
 				name = name[:nameColW-1] + "…"

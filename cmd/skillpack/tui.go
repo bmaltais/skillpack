@@ -311,6 +311,14 @@ func (m *model) refreshUnmanaged() {
 	if m.unmanagedCursor >= len(m.unmanagedEntries) {
 		m.unmanagedCursor = 0
 	}
+
+	// Sort by skill name for consistent presentation
+	sort.SliceStable(m.unmanagedEntries, func(i, j int) bool {
+		if m.unmanagedEntries[i].skillName != m.unmanagedEntries[j].skillName {
+			return m.unmanagedEntries[i].skillName < m.unmanagedEntries[j].skillName
+		}
+		return m.unmanagedEntries[i].agentName < m.unmanagedEntries[j].agentName
+	})
 }
 
 func sampleData() ([]string, map[string][]repo.SkillInfo) {

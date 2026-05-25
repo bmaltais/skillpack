@@ -105,12 +105,26 @@ skillpack update --merge        <addr>        # file-level 3-way merge
 
 ### Publishing Skills
 
+> **Before publishing, always sync the target repo to avoid non-fast-forward errors:**
+> ```bash
+> skillpack repo update <repo>   # e.g. skillpack repo update bmaltais-skills
+> ```
+
 ```bash
 skillpack publish <repo>/<path/to/skill>      # push local edits to remote
 skillpack publish <addr> --agent claude-code  # specific agent's copy
 skillpack publish ./my-new-skill --repo <r>   # add a brand-new skill to a repo
 skillpack publish <addr> --dry-run            # preview only
 ```
+
+> **After publishing a brand-new skill, `publish` adds it to the remote repo but does NOT
+> register it in local state. Run `skillpack install` to start tracking it:**
+> ```bash
+> skillpack install <repo>/<skill-name> --agent <agent>
+> # e.g. skillpack install bmaltais-skills/terraform-module-change --agent copilot
+> ```
+> Skip this step and `skillpack list`, `skillpack update`, and `skillpack sync` will not
+> manage the skill until it is explicitly installed.
 
 ### Syncing Everything
 

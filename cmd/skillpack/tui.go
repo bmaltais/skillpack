@@ -1266,8 +1266,16 @@ func (m *model) cmdCheckStatus() tea.Cmd {
 			}
 		}
 
-		// Detect skills with missing fork provenance.
-		return statusDoneMsg{info: info, forkCandidates: skill.ForkCandidateMap(stCopy)}
+		// Detect skills with missing fork provenance. Only flag skills in repos
+		// the user can write to so upstream read-only skills are excluded.
+		canWrite := func(name string) bool {
+			rec, ok := stCopy.Repos[name]
+			if !ok {
+				return false
+			}
+			return strings.HasPrefix(rec.URL, "git@") || strings.HasPrefix(rec.URL, "ssh://") || cfg.TokenForRepo(name) != ""
+		}
+		return statusDoneMsg{info: info, forkCandidates: skill.ForkCandidateMap(stCopy, canWrite)}
 	}
 }
 

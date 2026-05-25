@@ -33,7 +33,7 @@ func TestDetectForkCandidates_NoRepos(t *testing.T) {
 		"copilot": {LocalPath: "/tmp/fake"},
 	}
 
-	candidates, err := skill.DetectForkCandidates(st)
+	candidates, err := skill.DetectForkCandidates(st, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestDetectForkCandidates_MatchInOtherRepo(t *testing.T) {
 		},
 	}
 
-	candidates, err := skill.DetectForkCandidates(st)
+	candidates, err := skill.DetectForkCandidates(st, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestDetectForkCandidates_AlreadyHasProvenance(t *testing.T) {
 		},
 	}
 
-	candidates, err := skill.DetectForkCandidates(st)
+	candidates, err := skill.DetectForkCandidates(st, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestDetectForkCandidates_NoSKILLmd(t *testing.T) {
 		},
 	}
 
-	candidates, err := skill.DetectForkCandidates(st)
+	candidates, err := skill.DetectForkCandidates(st, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestDetectForkCandidates_NoMatchInOtherRepo(t *testing.T) {
 		},
 	}
 
-	candidates, err := skill.DetectForkCandidates(st)
+	candidates, err := skill.DetectForkCandidates(st, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestDetectForkCandidates_NestedSkillInUpstream(t *testing.T) {
 		},
 	}
 
-	candidates, err := skill.DetectForkCandidates(st)
+	candidates, err := skill.DetectForkCandidates(st, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestDetectForkCandidates_SkipsOwnRepo(t *testing.T) {
 		},
 	}
 
-	candidates, err := skill.DetectForkCandidates(st)
+	candidates, err := skill.DetectForkCandidates(st, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

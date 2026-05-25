@@ -67,7 +67,16 @@ Use --no-fetch to skip the network call and report against cached state.`,
 		})
 
 		// Detect skills with missing fork provenance (best-effort heuristic).
-		forkCandidateUpstream := skill.ForkCandidateMap(st)
+		// Only flag skills in repos the user can write to (SSH or token configured)
+		// so upstream read-only skills don't appear as fork candidates.
+		canWrite := func(name string) bool {
+			rec, ok := st.Repos[name]
+			if !ok {
+				return false
+			}
+			return strings.HasPrefix(rec.URL, "git@") || strings.HasPrefix(rec.URL, "ssh://") || tokenFor(name) != ""
+		}
+		forkCandidateUpstream := skill.ForkCandidateMap(st, canWrite)
 
 		// Compute column widths from actual data.
 		addrW := len("Skill")

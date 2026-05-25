@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bmaltais/skillpack/internal/config"
+	"github.com/bmaltais/skillpack/internal/gitops"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
@@ -1266,8 +1267,14 @@ func (m *model) cmdCheckStatus() tea.Cmd {
 			}
 		}
 
-		// Detect skills with missing fork provenance.
-		return statusDoneMsg{info: info, forkCandidates: skill.ForkCandidateMap(stCopy)}
+		// Detect skills with missing fork provenance. Only flag skills in repos
+		// the user can write to so upstream read-only skills are excluded.
+		// Precompute once so the closure does a single map lookup per skill.
+		writable := make(map[string]bool, len(stCopy.Repos))
+		for name, rec := range stCopy.Repos {
+			writable[name] = gitops.IsSSHURL(rec.URL) || cfg.TokenForRepo(name) != ""
+		}
+		return statusDoneMsg{info: info, forkCandidates: skill.ForkCandidateMap(stCopy, func(name string) bool { return writable[name] })}
 	}
 }
 

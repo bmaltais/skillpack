@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bmaltais/skillpack/internal/gitops"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/skill"
 )
@@ -67,7 +68,14 @@ Use --no-fetch to skip the network call and report against cached state.`,
 		})
 
 		// Detect skills with missing fork provenance (best-effort heuristic).
-		forkCandidateUpstream := skill.ForkCandidateMap(st)
+		// Only flag skills in repos the user can write to (SSH or token configured)
+		// so upstream read-only skills don't appear as fork candidates.
+		// Precompute once so the closure does a single map lookup per skill.
+		writable := make(map[string]bool, len(st.Repos))
+		for name, rec := range st.Repos {
+			writable[name] = gitops.IsSSHURL(rec.URL) || tokenFor(name) != ""
+		}
+		forkCandidateUpstream := skill.ForkCandidateMap(st, func(name string) bool { return writable[name] })
 
 		// Compute column widths from actual data.
 		addrW := len("Skill")

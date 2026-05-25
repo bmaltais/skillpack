@@ -28,10 +28,14 @@ type ForkCandidate struct {
 // appears as a skill (directory containing SKILL.md) in any other registered
 // repo's cache.
 //
+// canWrite is an optional predicate: when non-nil, only skills whose own repo
+// passes canWrite(repoName) are returned as candidates.  Pass nil to disable
+// the filter (all matching skills are returned regardless of write access).
+//
 // Returns nil (not an error) when no repos are registered or no candidates are
 // found. The function is read-only: it makes no writes, no network calls, and
 // has no side effects.
-func DetectForkCandidates(st *state.State) ([]ForkCandidate, error) {
+func DetectForkCandidates(st *state.State, canWrite func(string) bool) ([]ForkCandidate, error) {
 	if len(st.Repos) == 0 {
 		return nil, nil
 	}
@@ -67,6 +71,13 @@ func DetectForkCandidates(st *state.State) ([]ForkCandidate, error) {
 		}
 
 		ownRepo := strings.SplitN(addr, "/", 2)[0]
+		// Only flag skills in repos the caller has write access to. This prevents
+		// upstream (read-only) skills from appearing as fork candidates — the
+		// [fork?] label and register-provenance action only make sense for repos
+		// you own.
+		if canWrite != nil && !canWrite(ownRepo) {
+			continue
+		}
 		basename := filepath.Base(addr)
 
 		// Use the first (lexicographically smallest) repo that matches, for stability.
@@ -143,6 +154,19 @@ func RegisterForkProvenance(addr, upstreamAddr, token string, st *state.State) e
 	skillCachePath := skillInfo.FullPath
 	ownRepoRec := st.Repos[skillInfo.RepoName]
 
+	// Guard: registering provenance requires write access to the skill's repo.
+	// HTTPS repos need a token; SSH repos rely on the agent.  If neither is
+	// available the subsequent CommitAndPush will fail with a cryptic auth
+	// error, so we surface a clear message here instead.
+	if !gitops.IsSSHURL(ownRepoRec.URL) && token == "" {
+		return fmt.Errorf(
+			"cannot register fork provenance for %q: no write access to repo %q (%s)\n"+
+				"Hint: fork the skill into a repo you own first:\n"+
+				"  skillpack fork %s <your-repo>",
+			addr, skillInfo.RepoName, ownRepoRec.URL, addr,
+		)
+	}
+
 	// Validate that upstreamAddr points to an existing skill in its repo cache,
 	// so we don't write a broken UpstreamAddr into state.
 	if _, err := repo.FindSkill(upstreamAddr, st); err != nil {
@@ -202,8 +226,9 @@ func RegisterForkProvenance(addr, upstreamAddr, token string, st *state.State) e
 // to the first detected candidate upstream address. When multiple repos match
 // the same basename, the first candidate wins.
 // Returns an empty map (not nil) on error so callers can use it safely.
-func ForkCandidateMap(st *state.State) map[string]string {
-	candidates, err := DetectForkCandidates(st)
+// canWrite is forwarded to DetectForkCandidates; pass nil to disable filtering.
+func ForkCandidateMap(st *state.State, canWrite func(string) bool) map[string]string {
+	candidates, err := DetectForkCandidates(st, canWrite)
 	if err != nil {
 		return map[string]string{}
 	}

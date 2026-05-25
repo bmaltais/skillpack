@@ -36,10 +36,19 @@ agents:
     skill_dir: ~/.claude/skills
   copilot:
     skill_dir: ~/.copilot/skills
-# Optional: per-repo tokens for private HTTPS repos
+# Credentials are keyed by repo NAME (not URL).
+# Required for ANY repo you intend to push to (publish, --force-local, sync).
+# This includes the 'skillpack' tool repo itself if you have it installed.
+# Read-only repos (pull/install only) do not need a credential entry.
 credentials:
   my-private-repo: ghp_yourtoken
+  skillpack: ghp_yourtoken      # needed if you publish edits back to the tool repo
 ```
+
+> **Credential check before pushing:** If `skillpack publish`, `skillpack update --force-local`,
+> or `skillpack sync` fails with *"authentication required"*, the repo name is missing from
+> `credentials` in `~/.skillpack/config.yaml`. Add it with the same token used for your
+> other repos — the key must exactly match the name shown by `skillpack repo list`.
 
 Token lookup order: `credentials` in config → `SKILLPACK_GIT_TOKEN` env var → `GITHUB_TOKEN` env var.
 

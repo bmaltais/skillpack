@@ -196,5 +196,3 @@ func fetchLatestTag() (string, error) {
 	}
 	return payload.TagName, nil
 }
-
-

@@ -165,6 +165,10 @@ type model struct {
 	// Config/state refs
 	cfg *config.Config
 	st  *state.State
+
+	// Set to true when a self-update succeeded and the binary was replaced.
+	// runTUI checks this after p.Run() returns and re-execs if set.
+	restartPending bool
 }
 
 type repoEntry struct {
@@ -358,7 +362,8 @@ type registerForkDoneMsg struct {
 }
 
 type selfUpdateDoneMsg struct {
-	summary string
+	summary       string
+	needsRestart  bool
 }
 
 type updateCheckMsg struct {
@@ -470,6 +475,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.busy = ""
 		m.message = msg.summary
 		m.updateBanner = "" // dismiss banner after update attempt
+		if msg.needsRestart {
+			m.restartPending = true
+			return m, tea.Quit
+		}
 		return m, nil
 
 	case updateCheckMsg:
@@ -1353,7 +1362,10 @@ func cmdSelfUpdate() tea.Cmd {
 			return selfUpdateDoneMsg{summary: fmt.Sprintf("✗ Update failed: %v", err)}
 		}
 
-		return selfUpdateDoneMsg{summary: fmt.Sprintf("✓ Updated: v%s → %s (restart to use new version)", current, latest)}
+		return selfUpdateDoneMsg{
+			summary:      fmt.Sprintf("✓ Updated: v%s → %s", current, latest),
+			needsRestart: true,
+		}
 	}
 }
 
@@ -2253,8 +2265,16 @@ func runTUI() error {
 	m := initialModel(cfg, st)
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
-	_, err = p.Run()
-	return err
+	finalModel, err := p.Run()
+	if err != nil {
+		return err
+	}
+	if fm, ok := finalModel.(model); ok && fm.restartPending {
+		if execErr := reexecSelf(); execErr != nil {
+			fmt.Fprintf(os.Stderr, "skillpack: restart failed: %v — please restart manually\n", execErr)
+		}
+	}
+	return nil
 }
 
 // safeRepeat returns a string of n repetitions of s, or empty if n <= 0.

@@ -23,4 +23,5 @@ func reexecSelf() error {
 		return fmt.Errorf("could not restart: %w", err)
 	}
 	os.Exit(0)
+	panic("unreachable")
 }

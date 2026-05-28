@@ -44,10 +44,12 @@ type SyncPlanItem struct {
 //
 // repoHeads maps repo name to the current HEAD SHA in the local cache (obtained
 // by the caller, e.g. via CollectRepoHeads, after any desired repo pulls).
-// Upstream-change detection compares InstalledAtSHA (non-forks) or UpstreamSHA
-// (forks) against the provided HEAD. This is a coarser check than a file-level
-// diff — a commit touching only unrelated parts of the repo will still produce
-// a SyncUpdated action.
+// Upstream-change detection first uses a coarse repo-HEAD SHA comparison as a
+// fast pre-filter. When the SHA indicates a change, the result is refined by
+// comparing the upstream cache directory's content hash against InstalledHash.
+// Only a skill whose own content differs from the install-time snapshot is
+// considered to have an upstream change — commits touching only unrelated paths
+// in the same repo do not produce a SyncUpdated action.
 //
 // Local-modification detection calls IsModified, which hashes the installed
 // directory (local file reads; no git or network operations).
@@ -86,7 +88,20 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 			if isFork(rec) {
 				baselineSHA = rec.UpstreamSHA
 			}
+			// Coarse pre-filter: if repo HEAD is unchanged, no skill in that repo
+			// can have upstream changes.
 			hasUpstream := baselineSHA != headSHA
+			if hasUpstream {
+				// Refine with a per-skill content hash comparison so that commits
+				// touching only unrelated paths in the same repo do not produce a
+				// spurious SyncUpdated. Fall back to the coarser SHA result only
+				// when the upstream cache directory cannot be located or hashed.
+				if upstreamDir := upstreamCacheDirFor(addr, rec, st); upstreamDir != "" {
+					if upstreamHash, uErr := ComputeHash(upstreamDir); uErr == nil {
+						hasUpstream = upstreamHash != rec.InstalledHash
+					}
+				}
+			}
 
 			modified, installedHash, modErr := isModifiedWithHash(rec)
 			if modErr != nil {

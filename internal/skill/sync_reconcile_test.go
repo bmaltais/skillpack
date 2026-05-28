@@ -568,3 +568,101 @@ func TestReconcilePlan_PhantomConflict(t *testing.T) {
 		t.Errorf("want SyncAlreadyCurrent for phantom conflict, got %q", item.Action)
 	}
 }
+
+// ─── Spurious-update regression (issue #91) ──────────────────────────────────
+
+// TestReconcilePlan_SpuriousUpdate_UnrelatedCommit: repo HEAD advances due to
+// an unrelated commit, but this specific skill's directory content is unchanged.
+// ReconcilePlan must return SyncAlreadyCurrent, not SyncUpdated.
+func TestReconcilePlan_SpuriousUpdate_UnrelatedCommit(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	const skillContent = "# My Skill\nSome content."
+	const addr = "my-repo/coding/my-skill"
+	const agentName = "copilot"
+
+	// Install dir and upstream cache dir have identical content.
+	installDir := t.TempDir()
+	writeFile(t, filepath.Join(installDir, "SKILL.md"), skillContent)
+
+	cacheRoot := t.TempDir()
+	skillCacheDir := filepath.Join(cacheRoot, "coding", "my-skill")
+	writeFile(t, filepath.Join(skillCacheDir, "SKILL.md"), skillContent)
+
+	hash, err := skill.ComputeHash(installDir)
+	if err != nil {
+		t.Fatalf("ComputeHash: %v", err)
+	}
+
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"my-repo": {CachePath: cacheRoot},
+		},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			addr: {
+				agentName: {
+					InstalledAtSHA: "sha-old", // repo HEAD has since advanced
+					InstalledHash:  hash,
+					LocalPath:      installDir,
+				},
+			},
+		},
+	}
+	// Repo HEAD advanced (unrelated commit elsewhere in the repo).
+	repoHeads := map[string]string{"my-repo": "sha-new"}
+
+	plan := skill.ReconcilePlan(st, repoHeads)
+	item := planByAddr(plan, addr, agentName)
+	if item.Err != nil {
+		t.Fatalf("unexpected error: %v", item.Err)
+	}
+	if item.Action != skill.SyncAlreadyCurrent {
+		t.Errorf("want SyncAlreadyCurrent (skill content unchanged), got %q", item.Action)
+	}
+}
+
+// TestReconcilePlan_Update_SkillContentChanged: repo HEAD advances AND the
+// skill directory content changed in the upstream cache → SyncUpdated.
+func TestReconcilePlan_Update_SkillContentChanged(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	const addr = "my-repo/coding/my-skill"
+	const agentName = "copilot"
+
+	installDir := t.TempDir()
+	writeFile(t, filepath.Join(installDir, "SKILL.md"), "# Old content")
+
+	cacheRoot := t.TempDir()
+	skillCacheDir := filepath.Join(cacheRoot, "coding", "my-skill")
+	writeFile(t, filepath.Join(skillCacheDir, "SKILL.md"), "# New content") // changed upstream
+
+	hash, err := skill.ComputeHash(installDir)
+	if err != nil {
+		t.Fatalf("ComputeHash: %v", err)
+	}
+
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"my-repo": {CachePath: cacheRoot},
+		},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			addr: {
+				agentName: {
+					InstalledAtSHA: "sha-old",
+					InstalledHash:  hash,
+					LocalPath:      installDir,
+				},
+			},
+		},
+	}
+	repoHeads := map[string]string{"my-repo": "sha-new"}
+
+	plan := skill.ReconcilePlan(st, repoHeads)
+	item := planByAddr(plan, addr, agentName)
+	if item.Err != nil {
+		t.Fatalf("unexpected error: %v", item.Err)
+	}
+	if item.Action != skill.SyncUpdated {
+		t.Errorf("want SyncUpdated (skill content changed), got %q", item.Action)
+	}
+}

@@ -1,0 +1,369 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/bmaltais/skillpack/internal/config"
+	"github.com/bmaltais/skillpack/internal/repo"
+	"github.com/bmaltais/skillpack/internal/state"
+)
+
+// --- Data types (moved in Phase 2) ---
+
+type rowKind int
+
+const (
+	repoRow rowKind = iota
+	skillRow
+)
+
+type tuiRow struct {
+	kind     rowKind
+	repoName string
+	addr     string // full skill address (only for skillRow)
+	relPath  string // repo-relative path (only for skillRow)
+	expanded bool   // only for repoRow
+}
+
+// --- Panels ---
+
+type panel int
+
+const (
+	panelSkills panel = iota
+	panelRepos
+	panelStatus
+	panelUnmanaged
+)
+
+// --- Input mode ---
+
+type inputMode int
+
+const (
+	modeNormal inputMode = iota
+	modeAddRepoName
+	modeAddRepoURL
+	modeConfirmRemove
+	modeForkSelectRepo
+	modeForkResolveChoice
+	modeAdoptSelectRepo
+	modeRegisterForkInput
+)
+
+// --- Model ---
+
+type model struct {
+	// Data
+	rows      []tuiRow
+	agents    []string
+	installed map[string]map[string]bool // addr → agent → installed
+
+	// Repos panel data
+	repoList []repoEntry
+
+	// UI state
+	activePanel panel
+	cursorRow   int
+	cursorCol   int // agent column index (skills panel)
+	repoCursor  int // cursor for repos panel
+	filter      string
+	width       int
+	height      int
+	message     string
+
+	// Input mode for repo add / fork
+	inputMode      inputMode
+	inputBuffer    string
+	newRepoName    string
+	forkAddr       string // skill address being forked
+	forkCursor     int    // cursor for fork repo selection
+	forkTargetRepo string // repo chosen in modeForkSelectRepo, kept for modeForkResolveChoice
+
+	// Status info per skill+agent
+	statusInfo   map[string]map[string]string // addr → agent → status text
+	statusRows   []statusRow                  // rows for status panel
+	statusCursor int                          // cursor for status panel
+	busy         string                       // non-empty when an async operation is running
+
+	// Update banner
+	updateBanner    string // e.g. "v0.3.0" — shown as a banner when set
+	bannerSelection int    // 0=Update, 1=Skip
+	pendingMessage  string // message to show after next async completes
+
+	// Fork candidate registration
+	forkCandidates    map[string]string // addr → candidate upstream addr
+	registerForkAddr  string            // skill addr being registered
+	registerForkInput string            // current input buffer (editable upstream addr)
+
+	// Unmanaged panel
+	unmanagedEntries []unmanagedEntry
+	unmanagedCursor  int
+	adoptCursor      int // cursor for repo selection in adopt flow
+
+	// Config/state refs
+	cfg *config.Config
+	st  *state.State
+
+	// restartPending is set after a successful self-update that replaced the binary.
+	// runTUI detects it after the program exits and re-execs the new binary.
+	restartPending bool
+}
+
+type repoEntry struct {
+	name string
+	url  string
+}
+
+type unmanagedEntry struct {
+	agentName string
+	skillName string
+	localPath string
+}
+
+type statusRow struct {
+	addr      string
+	agentName string
+	status    string // "ok", "update", "modified", "conflict", "error"
+}
+
+func initialModel(cfg *config.Config, st *state.State) model {
+	m := model{
+		installed:   make(map[string]map[string]bool),
+		activePanel: panelSkills,
+		width:       80,
+		height:      24,
+		cfg:         cfg,
+		st:          st,
+	}
+
+	// Build sorted agent list
+	for name := range cfg.Agents {
+		m.agents = append(m.agents, name)
+	}
+	sort.Strings(m.agents)
+
+	m.refreshSkills()
+	m.refreshRepos()
+	m.refreshUnmanaged()
+
+	return m
+}
+
+func (m *model) refreshSkills() {
+	m.rows = nil
+
+	// Discover skills from registered repos
+	allSkills, _ := repo.DiscoverAllSkills(m.st)
+
+	// Group by repo
+	repoSkills := make(map[string][]repo.SkillInfo)
+	for _, s := range allSkills {
+		repoSkills[s.RepoName] = append(repoSkills[s.RepoName], s)
+	}
+
+	var repoNames []string
+	for name := range repoSkills {
+		repoNames = append(repoNames, name)
+	}
+	sort.Strings(repoNames)
+
+	// Sample data if no repos registered
+	if len(repoNames) == 0 {
+		repoNames, repoSkills = sampleData()
+	}
+
+	// Build rows
+	for _, rn := range repoNames {
+		m.rows = append(m.rows, tuiRow{kind: repoRow, repoName: rn, expanded: true})
+		skills := repoSkills[rn]
+		sort.Slice(skills, func(i, j int) bool { return skills[i].Address < skills[j].Address })
+		for _, s := range skills {
+			m.rows = append(m.rows, tuiRow{kind: skillRow, repoName: rn, addr: s.Address, relPath: s.RelPath})
+		}
+	}
+
+	// Populate installed state from state.json
+	m.installed = make(map[string]map[string]bool)
+	for addr, agents := range m.st.InstalledSkills {
+		m.installed[addr] = make(map[string]bool)
+		for agentName := range agents {
+			m.installed[addr][agentName] = true
+		}
+	}
+}
+
+func (m *model) refreshRepos() {
+	m.repoList = nil
+	for name, rec := range m.st.Repos {
+		m.repoList = append(m.repoList, repoEntry{name: name, url: rec.URL})
+	}
+	sort.Slice(m.repoList, func(i, j int) bool { return m.repoList[i].name < m.repoList[j].name })
+}
+
+func (m *model) refreshUnmanaged() {
+	m.unmanagedEntries = nil
+
+	// Build set of all local paths that are already tracked in state
+	knownPaths := make(map[string]bool)
+	for _, agents := range m.st.InstalledSkills {
+		for _, rec := range agents {
+			if rec.LocalPath != "" {
+				knownPaths[rec.LocalPath] = true
+			}
+		}
+	}
+
+	// Walk each configured agent's skill dir and find untracked skills
+	var agentNames []string
+	for name := range m.cfg.Agents {
+		agentNames = append(agentNames, name)
+	}
+	sort.Strings(agentNames)
+
+	for _, agentName := range agentNames {
+		agentCfg := m.cfg.Agents[agentName]
+		expanded, err := config.ExpandPath(agentCfg.SkillDir)
+		if err != nil {
+			continue
+		}
+		entries, err := os.ReadDir(expanded)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			fullPath := filepath.Join(expanded, entry.Name())
+			// Use os.Stat (follows symlinks) so symlinked directories are included
+			info, statErr := os.Stat(fullPath)
+			if statErr != nil || !info.IsDir() {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(fullPath, "SKILL.md")); err != nil {
+				continue
+			}
+			if !knownPaths[fullPath] {
+				m.unmanagedEntries = append(m.unmanagedEntries, unmanagedEntry{
+					agentName: agentName,
+					skillName: entry.Name(),
+					localPath: fullPath,
+				})
+			}
+		}
+	}
+
+	if m.unmanagedCursor >= len(m.unmanagedEntries) {
+		m.unmanagedCursor = 0
+	}
+
+	// Sort by skill name for consistent presentation
+	sort.SliceStable(m.unmanagedEntries, func(i, j int) bool {
+		if m.unmanagedEntries[i].skillName != m.unmanagedEntries[j].skillName {
+			return m.unmanagedEntries[i].skillName < m.unmanagedEntries[j].skillName
+		}
+		return m.unmanagedEntries[i].agentName < m.unmanagedEntries[j].agentName
+	})
+}
+
+func sampleData() ([]string, map[string][]repo.SkillInfo) {
+	repoNames := []string{"awesome-skills", "community-skills"}
+	skills := map[string][]repo.SkillInfo{
+		"awesome-skills": {
+			{Address: "awesome-skills/coding/debugger", RepoName: "awesome-skills", RelPath: "coding/debugger"},
+			{Address: "awesome-skills/coding/refactor", RepoName: "awesome-skills", RelPath: "coding/refactor"},
+			{Address: "awesome-skills/writing/blogger", RepoName: "awesome-skills", RelPath: "writing/blogger"},
+		},
+		"community-skills": {
+			{Address: "community-skills/linter", RepoName: "community-skills", RelPath: "linter"},
+			{Address: "community-skills/docker-compose", RepoName: "community-skills", RelPath: "docker-compose"},
+			{Address: "community-skills/debug-helper", RepoName: "community-skills", RelPath: "debug-helper"},
+		},
+	}
+	return repoNames, skills
+}
+
+// --- Async message types (moved in Phase 2) ---
+
+type statusDoneMsg struct {
+	info           map[string]map[string]string
+	forkCandidates map[string]string // addr → first candidate upstream addr
+}
+
+type syncDoneMsg struct {
+	summary string
+	st      *state.State // updated state after sync
+}
+
+type registerForkDoneMsg struct {
+	addr     string
+	upstream string
+	st       *state.State // updated state on success; nil on error
+	err      error
+}
+
+type selfUpdateDoneMsg struct {
+	summary      string
+	needsRestart bool
+}
+
+type updateCheckMsg struct {
+	latestTag string // empty if up-to-date or error
+	err       error
+}
+
+type viewerExitMsg struct {
+	err error
+}
+
+// --- Entry point (moved in Phase 2) ---
+
+func runTUI() error {
+	cfg, err := config.Load()
+	if err != nil {
+		cfg = &config.Config{Agents: make(map[string]config.AgentConfig)}
+	}
+	st, err := state.Load()
+	if err != nil {
+		st = &state.State{
+			Repos:           make(map[string]state.RepoRecord),
+			InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+		}
+	}
+
+	m := initialModel(cfg, st)
+
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	finalModel, err := p.Run()
+	if err != nil {
+		return err
+	}
+	if fm, ok := finalModel.(model); ok && fm.restartPending {
+		if execErr := reexecSelf(); execErr != nil {
+			fmt.Fprintf(os.Stderr, "skillpack: restart failed: %v — please restart manually\n", execErr)
+		}
+	}
+	return nil
+}
+
+// cloneState creates a deep copy of State to avoid data races
+// between async commands and UI rendering.
+func cloneState(src *state.State) *state.State {
+	dst := &state.State{
+		Repos:           make(map[string]state.RepoRecord, len(src.Repos)),
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord, len(src.InstalledSkills)),
+	}
+	for k, v := range src.Repos {
+		dst.Repos[k] = v
+	}
+	for addr, agents := range src.InstalledSkills {
+		dst.InstalledSkills[addr] = make(map[string]state.InstalledSkillRecord, len(agents))
+		for agent, rec := range agents {
+			dst.InstalledSkills[addr][agent] = rec
+		}
+	}
+	return dst
+}

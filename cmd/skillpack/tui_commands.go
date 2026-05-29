@@ -170,7 +170,7 @@ func (m *model) cmdSync() tea.Cmd {
 			parts = append(parts, fmt.Sprintf("%d updated", updated))
 		}
 		if published > 0 {
-			parts = append(parts, fmt.Sprintf("%d published", published))
+			parts = append(parts, fmt.Sprintf("%d pushed", published))
 		}
 		if current > 0 {
 			parts = append(parts, fmt.Sprintf("%d current", current))

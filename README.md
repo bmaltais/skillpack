@@ -216,7 +216,7 @@ When installing a forked skill, this metadata is imported so upstream drift is t
 ### Sync
 
 ```bash
-skillpack sync           # pull repos, update clean skills, publish local edits
+skillpack sync           # pull repos, update clean skills, push local edits
 skillpack sync --dry-run # preview what would change
 ```
 
@@ -225,7 +225,7 @@ Sync logic per installed skill:
 | State | Action |
 |-------|--------|
 | No local edits, upstream changed | Auto-update |
-| Local edits, no upstream change | Auto-publish to remote |
+| Local edits, no upstream change | Push local edits to remote |
 | Both local edits and upstream change | Skip — resolve with `update --force-*` |
 
 ## Concepts

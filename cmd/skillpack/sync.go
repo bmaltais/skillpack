@@ -18,7 +18,7 @@ var syncCmd = &cobra.Command{
 
   1. Pull all registered repos (update local cache)
   2. Skills with upstream changes and no local edits  → updated automatically
-  3. Skills with local edits and no upstream changes  → published to remote
+  3. Skills with local edits and no upstream changes  → pushed to remote
   4. Skills with both local edits and upstream changes → skipped (conflict)
 
 Resolve conflicts at sync time with:
@@ -86,7 +86,7 @@ Resolve conflicts at sync time with:
 					fmt.Printf("  %-*s  %-*s  [dry-run] would update\n", addrW, p.Addr, agentW, p.AgentName)
 					updated++
 				case skill.SyncPublished:
-					fmt.Printf("  %-*s  %-*s  [dry-run] would publish\n", addrW, p.Addr, agentW, p.AgentName)
+					fmt.Printf("  %-*s  %-*s  [dry-run] would push\n", addrW, p.Addr, agentW, p.AgentName)
 					published++
 				case skill.SyncConflict:
 					fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, red("CONFLICT — resolve manually"))
@@ -95,7 +95,7 @@ Resolve conflicts at sync time with:
 					current++
 				}
 			}
-			fmt.Printf("\n  %d updated, %d published, %d already current", updated, published, current)
+			fmt.Printf("\n  %d updated, %d pushed, %d already current", updated, published, current)
 			if conflicts > 0 {
 				fmt.Printf(", %d conflict(s)", conflicts)
 			}
@@ -151,7 +151,7 @@ Resolve conflicts at sync time with:
 				fmt.Printf("  %-*s  %-*s  %s\n", addrW, r.Addr, agentW, r.AgentName, green("updated"))
 				updated++
 			case r.Action == skill.SyncPublished:
-				fmt.Printf("  %-*s  %-*s  %s\n", addrW, r.Addr, agentW, r.AgentName, green("published"))
+				fmt.Printf("  %-*s  %-*s  %s\n", addrW, r.Addr, agentW, r.AgentName, green("pushed"))
 				published++
 			case r.Action == skill.SyncAlreadyCurrent:
 				current++
@@ -193,7 +193,7 @@ Resolve conflicts at sync time with:
 		}
 
 		// Summary line
-		fmt.Printf("\n  %d updated, %d published, %d already current", updated, published, current)
+		fmt.Printf("\n  %d updated, %d pushed, %d already current", updated, published, current)
 		if len(conflicts) > 0 {
 			fmt.Printf(", %d conflict(s)", len(conflicts))
 		}

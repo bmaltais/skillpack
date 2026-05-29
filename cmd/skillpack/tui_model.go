@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -108,6 +109,10 @@ type model struct {
 	// Config/state refs
 	cfg *config.Config
 	st  *state.State
+
+	// restartPending is set after a successful self-update that replaced the binary.
+	// runTUI detects it after the program exits and re-execs the new binary.
+	restartPending bool
 }
 
 type repoEntry struct {
@@ -301,7 +306,8 @@ type registerForkDoneMsg struct {
 }
 
 type selfUpdateDoneMsg struct {
-	summary string
+	summary      string
+	needsRestart bool
 }
 
 type updateCheckMsg struct {
@@ -331,8 +337,16 @@ func runTUI() error {
 	m := initialModel(cfg, st)
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
-	_, err = p.Run()
-	return err
+	finalModel, err := p.Run()
+	if err != nil {
+		return err
+	}
+	if fm, ok := finalModel.(model); ok && fm.restartPending {
+		if execErr := reexecSelf(); execErr != nil {
+			fmt.Fprintf(os.Stderr, "skillpack: restart failed: %v — please restart manually\n", execErr)
+		}
+	}
+	return nil
 }
 
 // cloneState creates a deep copy of State to avoid data races

@@ -211,6 +211,9 @@ func cmdSelfUpdate() tea.Cmd {
 			return selfUpdateDoneMsg{summary: fmt.Sprintf("✗ Update failed: %v", err)}
 		}
 
-		return selfUpdateDoneMsg{summary: fmt.Sprintf("✓ Updated: v%s → %s (restart to use new version)", current, latest)}
+		return selfUpdateDoneMsg{
+			summary:      fmt.Sprintf("✓ Updated: v%s → %s", current, latest),
+			needsRestart: true,
+		}
 	}
 }

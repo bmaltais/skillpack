@@ -89,6 +89,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.busy = ""
 		m.message = msg.summary
 		m.updateBanner = "" // dismiss banner after update attempt
+		if msg.needsRestart {
+			m.restartPending = true
+			return m, tea.Quit
+		}
 		return m, nil
 
 	case updateCheckMsg:

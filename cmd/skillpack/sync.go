@@ -83,9 +83,6 @@ Resolve conflicts at sync time with:
 				}
 				switch p.Action {
 				case skill.SyncUpdated:
-					// Note: upstream detection uses InstalledAtSHA vs HEAD SHA (coarser than
-					// a file-level diff). A commit touching only unrelated paths in the repo
-					// will still appear as "would update" here.
 					fmt.Printf("  %-*s  %-*s  [dry-run] would update\n", addrW, p.Addr, agentW, p.AgentName)
 					updated++
 				case skill.SyncPublished:

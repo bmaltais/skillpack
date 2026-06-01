@@ -159,7 +159,7 @@ Resolve conflicts at sync time with:
 			case r.Action == skill.SyncAlreadyCurrent:
 				current++
 			}
-			if r.Warning != "" && r.Err == nil {
+			if r.Warning != "" {
 				fmt.Printf("  %-*s  %-*s  %s\n", addrW, "", agentW, "", yellow("warning: "+r.Warning))
 			}
 		}

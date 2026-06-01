@@ -150,6 +150,41 @@ func forceRemote(addr, agentName, token string, st *state.State) error {
 	return applyUpdate(addr, agentName, token, st)
 }
 
+// applyUpdateFromOwnRepo updates a forked skill using its own repo cache
+// (not the upstream origin). Used when upstream tracking is disabled because
+// the upstream repo is not registered.
+func applyUpdateFromOwnRepo(addr, agentName string, st *state.State) error {
+	rec := st.InstalledSkills[addr][agentName]
+
+	skillInfo, err := repo.FindSkill(addr, st)
+	if err != nil {
+		return err
+	}
+
+	if err := os.RemoveAll(rec.LocalPath); err != nil {
+		return fmt.Errorf("removing old install: %w", err)
+	}
+	if err := copyDir(skillInfo.FullPath, rec.LocalPath); err != nil {
+		return fmt.Errorf("copying updated skill: %w", err)
+	}
+
+	hash, err := ComputeHash(rec.LocalPath)
+	if err != nil {
+		return err
+	}
+	sha, err := repo.HeadSHA(skillInfo.RepoName, st)
+	if err != nil {
+		return err
+	}
+	// Preserve fork metadata fields but update hash and SHA against own repo.
+	rec.InstalledHash = hash
+	rec.InstalledAtSHA = sha
+	if err := st.RecordInstall(addr, agentName, rec); err != nil {
+		return err
+	}
+	return state.Save(st)
+}
+
 // ForceLocal copies the installed skill back to the repo cache, commits, pushes to main,
 // and updates state so the installed copy is considered canonical.
 func forceLocal(addr, agentName, token string, st *state.State) error {

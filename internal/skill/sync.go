@@ -26,6 +26,8 @@ type SyncResult struct {
 	AgentName string
 	Action    SyncAction
 	Err       error
+	// Warning is a non-fatal message propagated from the plan item.
+	Warning string
 }
 
 // SyncPlanItem is the decision for one installed skill, computed without git or network I/O.
@@ -37,6 +39,13 @@ type SyncPlanItem struct {
 	AgentName string
 	Action    SyncAction
 	Err       error
+	// Warning is a non-fatal message (e.g. upstream repo not registered).
+	// When set, Action is still valid and should be acted on.
+	Warning string
+	// UpstreamDisabled is true when a fork's upstream repo is not registered.
+	// ApplySync uses this to copy from the fork's own repo cache instead of the
+	// upstream origin.
+	UpstreamDisabled bool
 }
 
 // ReconcilePlan determines the sync action for every installed skill using only
@@ -68,24 +77,35 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 
 			headSHA := repoHeadForRecord(addr, rec, repoHeads)
 			if headSHA == "" {
-				// Repo not found in repoHeads — state is inconsistent or the repo was removed.
-				var missingRepo string
 				if isFork(rec) {
-					missingRepo = strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
+					// Upstream repo not registered — fall back to evaluating
+					// against the skill's own repo HEAD.
+					ownRepo := strings.SplitN(addr, "/", 2)[0]
+					headSHA = repoHeads[ownRepo]
+					if headSHA == "" {
+						item.Err = fmt.Errorf("repo %q not found in local cache — run 'skillpack repo add' to register it", ownRepo)
+						plan = append(plan, item)
+						continue
+					}
+					upstreamRepo := strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
+					item.Warning = fmt.Sprintf("upstream repo %q not registered — skipping upstream tracking", upstreamRepo)
+					item.UpstreamDisabled = true
 				} else {
-					missingRepo = strings.SplitN(addr, "/", 2)[0]
+					missingRepo := strings.SplitN(addr, "/", 2)[0]
+					item.Err = fmt.Errorf("repo %q not found in local cache — run 'skillpack repo add' to register it", missingRepo)
+					plan = append(plan, item)
+					continue
 				}
-				item.Err = fmt.Errorf("repo %q not found in local cache — run 'skillpack repo add' to register it", missingRepo)
-				plan = append(plan, item)
-				continue
 			}
 
 			// For forked skills the relevant baseline is upstream_sha (the upstream
 			// HEAD at the time of the last fork/update), not installed_at_sha (which
 			// is a SHA from the fork's own repo and cannot be compared against the
 			// upstream repo's SHA space).
+			// When upstream tracking is unavailable (Warning set), use the own-repo
+			// baseline instead.
 			baselineSHA := rec.InstalledAtSHA
-			if isFork(rec) {
+			if isFork(rec) && item.Warning == "" {
 				baselineSHA = rec.UpstreamSHA
 			}
 			// Coarse pre-filter: if repo HEAD is unchanged, no skill in that repo
@@ -96,9 +116,16 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 				// touching only unrelated paths in the same repo do not produce a
 				// spurious SyncUpdated. Fall back to the coarser SHA result only
 				// when the upstream cache directory cannot be located or hashed.
-				if upstreamDir := upstreamCacheDirFor(addr, rec, st); upstreamDir != "" {
-					if upstreamHash, uErr := ComputeHash(upstreamDir); uErr == nil {
-						hasUpstream = upstreamHash != rec.InstalledHash
+				var cacheDir string
+				if item.UpstreamDisabled {
+					// Upstream not available; use the skill's own repo cache.
+					cacheDir = ownRepoCacheDirFor(addr, st)
+				} else {
+					cacheDir = upstreamCacheDirFor(addr, rec, st)
+				}
+				if cacheDir != "" {
+					if cacheHash, uErr := ComputeHash(cacheDir); uErr == nil {
+						hasUpstream = cacheHash != rec.InstalledHash
 					}
 				}
 			}
@@ -116,9 +143,15 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 				// byte-identical to the upstream cache. If they are, the stored
 				// InstalledHash is merely stale (e.g. after a --force-remote reset) and
 				// there is no real conflict — treat it as already-current.
-				if upstreamDir := upstreamCacheDirFor(addr, rec, st); upstreamDir != "" {
-					upstreamHash, uErr := ComputeHash(upstreamDir)
-					if uErr == nil && installedHash == upstreamHash {
+				var conflictCheckDir string
+				if item.UpstreamDisabled {
+					conflictCheckDir = ownRepoCacheDirFor(addr, st)
+				} else {
+					conflictCheckDir = upstreamCacheDirFor(addr, rec, st)
+				}
+				if conflictCheckDir != "" {
+					cacheHash, uErr := ComputeHash(conflictCheckDir)
+					if uErr == nil && installedHash == cacheHash {
 						item.Action = SyncAlreadyCurrent
 						break
 					}
@@ -133,6 +166,21 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 		}
 	}
 	return plan
+}
+
+// ownRepoCacheDirFor returns the filesystem path of the skill's own repo cache
+// directory (ignoring fork metadata). Used when upstream tracking is disabled.
+// Returns "" if the path cannot be determined.
+func ownRepoCacheDirFor(addr string, st *state.State) string {
+	parts := strings.SplitN(addr, "/", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	repoRec, ok := st.Repos[parts[0]]
+	if !ok {
+		return ""
+	}
+	return filepath.Join(repoRec.CachePath, filepath.FromSlash(parts[1]))
 }
 
 // upstreamCacheDirFor returns the filesystem path of the upstream cache
@@ -201,25 +249,31 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 	conflicts = make([]SyncResult, 0, len(plan))
 	for _, item := range plan {
 		if item.Err != nil {
-			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: item.Err})
+			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: item.Err, Warning: item.Warning})
 			continue
 		}
 		repoName := strings.SplitN(item.Addr, "/", 2)[0]
 		switch item.Action {
 		case SyncConflict:
-			conflicts = append(conflicts, SyncResult{item.Addr, item.AgentName, SyncConflict, nil})
+			conflicts = append(conflicts, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncConflict, Warning: item.Warning})
 		case SyncUpdated:
-			if applyErr := applyUpdate(item.Addr, item.AgentName, tokenFor(repoName), st); applyErr != nil {
-				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: applyErr})
+			var applyErr error
+			if item.UpstreamDisabled {
+				applyErr = applyUpdateFromOwnRepo(item.Addr, item.AgentName, st)
+			} else {
+				applyErr = applyUpdate(item.Addr, item.AgentName, tokenFor(repoName), st)
+			}
+			if applyErr != nil {
+				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: applyErr, Warning: item.Warning})
 				continue
 			}
-			results = append(results, SyncResult{item.Addr, item.AgentName, SyncUpdated, nil})
+			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncUpdated, Warning: item.Warning})
 		case SyncPublished:
 			if pubErr := publish(item.Addr, item.AgentName, tokenFor(repoName), st); pubErr != nil {
-				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: pubErr})
+				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: pubErr, Warning: item.Warning})
 				continue
 			}
-			results = append(results, SyncResult{item.Addr, item.AgentName, SyncPublished, nil})
+			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncPublished, Warning: item.Warning})
 		default: // SyncAlreadyCurrent
 			// For non-forked skills, refresh a stale InstalledHash/InstalledAtSHA so
 			// the phantom conflict cannot reappear on the next sync.
@@ -230,12 +284,12 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 			if rec, ok := st.InstalledSkills[item.Addr][item.AgentName]; ok && !isFork(rec) {
 				if currentHash, hashErr := ComputeHash(rec.LocalPath); hashErr == nil && currentHash != rec.InstalledHash {
 					if snapErr := snapshotInstalled(item.Addr, item.AgentName, st); snapErr != nil {
-						results = append(results, SyncResult{item.Addr, item.AgentName, SyncAlreadyCurrent, snapErr})
+						results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncAlreadyCurrent, Err: snapErr, Warning: item.Warning})
 						continue
 					}
 				}
 			}
-			results = append(results, SyncResult{item.Addr, item.AgentName, SyncAlreadyCurrent, nil})
+			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncAlreadyCurrent, Warning: item.Warning})
 		}
 	}
 	return results, conflicts, nil

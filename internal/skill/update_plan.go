@@ -27,6 +27,13 @@ type UpdatePlanItem struct {
 	AgentName string
 	Action    UpdateAction
 	Err       error
+	// Warning is a non-fatal message (e.g. upstream repo not registered).
+	// When set, Action is still valid and should be acted on.
+	Warning string
+	// UpstreamDisabled is true when a fork's upstream repo is not registered.
+	// Callers should use the fork's own repo cache for updates instead of the
+	// upstream origin.
+	UpstreamDisabled bool
 }
 
 // PlanUpdate determines the update action for every installed skill using only
@@ -53,19 +60,29 @@ func PlanUpdate(st *state.State, repoHeads map[string]string) []UpdatePlanItem {
 
 			headSHA := repoHeadForRecord(addr, rec, repoHeads)
 			if headSHA == "" {
-				var missingRepo string
 				if isFork(rec) {
-					missingRepo = strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
+					// Upstream repo not registered — fall back to evaluating
+					// against the skill's own repo HEAD.
+					ownRepo := strings.SplitN(addr, "/", 2)[0]
+					headSHA = repoHeads[ownRepo]
+					if headSHA == "" {
+						item.Err = fmt.Errorf("repo %q not found in local cache — run 'skillpack repo add' to register it", ownRepo)
+						plan = append(plan, item)
+						continue
+					}
+					upstreamRepo := strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
+					item.Warning = fmt.Sprintf("upstream repo %q not registered — skipping upstream tracking", upstreamRepo)
+					item.UpstreamDisabled = true
 				} else {
-					missingRepo = strings.SplitN(addr, "/", 2)[0]
+					missingRepo := strings.SplitN(addr, "/", 2)[0]
+					item.Err = fmt.Errorf("repo %q not found in local cache — run 'skillpack repo add' to register it", missingRepo)
+					plan = append(plan, item)
+					continue
 				}
-				item.Err = fmt.Errorf("repo %q not found in local cache — run 'skillpack repo add' to register it", missingRepo)
-				plan = append(plan, item)
-				continue
 			}
 
 			baselineSHA := rec.InstalledAtSHA
-			if isFork(rec) {
+			if isFork(rec) && item.Warning == "" {
 				baselineSHA = rec.UpstreamSHA
 			}
 			hasUpstream := baselineSHA != headSHA
@@ -81,11 +98,17 @@ func PlanUpdate(st *state.State, repoHeads map[string]string) []UpdatePlanItem {
 			case hasUpstream && modified:
 				// Check whether installed files are byte-identical to upstream cache
 				// to avoid phantom conflicts after a --force-remote reset.
-				if upstreamDir := upstreamCacheDirFor(addr, rec, st); upstreamDir != "" {
-					upstreamHash, uErr := ComputeHash(upstreamDir)
+				var checkDir string
+				if item.UpstreamDisabled {
+					checkDir = ownRepoCacheDirFor(addr, st)
+				} else {
+					checkDir = upstreamCacheDirFor(addr, rec, st)
+				}
+				if checkDir != "" {
+					cacheHash, uErr := ComputeHash(checkDir)
 					if uErr == nil {
 						currentHash, _ := ComputeHash(rec.LocalPath)
-						if currentHash == upstreamHash {
+						if currentHash == cacheHash {
 							item.Action = UpdateAlreadyCurrent
 							break
 						}

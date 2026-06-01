@@ -126,6 +126,9 @@ Use --no-fetch to skip the network call and report against cached state.`,
 				statusStr += "  " + yellow("[fork? → "+upstream+"]")
 			}
 			fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, statusStr)
+			if p.Warning != "" {
+				fmt.Printf("  %-*s  %-*s  %s\n", addrW, "", agentW, "", yellow("warning: "+p.Warning))
+			}
 		}
 
 		// Summary line

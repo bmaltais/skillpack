@@ -94,6 +94,9 @@ Resolve conflicts at sync time with:
 				case skill.SyncAlreadyCurrent:
 					current++
 				}
+				if p.Warning != "" {
+					fmt.Printf("  %-*s  %-*s  %s\n", addrW, "", agentW, "", yellow("warning: "+p.Warning))
+				}
 			}
 			fmt.Printf("\n  %d updated, %d pushed, %d already current", updated, published, current)
 			if conflicts > 0 {
@@ -155,6 +158,9 @@ Resolve conflicts at sync time with:
 				published++
 			case r.Action == skill.SyncAlreadyCurrent:
 				current++
+			}
+			if r.Warning != "" {
+				fmt.Printf("  %-*s  %-*s  %s\n", addrW, "", agentW, "", yellow("warning: "+r.Warning))
 			}
 		}
 		for _, c := range conflicts {

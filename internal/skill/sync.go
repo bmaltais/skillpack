@@ -26,6 +26,8 @@ type SyncResult struct {
 	AgentName string
 	Action    SyncAction
 	Err       error
+	// Warning is a non-fatal message propagated from the plan item.
+	Warning string
 }
 
 // SyncPlanItem is the decision for one installed skill, computed without git or network I/O.
@@ -37,6 +39,9 @@ type SyncPlanItem struct {
 	AgentName string
 	Action    SyncAction
 	Err       error
+	// Warning is a non-fatal message (e.g. upstream repo not registered).
+	// When set, Action is still valid and should be acted on.
+	Warning string
 }
 
 // ReconcilePlan determines the sync action for every installed skill using only
@@ -68,24 +73,34 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 
 			headSHA := repoHeadForRecord(addr, rec, repoHeads)
 			if headSHA == "" {
-				// Repo not found in repoHeads — state is inconsistent or the repo was removed.
-				var missingRepo string
 				if isFork(rec) {
-					missingRepo = strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
+					// Upstream repo not registered — fall back to evaluating
+					// against the skill's own repo HEAD.
+					ownRepo := strings.SplitN(addr, "/", 2)[0]
+					headSHA = repoHeads[ownRepo]
+					if headSHA == "" {
+						item.Err = fmt.Errorf("repo %q not found in local cache — run 'skillpack repo add' to register it", ownRepo)
+						plan = append(plan, item)
+						continue
+					}
+					upstreamRepo := strings.SplitN(rec.UpstreamAddr, "/", 2)[0]
+					item.Warning = fmt.Sprintf("upstream repo %q not registered — skipping upstream tracking", upstreamRepo)
 				} else {
-					missingRepo = strings.SplitN(addr, "/", 2)[0]
+					missingRepo := strings.SplitN(addr, "/", 2)[0]
+					item.Err = fmt.Errorf("repo %q not found in local cache — run 'skillpack repo add' to register it", missingRepo)
+					plan = append(plan, item)
+					continue
 				}
-				item.Err = fmt.Errorf("repo %q not found in local cache — run 'skillpack repo add' to register it", missingRepo)
-				plan = append(plan, item)
-				continue
 			}
 
 			// For forked skills the relevant baseline is upstream_sha (the upstream
 			// HEAD at the time of the last fork/update), not installed_at_sha (which
 			// is a SHA from the fork's own repo and cannot be compared against the
 			// upstream repo's SHA space).
+			// When upstream tracking is unavailable (Warning set), use the own-repo
+			// baseline instead.
 			baselineSHA := rec.InstalledAtSHA
-			if isFork(rec) {
+			if isFork(rec) && item.Warning == "" {
 				baselineSHA = rec.UpstreamSHA
 			}
 			// Coarse pre-filter: if repo HEAD is unchanged, no skill in that repo
@@ -201,25 +216,25 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 	conflicts = make([]SyncResult, 0, len(plan))
 	for _, item := range plan {
 		if item.Err != nil {
-			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: item.Err})
+			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: item.Err, Warning: item.Warning})
 			continue
 		}
 		repoName := strings.SplitN(item.Addr, "/", 2)[0]
 		switch item.Action {
 		case SyncConflict:
-			conflicts = append(conflicts, SyncResult{item.Addr, item.AgentName, SyncConflict, nil})
+			conflicts = append(conflicts, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncConflict, Warning: item.Warning})
 		case SyncUpdated:
 			if applyErr := applyUpdate(item.Addr, item.AgentName, tokenFor(repoName), st); applyErr != nil {
-				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: applyErr})
+				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: applyErr, Warning: item.Warning})
 				continue
 			}
-			results = append(results, SyncResult{item.Addr, item.AgentName, SyncUpdated, nil})
+			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncUpdated, Warning: item.Warning})
 		case SyncPublished:
 			if pubErr := publish(item.Addr, item.AgentName, tokenFor(repoName), st); pubErr != nil {
-				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: pubErr})
+				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: pubErr, Warning: item.Warning})
 				continue
 			}
-			results = append(results, SyncResult{item.Addr, item.AgentName, SyncPublished, nil})
+			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncPublished, Warning: item.Warning})
 		default: // SyncAlreadyCurrent
 			// For non-forked skills, refresh a stale InstalledHash/InstalledAtSHA so
 			// the phantom conflict cannot reappear on the next sync.
@@ -230,12 +245,12 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 			if rec, ok := st.InstalledSkills[item.Addr][item.AgentName]; ok && !isFork(rec) {
 				if currentHash, hashErr := ComputeHash(rec.LocalPath); hashErr == nil && currentHash != rec.InstalledHash {
 					if snapErr := snapshotInstalled(item.Addr, item.AgentName, st); snapErr != nil {
-						results = append(results, SyncResult{item.Addr, item.AgentName, SyncAlreadyCurrent, snapErr})
+						results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncAlreadyCurrent, Err: snapErr, Warning: item.Warning})
 						continue
 					}
 				}
 			}
-			results = append(results, SyncResult{item.Addr, item.AgentName, SyncAlreadyCurrent, nil})
+			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncAlreadyCurrent, Warning: item.Warning})
 		}
 	}
 	return results, conflicts, nil

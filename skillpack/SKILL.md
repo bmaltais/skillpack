@@ -45,7 +45,7 @@ credentials:
   skillpack: ghp_yourtoken      # needed if you publish edits back to the tool repo
 ```
 
-> **Credential check before pushing:** If `skillpack publish`, `skillpack update --force-local`,
+> **Credential check before pushing:** If `skillpack publish`, `skillpack sync --force-local`,
 > or `skillpack sync` fails with *"authentication required"*, the repo name is missing from
 > `credentials` in `~/.skillpack/config.yaml`. Add it with the same token used for your
 > other repos — the key must exactly match the name shown by `skillpack repo list`.
@@ -99,17 +99,17 @@ skillpack list --available             # all skills in all registered repos
 skillpack list --available --repo <r>  # browse one repo (grouped by category)
 ```
 
-### Checking for Updates
+### Syncing and Updating Skills
 
 ```bash
-skillpack update                              # check + update all installed skills
-skillpack update <addr>                       # specific skill
-skillpack update --dry-run                    # preview only
+skillpack sync                                # pull + push all installed skills
+skillpack sync <addr>                         # specific skill only
+skillpack sync --dry-run                      # preview only
 
 # Conflict resolution (required when skill has local edits AND upstream changes):
-skillpack update --force-remote <addr>        # upstream wins — overwrites local
-skillpack update --force-local  <addr>        # local wins — pushes to remote
-skillpack update --merge        <addr>        # file-level 3-way merge
+skillpack sync --force-remote <addr>          # upstream wins — overwrites local
+skillpack sync --force-local  <addr>          # local wins — pushes to remote
+skillpack sync --merge        <addr>          # file-level 3-way merge
 ```
 
 ### Publishing Skills
@@ -132,7 +132,7 @@ skillpack publish <addr> --dry-run            # preview only
 > skillpack install <repo>/<skill-name> --agent <agent>
 > # e.g. skillpack install bmaltais-skills/terraform-module-change --agent copilot
 > ```
-> Skip this step and `skillpack list`, `skillpack update`, and `skillpack sync` will not
+> Skip this step and `skillpack list` and `skillpack sync` will not
 > manage the skill until it is explicitly installed.
 
 ### Syncing Everything
@@ -163,10 +163,10 @@ Forked skills carry provenance metadata in `.skillpack-fork`:
 }
 ```
 
-On install, this metadata is imported into state so `update` and `sync` can track upstream drift automatically.
+On install, this metadata is imported into state so `sync` can track upstream drift automatically.
 
-After forking, `skillpack update` detects upstream changes as conflicts.
-Use `skillpack update --merge <addr>` (or `--merge --llm`) to pull them in.
+After forking, `skillpack sync` detects upstream changes as conflicts.
+Use `skillpack sync --merge <addr>` (or `--merge --llm`) to pull them in.
 
 ### Retroactively Adding Missing Fork Metadata
 
@@ -266,14 +266,14 @@ Sync logic per installed skill:
 
 ## Conflict Workflow
 
-When `sync` or `update` reports a CONFLICT:
+When `sync` reports a CONFLICT:
 
 ```bash
-skillpack update --force-remote <addr>        # discard local edits, take upstream
-skillpack update --force-local  <addr>        # push local version, mark as upstream
-skillpack update --merge        <addr>        # 3-way merge; writes conflict markers on failure
-skillpack update --merge --llm  <addr>        # 3-way merge + LLM-assisted conflict resolution
-skillpack update --merge --llm <agent> <addr> # use a specific LLM agent to resolve
+skillpack sync --force-remote <addr>          # discard local edits, take upstream
+skillpack sync --force-local  <addr>          # push local version, mark as upstream
+skillpack sync --merge        <addr>          # 3-way merge; writes conflict markers on failure
+skillpack sync --merge --llm  <addr>          # 3-way merge + LLM-assisted conflict resolution
+skillpack sync --merge --llm <agent> <addr>   # use a specific LLM agent to resolve
 ```
 
 After `--merge` with conflicts, resolve `<<<<<<< ours` / `>>>>>>> theirs` blocks

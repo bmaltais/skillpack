@@ -60,7 +60,6 @@ func init() {
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(removeCmd)
 	rootCmd.AddCommand(listCmd)
-	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(publishCmd)
 	rootCmd.AddCommand(syncCmd)
 	rootCmd.AddCommand(statusCmd)
@@ -191,4 +190,13 @@ func bootstrapSkillpackRepo(cfg *config.Config) error {
 	}
 
 	return state.Save(st)
+}
+
+// repoNameFromAddr extracts the repo name from a skill address of the form
+// "<repo-name>/<rel/path/to/skill>".
+func repoNameFromAddr(addr string) string {
+	if i := strings.IndexByte(addr, '/'); i >= 0 {
+		return addr[:i]
+	}
+	return addr
 }

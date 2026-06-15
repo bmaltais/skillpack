@@ -86,6 +86,7 @@ The first-run wizard uses this list to auto-detect installed agents:
 |------------|----------------------|---------|
 | `claude-code` | `~/.claude/skills` | ✓ |
 | `copilot` | `~/.copilot/skills` | ✓ |
+| `grok` | `~/.grok/skills` | ✓ |
 | `hermes` | `~/.hermes/skills` | ✓ |
 | `opencode` | `~/.config/opencode/skills` | TODO |
 | `openclaw` | `~/.openclaw/skills` | TODO |

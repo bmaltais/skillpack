@@ -170,17 +170,18 @@ On startup, the TUI checks GitHub for a newer release. If found, a yellow banner
 | `skillpack list --available` | Browse all skills in registered repos |
 | `skillpack list --modified` | Show locally-edited skills |
 
-### Updates
+### Sync
 
 | Command | Description |
 |---------|-------------|
-| `skillpack update` | Check and apply upstream updates |
-| `skillpack update <addr> --force-remote` | Upstream wins (overwrites local edits) |
-| `skillpack update <addr> --force-local` | Local wins (pushes to remote) |
-| `skillpack update <addr> --merge` | File-level three-way merge |
-| `skillpack update <addr> --merge --llm` | Three-way merge with LLM-assisted conflict resolution |
-| `skillpack update <addr> --merge --llm <agent>` | Same, using a specific LLM agent |
-| `skillpack update --dry-run` | Preview only |
+| `skillpack sync` | Pull upstream changes + push local edits (all skills) |
+| `skillpack sync <addr>` | Same, for a single skill only |
+| `skillpack sync --dry-run` | Preview only |
+| `skillpack sync <addr> --force-remote` | Upstream wins (overwrites local edits) |
+| `skillpack sync <addr> --force-local` | Local wins (pushes to remote) |
+| `skillpack sync <addr> --merge` | File-level three-way merge |
+| `skillpack sync <addr> --merge --llm` | Three-way merge with LLM-assisted conflict resolution |
+| `skillpack sync <addr> --merge --llm <agent>` | Same, using a specific LLM agent |
 
 ### Publishing
 
@@ -211,14 +212,7 @@ Forked skills include a `.skillpack-fork` metadata file:
 }
 ```
 
-When installing a forked skill, this metadata is imported so upstream drift is tracked automatically by `update`/`sync`.
-
-### Sync
-
-```bash
-skillpack sync           # pull repos, update clean skills, push local edits
-skillpack sync --dry-run # preview what would change
-```
+When installing a forked skill, this metadata is imported so upstream drift is tracked automatically by `sync`.
 
 Sync logic per installed skill:
 
@@ -226,7 +220,7 @@ Sync logic per installed skill:
 |-------|--------|
 | No local edits, upstream changed | Auto-update |
 | Local edits, no upstream change | Push local edits to remote |
-| Both local edits and upstream change | Skip — resolve with `update --force-*` |
+| Both local edits and upstream change | Skip — resolve with `sync --force-*` |
 
 ## Concepts
 

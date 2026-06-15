@@ -304,8 +304,8 @@ func walkSkills(repoName, cachePath string) ([]SkillInfo, error) {
 		if !d.IsDir() {
 			return nil
 		}
-		// Skip hidden directories (e.g. .git)
-		if strings.HasPrefix(d.Name(), ".") {
+		// Skip .git only — other hidden directories (e.g. .agents/) may contain skills.
+		if d.Name() == ".git" {
 			return filepath.SkipDir
 		}
 

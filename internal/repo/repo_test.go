@@ -92,7 +92,7 @@ func TestDiscoverSkills_Categorised(t *testing.T) {
 	}
 }
 
-func TestDiscoverSkills_SkipsHiddenDirs(t *testing.T) {
+func TestDiscoverSkills_SkipsGitDir(t *testing.T) {
 	root := t.TempDir()
 	mkSkill(t, root, "valid-skill")
 	// A SKILL.md inside .git should not be discovered
@@ -108,7 +108,38 @@ func TestDiscoverSkills_SkipsHiddenDirs(t *testing.T) {
 		t.Fatalf("DiscoverSkills: %v", err)
 	}
 	if len(skills) != 1 {
-		t.Errorf("expected 1 skill (hidden dir skipped), got %d: %v", len(skills), skillAddrs(skills))
+		t.Errorf("expected 1 skill (.git skipped), got %d: %v", len(skills), skillAddrs(skills))
+	}
+}
+
+func TestDiscoverSkills_HiddenNonGitDirs(t *testing.T) {
+	// Skills nested under hidden directories other than .git (e.g. .agents/skills/<name>)
+	// must be discovered. This mirrors the warpdotdev/common-skills layout.
+	root := t.TempDir()
+	mkSkill(t, root, filepath.Join(".agents", "skills", "debugger"))
+	mkSkill(t, root, filepath.Join(".agents", "skills", "blogger"))
+	mkSkill(t, root, "top-level-skill")
+
+	st := &state.State{
+		Repos:           map[string]state.RepoRecord{"r": {CachePath: root}},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+
+	skills, err := repo.DiscoverSkills("r", st)
+	if err != nil {
+		t.Fatalf("DiscoverSkills: %v", err)
+	}
+	if len(skills) != 3 {
+		t.Errorf("expected 3 skills, got %d: %v", len(skills), skillAddrs(skills))
+	}
+	addrSet := make(map[string]bool)
+	for _, s := range skills {
+		addrSet[s.Address] = true
+	}
+	for _, want := range []string{"r/.agents/skills/debugger", "r/.agents/skills/blogger", "r/top-level-skill"} {
+		if !addrSet[want] {
+			t.Errorf("missing skill %q; got %v", want, skillAddrs(skills))
+		}
 	}
 }
 

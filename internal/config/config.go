@@ -48,6 +48,7 @@ type KnownAgent struct {
 var DefaultAgents = []KnownAgent{
 	{"claude-code", "~/.claude/skills", ""},
 	{"copilot", "~/.copilot/skills", ""},
+	{"grok", "~/.grok/skills", ""},
 	{"hermes", "~/.hermes/skills", ""},
 	{"opencode", "~/.config/opencode/skills", ""},
 	{"openclaw", "~/.openclaw/skills", ""},

@@ -2,6 +2,7 @@ package skill
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -18,6 +19,7 @@ const (
 	SyncPublished      SyncAction = "published"         // local edits pushed to remote
 	SyncConflict       SyncAction = "skipped-conflict"  // modified locally + upstream changed
 	SyncAlreadyCurrent SyncAction = "already-current"   // nothing to do
+	SyncStaleAddress   SyncAction = "stale-address"     // skill path no longer exists upstream
 )
 
 // SyncResult describes the outcome of syncing one installed skill.
@@ -95,6 +97,48 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 					item.Err = fmt.Errorf("repo %q not found in local cache — run 'skillpack repo add' to register it", missingRepo)
 					plan = append(plan, item)
 					continue
+				}
+			}
+
+			// Stale-address check: if the skill's directory no longer exists in the
+			// upstream cache (e.g. the skill was deleted or moved), classify it as
+			// SyncStaleAddress so callers can surface it as a first-class condition
+			// rather than a generic error from applyUpdate.
+			//
+			// We guard the check with a .git sentinel to avoid false positives when
+			// the repo cache has not yet been populated (e.g. in tests using empty
+			// temp dirs as CachePath).
+			{
+				var checkDir string
+				var cacheRoot string
+				if item.UpstreamDisabled {
+					checkDir = ownRepoCacheDirFor(addr, st)
+					if parts := strings.SplitN(addr, "/", 2); len(parts) == 2 {
+						if r, ok := st.Repos[parts[0]]; ok {
+							cacheRoot = r.CachePath
+						}
+					}
+				} else {
+					checkDir = upstreamCacheDirFor(addr, rec, st)
+					srcAddr := addr
+					if isFork(rec) {
+						srcAddr = rec.UpstreamAddr
+					}
+					if parts := strings.SplitN(srcAddr, "/", 2); len(parts) == 2 {
+						if r, ok := st.Repos[parts[0]]; ok {
+							cacheRoot = r.CachePath
+						}
+					}
+				}
+				if checkDir != "" && cacheRoot != "" {
+					// Only run the stale check when the cache is a real git clone.
+					if _, gitErr := os.Stat(filepath.Join(cacheRoot, ".git")); gitErr == nil {
+						if _, statErr := os.Stat(filepath.Join(checkDir, "SKILL.md")); os.IsNotExist(statErr) {
+							item.Action = SyncStaleAddress
+							plan = append(plan, item)
+							continue
+						}
+					}
 				}
 			}
 
@@ -254,6 +298,9 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 		}
 		repoName := strings.SplitN(item.Addr, "/", 2)[0]
 		switch item.Action {
+		case SyncStaleAddress:
+			// Skill path no longer exists upstream — report as stale, do not apply.
+			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncStaleAddress, Warning: item.Warning})
 		case SyncConflict:
 			conflicts = append(conflicts, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncConflict, Warning: item.Warning})
 		case SyncUpdated:

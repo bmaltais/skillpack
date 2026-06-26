@@ -33,8 +33,8 @@ func TestIsAuthError_RecognisesWrappedErrors(t *testing.T) {
 	}
 
 	// A properly wrapped sentinel should match.
-	properlywrapped := fmt.Errorf("outer: %w", transport.ErrAuthenticationRequired)
-	if !isAuthError(properlywrapped) {
+	properlyWrapped := fmt.Errorf("outer: %w", transport.ErrAuthenticationRequired)
+	if !isAuthError(properlyWrapped) {
 		t.Error("expected isAuthError to return true for properly wrapped ErrAuthenticationRequired")
 	}
 }

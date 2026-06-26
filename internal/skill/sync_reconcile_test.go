@@ -2,6 +2,7 @@ package skill_test
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"testing"
@@ -664,5 +665,225 @@ func TestReconcilePlan_Update_SkillContentChanged(t *testing.T) {
 	}
 	if item.Action != skill.SyncUpdated {
 		t.Errorf("want SyncUpdated (skill content changed), got %q", item.Action)
+	}
+}
+
+// ─── StaleAddress ─────────────────────────────────────────────────────────────
+
+// TestReconcilePlan_StaleAddress_HeadChanged: HEAD advanced but the skill path
+// no longer exists in the repo cache → should classify as SyncStaleAddress.
+func TestReconcilePlan_StaleAddress_HeadChanged(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	addr := "myrepo/coding/gone-skill"
+	agentName := "copilot"
+
+	// Install dir exists with content.
+	installDir := t.TempDir()
+	writeFile(t, filepath.Join(installDir, "SKILL.md"), "# Gone Skill")
+	hash, err := skill.ComputeHash(installDir)
+	if err != nil {
+		t.Fatalf("ComputeHash: %v", err)
+	}
+
+	// Cache root is a simulated git clone (has .git dir) but the skill path is absent.
+	cacheRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cacheRoot, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"myrepo": {CachePath: cacheRoot},
+		},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			addr: {
+				agentName: {
+					InstalledAtSHA: "sha-old",
+					InstalledHash:  hash,
+					LocalPath:      installDir,
+				},
+			},
+		},
+	}
+	repoHeads := map[string]string{"myrepo": "sha-new"}
+
+	plan := skill.ReconcilePlan(st, repoHeads)
+	item := planByAddr(plan, addr, agentName)
+
+	if item.Err != nil {
+		t.Fatalf("unexpected error: %v", item.Err)
+	}
+	if item.Action != skill.SyncStaleAddress {
+		t.Errorf("want SyncStaleAddress, got %q", item.Action)
+	}
+}
+
+// TestReconcilePlan_StaleAddress_HeadUnchanged: when HEAD hasn't changed but
+// the skill directory is missing, the skill is reported as stale.
+func TestReconcilePlan_StaleAddress_HeadUnchanged(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	addr := "myrepo/coding/gone-skill"
+	agentName := "copilot"
+
+	installDir := t.TempDir()
+	writeFile(t, filepath.Join(installDir, "SKILL.md"), "# Gone Skill")
+	hash, err := skill.ComputeHash(installDir)
+	if err != nil {
+		t.Fatalf("ComputeHash: %v", err)
+	}
+
+	// Simulated git clone without the skill path.
+	cacheRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cacheRoot, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"myrepo": {CachePath: cacheRoot},
+		},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			addr: {
+				agentName: {
+					InstalledAtSHA: "sha-abc",
+					InstalledHash:  hash,
+					LocalPath:      installDir,
+				},
+			},
+		},
+	}
+	// HEAD unchanged — same SHA as InstalledAtSHA.
+	repoHeads := map[string]string{"myrepo": "sha-abc"}
+
+	plan := skill.ReconcilePlan(st, repoHeads)
+	item := planByAddr(plan, addr, agentName)
+
+	if item.Err != nil {
+		t.Fatalf("unexpected error: %v", item.Err)
+	}
+	if item.Action != skill.SyncStaleAddress {
+		t.Errorf("want SyncStaleAddress, got %q", item.Action)
+	}
+}
+
+// TestReconcilePlan_StaleAddress_SkillMdMissing: the skill directory exists
+// in the cache but has no SKILL.md → treated as stale, not as an update.
+func TestReconcilePlan_StaleAddress_SkillMdMissing(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	addr := "myrepo/coding/partial-skill"
+	agentName := "copilot"
+
+	installDir := t.TempDir()
+	writeFile(t, filepath.Join(installDir, "SKILL.md"), "# Partial Skill")
+	hash, err := skill.ComputeHash(installDir)
+	if err != nil {
+		t.Fatalf("ComputeHash: %v", err)
+	}
+
+	// Simulated git clone: skill directory exists but has no SKILL.md.
+	cacheRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cacheRoot, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(cacheRoot, "coding", "partial-skill"), 0o755); err != nil {
+		t.Fatalf("mkdir skill dir: %v", err)
+	}
+
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"myrepo": {CachePath: cacheRoot},
+		},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			addr: {
+				agentName: {
+					InstalledAtSHA: "sha-old",
+					InstalledHash:  hash,
+					LocalPath:      installDir,
+				},
+			},
+		},
+	}
+	repoHeads := map[string]string{"myrepo": "sha-new"}
+
+	plan := skill.ReconcilePlan(st, repoHeads)
+	item := planByAddr(plan, addr, agentName)
+
+	if item.Err != nil {
+		t.Fatalf("unexpected error: %v", item.Err)
+	}
+	if item.Action != skill.SyncStaleAddress {
+		t.Errorf("want SyncStaleAddress, got %q", item.Action)
+	}
+}
+
+// TestReconcilePlan_StaleAddress_DoesNotBlockOtherSkills: a stale skill should
+// not prevent other skills in the same plan from being processed correctly.
+func TestReconcilePlan_StaleAddress_DoesNotBlockOtherSkills(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	staleAddr := "myrepo/coding/gone-skill"
+	goodAddr := "myrepo/coding/live-skill"
+	agentName := "copilot"
+
+	// Stale install dir.
+	staleDir := t.TempDir()
+	writeFile(t, filepath.Join(staleDir, "SKILL.md"), "# Gone")
+	staleHash, _ := skill.ComputeHash(staleDir)
+
+	// Good install dir with SKILL.md and matching cache.
+	goodInstallDir := t.TempDir()
+	writeFile(t, filepath.Join(goodInstallDir, "SKILL.md"), "# Live Skill")
+	goodHash, _ := skill.ComputeHash(goodInstallDir)
+
+	// Simulated git clone with only the live-skill path.
+	cacheRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cacheRoot, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	goodCacheDir := filepath.Join(cacheRoot, "coding", "live-skill")
+	if err := os.MkdirAll(goodCacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	writeFile(t, filepath.Join(goodCacheDir, "SKILL.md"), "# Live Skill")
+
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"myrepo": {CachePath: cacheRoot},
+		},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			staleAddr: {
+				agentName: {
+					InstalledAtSHA: "sha-old",
+					InstalledHash:  staleHash,
+					LocalPath:      staleDir,
+				},
+			},
+			goodAddr: {
+				agentName: {
+					InstalledAtSHA: "sha-abc",
+					InstalledHash:  goodHash,
+					LocalPath:      goodInstallDir,
+				},
+			},
+		},
+	}
+	repoHeads := map[string]string{"myrepo": "sha-abc"}
+
+	plan := skill.ReconcilePlan(st, repoHeads)
+
+	staleItem := planByAddr(plan, staleAddr, agentName)
+	goodItem := planByAddr(plan, goodAddr, agentName)
+
+	if staleItem.Action != skill.SyncStaleAddress {
+		t.Errorf("stale skill: want SyncStaleAddress, got %q", staleItem.Action)
+	}
+	if goodItem.Err != nil {
+		t.Errorf("good skill: unexpected error: %v", goodItem.Err)
+	}
+	if goodItem.Action != skill.SyncAlreadyCurrent {
+		t.Errorf("good skill: want SyncAlreadyCurrent, got %q", goodItem.Action)
 	}
 }

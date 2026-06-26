@@ -2,6 +2,7 @@ package skill
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -18,6 +19,7 @@ const (
 	SyncPublished      SyncAction = "published"         // local edits pushed to remote
 	SyncConflict       SyncAction = "skipped-conflict"  // modified locally + upstream changed
 	SyncAlreadyCurrent SyncAction = "already-current"   // nothing to do
+	SyncStaleAddress   SyncAction = "stale-address"     // skill path no longer exists upstream
 )
 
 // SyncResult describes the outcome of syncing one installed skill.
@@ -98,6 +100,46 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 				}
 			}
 
+			// Stale-address check: if the skill's directory no longer exists in the
+			// upstream cache (e.g. the skill was deleted or moved), classify it as
+			// SyncStaleAddress so callers can surface it as a first-class condition
+			// rather than a generic error from applyUpdate.
+			//
+			// We guard the check with a .git sentinel to avoid false positives when
+			// the repo cache has not yet been populated (e.g. in tests using empty
+			// temp dirs as CachePath).
+			{
+				checkDir := cacheDirFor(addr, rec, item.UpstreamDisabled, st)
+				var cacheRoot string
+				if item.UpstreamDisabled {
+					if parts := strings.SplitN(addr, "/", 2); len(parts) == 2 {
+						if r, ok := st.Repos[parts[0]]; ok {
+							cacheRoot = r.CachePath
+						}
+					}
+				} else {
+					srcAddr := addr
+					if isFork(rec) {
+						srcAddr = rec.UpstreamAddr
+					}
+					if parts := strings.SplitN(srcAddr, "/", 2); len(parts) == 2 {
+						if r, ok := st.Repos[parts[0]]; ok {
+							cacheRoot = r.CachePath
+						}
+					}
+				}
+				if checkDir != "" && cacheRoot != "" {
+					// Only run the stale check when the cache is a real git clone.
+					if _, gitErr := os.Stat(filepath.Join(cacheRoot, ".git")); gitErr == nil {
+						if _, statErr := os.Stat(filepath.Join(checkDir, "SKILL.md")); os.IsNotExist(statErr) {
+							item.Action = SyncStaleAddress
+							plan = append(plan, item)
+							continue
+						}
+					}
+				}
+			}
+
 			// For forked skills the relevant baseline is upstream_sha (the upstream
 			// HEAD at the time of the last fork/update), not installed_at_sha (which
 			// is a SHA from the fork's own repo and cannot be compared against the
@@ -116,13 +158,7 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 				// touching only unrelated paths in the same repo do not produce a
 				// spurious SyncUpdated. Fall back to the coarser SHA result only
 				// when the upstream cache directory cannot be located or hashed.
-				var cacheDir string
-				if item.UpstreamDisabled {
-					// Upstream not available; use the skill's own repo cache.
-					cacheDir = ownRepoCacheDirFor(addr, st)
-				} else {
-					cacheDir = upstreamCacheDirFor(addr, rec, st)
-				}
+				cacheDir := cacheDirFor(addr, rec, item.UpstreamDisabled, st)
 				if cacheDir != "" {
 					if cacheHash, uErr := ComputeHash(cacheDir); uErr == nil {
 						hasUpstream = cacheHash != rec.InstalledHash
@@ -143,12 +179,7 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 				// byte-identical to the upstream cache. If they are, the stored
 				// InstalledHash is merely stale (e.g. after a --force-remote reset) and
 				// there is no real conflict — treat it as already-current.
-				var conflictCheckDir string
-				if item.UpstreamDisabled {
-					conflictCheckDir = ownRepoCacheDirFor(addr, st)
-				} else {
-					conflictCheckDir = upstreamCacheDirFor(addr, rec, st)
-				}
+				conflictCheckDir := cacheDirFor(addr, rec, item.UpstreamDisabled, st)
 				if conflictCheckDir != "" {
 					cacheHash, uErr := ComputeHash(conflictCheckDir)
 					if uErr == nil && installedHash == cacheHash {
@@ -203,6 +234,16 @@ func upstreamCacheDirFor(addr string, rec state.InstalledSkillRecord, st *state.
 	return filepath.Join(repoRec.CachePath, filepath.FromSlash(parts[1]))
 }
 
+// cacheDirFor returns the cache directory a skill's installed contents should be
+// compared against: the skill's own repo cache when upstream tracking is
+// disabled, otherwise the upstream cache directory.
+func cacheDirFor(addr string, rec state.InstalledSkillRecord, upstreamDisabled bool, st *state.State) string {
+	if upstreamDisabled {
+		return ownRepoCacheDirFor(addr, st)
+	}
+	return upstreamCacheDirFor(addr, rec, st)
+}
+
 // repoHeadForRecord returns the relevant HEAD SHA for a skill record:
 // the upstream repo HEAD for forked skills, the skill's own repo HEAD otherwise.
 func repoHeadForRecord(addr string, rec state.InstalledSkillRecord, repoHeads map[string]string) string {
@@ -254,6 +295,9 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 		}
 		repoName := strings.SplitN(item.Addr, "/", 2)[0]
 		switch item.Action {
+		case SyncStaleAddress:
+			// Skill path no longer exists upstream — report as stale, do not apply.
+			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncStaleAddress, Warning: item.Warning})
 		case SyncConflict:
 			conflicts = append(conflicts, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncConflict, Warning: item.Warning})
 		case SyncUpdated:

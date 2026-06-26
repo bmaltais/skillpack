@@ -59,6 +59,7 @@ func init() {
 	rootCmd.AddCommand(repoCmd)
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(removeCmd)
+	rootCmd.AddCommand(relinkCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(publishCmd)
 	rootCmd.AddCommand(syncCmd)

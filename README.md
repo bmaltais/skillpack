@@ -166,6 +166,7 @@ On startup, the TUI checks GitHub for a newer release. If found, a yellow banner
 | `skillpack install <addr> --agent <name>` | Install for a specific agent |
 | `skillpack install <addr> --all-agents` | Install for every configured agent |
 | `skillpack remove <addr>` | Remove an installed skill |
+| `skillpack relink <stale-addr> <new-addr>` | Repair a stale installed skill by pointing it at a new upstream address |
 | `skillpack list` | List installed skills |
 | `skillpack list --available` | Browse all skills in registered repos |
 | `skillpack list --modified` | Show locally-edited skills |
@@ -182,6 +183,11 @@ On startup, the TUI checks GitHub for a newer release. If found, a yellow banner
 | `skillpack sync <addr> --merge` | File-level three-way merge |
 | `skillpack sync <addr> --merge --llm` | Three-way merge with LLM-assisted conflict resolution |
 | `skillpack sync <addr> --merge --llm <agent>` | Same, using a specific LLM agent |
+
+When a skill is moved or renamed upstream, `skillpack sync` reports its installed
+mapping as a **stale address**. The remediation summary lists likely replacement
+addresses found in your registered repos. Repair it in place with
+`skillpack relink <stale-addr> <new-addr>` instead of removing and reinstalling.
 
 ### Publishing
 

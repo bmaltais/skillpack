@@ -143,7 +143,7 @@ Resolve conflicts with:
 				fmt.Printf(", %d error(s)", errCount)
 			}
 			fmt.Println()
-			printStaleSection(staleAddrs, addrW, agentW)
+			printStaleSection(staleAddrs, addrW, agentW, app.St)
 			if conflicts > 0 {
 				return fmt.Errorf(
 					"%d conflict(s) skipped — resolve with: skillpack sync --force-remote|--force-local|--merge <addr>",
@@ -229,7 +229,7 @@ Resolve conflicts with:
 		fmt.Println()
 
 		// Stale-address remediation section.
-		printStaleSection(staleAddrs, addrW, agentW)
+		printStaleSection(staleAddrs, addrW, agentW, app.St)
 
 		// Internal functions (skill.Resolve, skill.ApplySync) persist state
 		// themselves — no explicit save needed here.
@@ -383,7 +383,7 @@ func syncOne(cmd *cobra.Command, addr string, dryRun, forceRemote, forceLocal, d
 	}
 	fmt.Println()
 
-	printStaleSection(staleAddrs, addrW, agentW)
+	printStaleSection(staleAddrs, addrW, agentW, app.St)
 
 	if conflictCount > 0 {
 		return fmt.Errorf("%d conflict(s) skipped — resolve with: skillpack sync --force-remote|--force-local|--merge %s", conflictCount, addr)
@@ -425,17 +425,31 @@ func applyMerge(addr, agentName, llmAgent, token string, app *App, addrW, agentW
 
 // printStaleSection prints the stale-address remediation block shared by the
 // sync output paths. rows holds the (addr, agent) pairs whose skill path no
-// longer exists upstream. It prints nothing when rows is empty.
-func printStaleSection(rows [][2]string, addrW, agentW int) {
+// longer exists upstream. For each stale mapping it surfaces likely replacement
+// addresses found in registered repos and the relink command to repair it. It
+// prints nothing when rows is empty.
+func printStaleSection(rows [][2]string, addrW, agentW int, st *state.State) {
 	if len(rows) == 0 {
 		return
 	}
 	fmt.Printf("\n  %s\n", yellow(fmt.Sprintf("%d stale skill address(es) — skill path no longer exists upstream:", len(rows))))
+
+	// Cache suggestions per address so we don't re-scan repos for the same addr
+	// when it is stale across multiple agents.
+	suggestions := make(map[string][]string)
 	for _, s := range rows {
-		fmt.Printf("    %-*s  %-*s\n", addrW, s[0], agentW, s[1])
+		addr := s[0]
+		fmt.Printf("    %-*s  %-*s\n", addrW, addr, agentW, s[1])
+		if _, done := suggestions[addr]; !done {
+			suggestions[addr] = skill.SuggestReplacements(addr, st)
+		}
+		for _, cand := range suggestions[addr] {
+			fmt.Printf("      %s %s\n", green("→ possible replacement:"), cand)
+		}
 	}
-	fmt.Printf("\n  To remove a stale mapping: skillpack remove <addr> [--agent <name>]\n")
-	fmt.Printf("  To check for a replacement: skillpack repo list-skills <repo>\n")
+
+	fmt.Printf("\n  To repair a stale mapping: skillpack relink <stale-addr> <new-addr> [--agent <name>]\n")
+	fmt.Printf("  To remove a stale mapping: skillpack remove <addr> [--agent <name>]\n")
 }
 
 func countInstalled(st *state.State) int {

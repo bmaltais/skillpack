@@ -153,8 +153,8 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 									continue
 								}
 								item.UpstreamDisabled = true
-							item.UpstreamPathBroken = true
-							item.Warning = "upstream source no longer exists — upstream tracking disabled; run 'skillpack relink' to fix"
+								item.UpstreamPathBroken = true
+								item.Warning = "upstream source no longer exists — upstream tracking disabled; run 'skillpack relink' to fix"
 							} else {
 								item.Action = SyncStaleAddress
 								plan = append(plan, item)

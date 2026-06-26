@@ -365,9 +365,11 @@ func Sync(dryRun bool, tokenFor func(string) string, st *state.State) (results [
 		if dryRun {
 			fmt.Printf("  would pull repo %s (skipped in dry-run)\n", name)
 		} else {
-			if pullErr := repo.Update(name, tokenFor(name), st); pullErr != nil {
+			if warn, pullErr := repo.Update(name, tokenFor(name), st); pullErr != nil {
 				// Non-fatal: report but keep going with stale cache.
 				fmt.Printf("  warning: could not pull %s: %v\n", name, pullErr)
+			} else if warn != "" {
+				fmt.Printf("  notice: %s\n", warn)
 			}
 		}
 	}

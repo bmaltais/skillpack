@@ -44,8 +44,10 @@ Use --no-fetch to skip the network call and report against cached state.`,
 		if !noFetch {
 			fmt.Println("Fetching repos...")
 			for name := range st.Repos {
-				if pullErr := repo.Update(name, tokenFor(name), st); pullErr != nil {
+				if warn, pullErr := repo.Update(name, tokenFor(name), st); pullErr != nil {
 					fmt.Printf("  warning: could not fetch %s: %v\n", name, pullErr)
+				} else if warn != "" {
+					fmt.Printf("  notice: %s\n", warn)
 				}
 			}
 		}

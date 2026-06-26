@@ -255,8 +255,10 @@ func syncOne(cmd *cobra.Command, addr string, dryRun, forceRemote, forceLocal, d
 
 	// Pull just the relevant repo.
 	if !dryRun {
-		if pullErr := repo.Update(repoName, token, app.St); pullErr != nil {
+		if warn, pullErr := repo.Update(repoName, token, app.St); pullErr != nil {
 			fmt.Printf("  warning: could not pull %s: %v\n", repoName, pullErr)
+		} else if warn != "" {
+			fmt.Printf("  notice: %s\n", warn)
 		}
 	}
 

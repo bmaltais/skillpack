@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/bmaltais/skillpack/internal/skill"
@@ -816,6 +817,87 @@ func TestReconcilePlan_StaleAddress_SkillMdMissing(t *testing.T) {
 	}
 	if item.Action != skill.SyncStaleAddress {
 		t.Errorf("want SyncStaleAddress, got %q", item.Action)
+	}
+}
+
+// ─── Fork stale upstream path ─────────────────────────────────────────────────
+
+// TestReconcilePlan_Fork_UpstreamPathMissing: forked skill whose upstream repo
+// IS registered but whose upstream tracking path no longer exists in the
+// upstream cache (e.g. upstream skill was renamed). The fork itself is valid.
+// Expected: NOT SyncStaleAddress — falls back to own-repo evaluation with a
+// warning and UpstreamDisabled set.
+func TestReconcilePlan_Fork_UpstreamPathMissing(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	forkAddr := "my-skills/diagnose"
+	upstreamAddr := "upstream-skills/engineering/diagnose"
+	agentName := "copilot"
+
+	// Install dir with SKILL.md.
+	installDir := t.TempDir()
+	writeFile(t, filepath.Join(installDir, "SKILL.md"), "# Diagnose (fork)")
+	hash, err := skill.ComputeHash(installDir)
+	if err != nil {
+		t.Fatalf("ComputeHash: %v", err)
+	}
+
+	// Fork's own repo cache — plain temp dir (no .git needed for own-repo stale check).
+	forkCacheRoot := t.TempDir()
+
+	// Upstream repo cache — simulated git clone (.git exists) but the upstream
+	// skill path "engineering/diagnose" is absent (skill was renamed upstream).
+	upstreamCacheRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(upstreamCacheRoot, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"my-skills":        {CachePath: forkCacheRoot},
+			"upstream-skills":  {CachePath: upstreamCacheRoot},
+		},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			forkAddr: {
+				agentName: {
+					InstalledAtSHA: "fork-sha-abc",
+					InstalledHash:  hash,
+					LocalPath:      installDir,
+					UpstreamAddr:   upstreamAddr,
+					UpstreamSHA:    "upstream-sha-abc",
+				},
+			},
+		},
+	}
+	// Fork's own repo HEAD is unchanged; upstream HEAD is also unchanged.
+	repoHeads := map[string]string{
+		"my-skills":       "fork-sha-abc",
+		"upstream-skills": "upstream-sha-abc",
+	}
+
+	plan := skill.ReconcilePlan(st, repoHeads)
+	item := planByAddr(plan, forkAddr, agentName)
+
+	if item.Err != nil {
+		t.Fatalf("unexpected error: %v", item.Err)
+	}
+	if item.Action == skill.SyncStaleAddress {
+		t.Errorf("fork with missing upstream path must not be SyncStaleAddress; got %q", item.Action)
+	}
+	// The fork is current in its own repo — expect SyncAlreadyCurrent.
+	if item.Action != skill.SyncAlreadyCurrent {
+		t.Errorf("want SyncAlreadyCurrent, got %q", item.Action)
+	}
+	if !item.UpstreamDisabled {
+		t.Errorf("want UpstreamDisabled=true, got false")
+	}
+	if item.Warning == "" {
+		t.Errorf("want non-empty Warning for broken upstream pointer, got empty")
+	}
+	for _, want := range []string{"upstream source no longer exists", "skillpack relink"} {
+		if !strings.Contains(item.Warning, want) {
+			t.Errorf("warning %q does not contain %q", item.Warning, want)
+		}
 	}
 }
 

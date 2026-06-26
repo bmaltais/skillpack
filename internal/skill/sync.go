@@ -132,9 +132,20 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 					// Only run the stale check when the cache is a real git clone.
 					if _, gitErr := os.Stat(filepath.Join(cacheRoot, ".git")); gitErr == nil {
 						if _, statErr := os.Stat(filepath.Join(checkDir, "SKILL.md")); os.IsNotExist(statErr) {
-							item.Action = SyncStaleAddress
-							plan = append(plan, item)
-							continue
+							if isFork(rec) && !item.UpstreamDisabled {
+								// The upstream tracking path is gone (e.g. upstream skill
+								// was renamed or deleted) but the fork itself is still
+								// valid in its own repo. Fall back to own-repo evaluation
+								// rather than marking the fork as stale.
+								ownRepo := strings.SplitN(addr, "/", 2)[0]
+								headSHA = repoHeads[ownRepo]
+								item.UpstreamDisabled = true
+								item.Warning = "upstream source no longer exists — upstream tracking disabled; run 'skillpack relink' to fix"
+							} else {
+								item.Action = SyncStaleAddress
+								plan = append(plan, item)
+								continue
+							}
 						}
 					}
 				}

@@ -110,6 +110,7 @@ Resolve conflicts with:
 
 			var updated, published, current, conflicts, errCount int
 			var staleAddrs [][2]string
+			var brokenUpstreamAddrs [][2]string
 			for _, p := range plan {
 				if p.Err != nil {
 					fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, p.Addr, agentW, p.AgentName, p.Err)
@@ -131,6 +132,9 @@ Resolve conflicts with:
 				case skill.SyncStaleAddress:
 					staleAddrs = append(staleAddrs, [2]string{p.Addr, p.AgentName})
 				}
+				if p.UpstreamPathBroken {
+					brokenUpstreamAddrs = append(brokenUpstreamAddrs, [2]string{p.Addr, p.AgentName})
+				}
 				if p.Warning != "" {
 					fmt.Printf("  %-*s  %-*s  %s\n", addrW, "", agentW, "", yellow("warning: "+p.Warning))
 				}
@@ -144,6 +148,7 @@ Resolve conflicts with:
 			}
 			fmt.Println()
 			printStaleSection(staleAddrs, addrW, agentW, app.St)
+			printBrokenUpstreamSection(brokenUpstreamAddrs, addrW, agentW)
 			if conflicts > 0 {
 				return fmt.Errorf(
 					"%d conflict(s) skipped — resolve with: skillpack sync --force-remote|--force-local|--merge <addr>",
@@ -184,6 +189,7 @@ Resolve conflicts with:
 		// Tally
 		var updated, published, current, errCount int
 		var staleAddrs [][2]string
+		var brokenUpstreamAddrs [][2]string
 		for _, r := range results {
 			switch {
 			case r.Err != nil:
@@ -199,6 +205,9 @@ Resolve conflicts with:
 				current++
 			case r.Action == skill.SyncStaleAddress:
 				staleAddrs = append(staleAddrs, [2]string{r.Addr, r.AgentName})
+			}
+			if r.UpstreamPathBroken {
+				brokenUpstreamAddrs = append(brokenUpstreamAddrs, [2]string{r.Addr, r.AgentName})
 			}
 			if r.Warning != "" {
 				fmt.Printf("  %-*s  %-*s  %s\n", addrW, "", agentW, "", yellow("warning: "+r.Warning))
@@ -230,6 +239,7 @@ Resolve conflicts with:
 
 		// Stale-address remediation section.
 		printStaleSection(staleAddrs, addrW, agentW, app.St)
+		printBrokenUpstreamSection(brokenUpstreamAddrs, addrW, agentW)
 
 		// Internal functions (skill.Resolve, skill.ApplySync) persist state
 		// themselves — no explicit save needed here.
@@ -288,6 +298,7 @@ func syncOne(cmd *cobra.Command, addr string, dryRun, forceRemote, forceLocal, d
 
 	var updated, published, current, conflictCount, errCount int
 	var staleAddrs [][2]string
+	var brokenUpstreamAddrs [][2]string
 
 	for _, p := range plan {
 		if p.Err != nil {
@@ -371,6 +382,9 @@ func syncOne(cmd *cobra.Command, addr string, dryRun, forceRemote, forceLocal, d
 				conflictCount++
 			}
 		}
+		if p.UpstreamPathBroken {
+			brokenUpstreamAddrs = append(brokenUpstreamAddrs, [2]string{p.Addr, p.AgentName})
+		}
 		if p.Warning != "" {
 			fmt.Printf("  %-*s  %-*s  %s\n", addrW, "", agentW, "", yellow("warning: "+p.Warning))
 		}
@@ -386,6 +400,7 @@ func syncOne(cmd *cobra.Command, addr string, dryRun, forceRemote, forceLocal, d
 	fmt.Println()
 
 	printStaleSection(staleAddrs, addrW, agentW, app.St)
+	printBrokenUpstreamSection(brokenUpstreamAddrs, addrW, agentW)
 
 	if conflictCount > 0 {
 		return fmt.Errorf("%d conflict(s) skipped — resolve with: skillpack sync --force-remote|--force-local|--merge %s", conflictCount, addr)
@@ -423,6 +438,23 @@ func applyMerge(addr, agentName, llmAgent, token string, app *App, addrW, agentW
 		fmt.Printf("  %-*s  %-*s  %s\n", addrW, addr, agentW, agentName, green("merged cleanly"))
 	}
 	return false, false
+}
+
+// printBrokenUpstreamSection prints the broken-upstream-pointer remediation block
+// shared by the sync output paths. rows holds (addr, agent) pairs where upstream
+// tracking was disabled because the upstream skill path no longer exists.
+// It prints nothing when rows is empty.
+func printBrokenUpstreamSection(rows [][2]string, addrW, agentW int) {
+	if len(rows) == 0 {
+		return
+	}
+	fmt.Printf("\n  %s\n", yellow(fmt.Sprintf("%d broken upstream pointer(s) — upstream skill path no longer exists:", len(rows))))
+	for _, row := range rows {
+		fmt.Printf("    %-*s  %-*s\n", addrW, row[0], agentW, row[1])
+	}
+	fmt.Printf("\n  Upstream tracking was disabled for this run; the installed skill was synced against its own repo.\n")
+	fmt.Printf("  To re-point upstream tracking:  skillpack relink <fork-addr> --set-upstream <new-upstream-addr>\n")
+	fmt.Printf("  To disable tracking permanently: skillpack relink <fork-addr> --clear-upstream\n")
 }
 
 // printStaleSection prints the stale-address remediation block shared by the

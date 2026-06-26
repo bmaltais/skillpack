@@ -58,13 +58,19 @@ var repoAddCmd = &cobra.Command{
 			}
 		}
 
-		fmt.Printf("Cloning %s as %q...\n", url, name)
-		if err := repo.Add(name, url, app.Cfg.TokenForRepo(name), app.St); err != nil {
+		fmt.Printf("Adding %s as %q...\n", url, name)
+		recovered, err := repo.Add(name, url, app.Cfg.TokenForRepo(name), app.St)
+		if err != nil {
 			return err
 		}
 
 		skills, _ := repo.DiscoverSkills(name, app.St)
-		fmt.Printf("Repo %q registered — %d skill(s) available.\n", name, len(skills))
+		if recovered {
+			fmt.Printf("Repo %q re-registered from existing cache — %d skill(s) available.\n", name, len(skills))
+			fmt.Printf("Tip: run 'skillpack repo update %s' to refresh the local clone.\n", name)
+		} else {
+			fmt.Printf("Repo %q registered — %d skill(s) available.\n", name, len(skills))
+		}
 		return nil
 	},
 }

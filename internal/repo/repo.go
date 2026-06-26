@@ -25,47 +25,52 @@ type SkillInfo struct {
 }
 
 // Add clones the remote repo to the local cache and registers it in state.
+// recovered is true when an existing cache directory was reused instead of
+// cloned fresh (e.g. after a previous repo remove left the clone on disk).
 // token is optional; pass "" to rely on env vars (SKILLPACK_GIT_TOKEN, GITHUB_TOKEN).
-func Add(name, url, token string, st *state.State) error {
+func Add(name, url, token string, st *state.State) (recovered bool, err error) {
 	if _, exists := st.Repos[name]; exists {
-		return fmt.Errorf("repo %q is already registered", name)
+		return false, fmt.Errorf("repo %q is already registered", name)
 	}
 
 	reposDir, err := config.ReposDir()
 	if err != nil {
-		return err
+		return false, err
 	}
 	cachePath := filepath.Join(reposDir, name)
 
 	if err := os.MkdirAll(reposDir, 0700); err != nil {
-		return fmt.Errorf("creating repos dir: %w", err)
+		return false, fmt.Errorf("creating repos dir: %w", err)
 	}
 
-	// If a directory exists at cachePath but is NOT a valid git repo (e.g. a
-	// partial clone from a previously-failed attempt), wipe it so PlainClone
-	// can start fresh. If PlainOpen succeeds the directory is a valid clone
-	// that the user may have intentionally kept (via `repo remove --keep`), so
-	// we leave it alone and let PlainClone return its own "already exists" error.
+	// If a directory exists at cachePath, check whether it is a valid git repo.
 	if _, statErr := os.Stat(cachePath); statErr == nil {
 		if _, openErr := gogit.PlainOpen(cachePath); openErr != nil {
+			// Partial/corrupt clone — wipe it so PlainClone can start fresh.
 			if err := os.RemoveAll(cachePath); err != nil {
-				return fmt.Errorf("removing partial cache dir %s: %w", cachePath, err)
+				return false, fmt.Errorf("removing partial cache dir %s: %w", cachePath, err)
 			}
+		} else {
+			// Valid git repo left behind by a previous repo remove — reuse it
+			// rather than failing. The caller reports this outcome to the user.
+			recovered = true
 		}
 	}
 
-	cloneOpts := &gogit.CloneOptions{
-		URL:      url,
-		Progress: os.Stdout,
-	}
-	auth, err := gitops.Auth(url, token)
-	if err != nil {
-		return err
-	}
-	cloneOpts.Auth = auth
+	if !recovered {
+		cloneOpts := &gogit.CloneOptions{
+			URL:      url,
+			Progress: os.Stdout,
+		}
+		auth, err := gitops.Auth(url, token)
+		if err != nil {
+			return false, err
+		}
+		cloneOpts.Auth = auth
 
-	if _, err := gogit.PlainClone(cachePath, false, cloneOpts); err != nil {
-		return fmt.Errorf("cloning %s: %w", url, err)
+		if _, err := gogit.PlainClone(cachePath, false, cloneOpts); err != nil {
+			return false, fmt.Errorf("cloning %s: %w", url, err)
+		}
 	}
 
 	st.Repos[name] = state.RepoRecord{
@@ -73,7 +78,7 @@ func Add(name, url, token string, st *state.State) error {
 		CachePath:   cachePath,
 		LastUpdated: time.Now(),
 	}
-	return state.Save(st)
+	return recovered, state.Save(st)
 }
 
 // Remove unregisters a repo from state. The local cache clone is kept on disk.

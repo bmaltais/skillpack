@@ -9,6 +9,7 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
+	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/state"
 )
@@ -294,5 +295,73 @@ func TestUpdate_DivergedCache(t *testing.T) {
 	// diverged.md must no longer exist
 	if _, err := os.Stat(filepath.Join(cacheDir, "diverged.md")); err == nil {
 		t.Error("diverged.md should have been removed by hard reset")
+	}
+}
+
+// TestAdd_RecoverFromLeftOverCache verifies that re-adding a repo after
+// repo remove does not fail when the old cache directory still exists on disk.
+// It should re-register the existing clone rather than returning an error.
+func TestAdd_RecoverFromLeftOverCache(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	sig := &object.Signature{Name: "Test", Email: "test@example.com", When: time.Now()}
+
+	// --- set up a bare-ish "remote" repo with one commit ---
+	remoteDir := t.TempDir()
+	remote, err := gogit.PlainInit(remoteDir, false)
+	if err != nil {
+		t.Fatalf("remote init: %v", err)
+	}
+	rw, err := remote.Worktree()
+	if err != nil {
+		t.Fatalf("remote worktree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(remoteDir, "README.md"), []byte("# remote"), 0600); err != nil {
+		t.Fatalf("remote write: %v", err)
+	}
+	if _, err := rw.Add("README.md"); err != nil {
+		t.Fatalf("remote add: %v", err)
+	}
+	if _, err := rw.Commit("initial", &gogit.CommitOptions{Author: sig}); err != nil {
+		t.Fatalf("remote commit: %v", err)
+	}
+
+	// --- pre-populate the cache dir as if a prior clone was left behind ---
+	reposDir, err := config.ReposDir()
+	if err != nil {
+		t.Fatalf("ReposDir: %v", err)
+	}
+	if err := os.MkdirAll(reposDir, 0700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	cacheDir := filepath.Join(reposDir, "test-repo")
+	if _, err := gogit.PlainClone(cacheDir, false, &gogit.CloneOptions{URL: remoteDir}); err != nil {
+		t.Fatalf("pre-populate clone: %v", err)
+	}
+
+	// --- state without the repo registered (simulates repo remove) ---
+	st := &state.State{
+		Repos:           make(map[string]state.RepoRecord),
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+
+	// --- re-add the repo: should recover, not fail ---
+	recovered, err := repo.Add("test-repo", remoteDir, "", st)
+	if err != nil {
+		t.Fatalf("Add after remove: unexpected error: %v", err)
+	}
+	if !recovered {
+		t.Error("Add should report recovered=true when reusing existing cache")
+	}
+
+	// repo must be registered in state
+	rec, ok := st.Repos["test-repo"]
+	if !ok {
+		t.Fatal("repo not registered in state after recovery")
+	}
+	if rec.CachePath != cacheDir {
+		t.Errorf("CachePath = %q, want %q", rec.CachePath, cacheDir)
+	}
+	if rec.URL != remoteDir {
+		t.Errorf("URL = %q, want %q", rec.URL, remoteDir)
 	}
 }

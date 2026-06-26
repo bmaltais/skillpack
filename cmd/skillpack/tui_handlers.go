@@ -309,7 +309,8 @@ func (m *model) startRemoveRepo() {
 
 func (m *model) doAddRepo(name, url string) {
 	token := m.cfg.TokenForRepo(name)
-	if err := repo.Add(name, url, token, m.st); err != nil {
+	recovered, err := repo.Add(name, url, token, m.st)
+	if err != nil {
 		m.message = fmt.Sprintf("✗ Add failed: %v", err)
 		return
 	}
@@ -319,7 +320,11 @@ func (m *model) doAddRepo(name, url string) {
 	}
 	m.refreshRepos()
 	m.refreshSkills()
-	m.message = fmt.Sprintf("➕ Added repo %s", name)
+	if recovered {
+		m.message = fmt.Sprintf("➕ Re-registered repo %s from existing cache", name)
+	} else {
+		m.message = fmt.Sprintf("➕ Added repo %s", name)
+	}
 }
 
 func (m *model) doRemoveRepo() {

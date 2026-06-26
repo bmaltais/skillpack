@@ -109,7 +109,7 @@ Resolve conflicts with:
 			}
 
 			var updated, published, current, conflicts, errCount int
-			var staleAddrs []skill.SyncPlanItem
+			var staleAddrs [][2]string
 			for _, p := range plan {
 				if p.Err != nil {
 					fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, p.Addr, agentW, p.AgentName, p.Err)
@@ -129,7 +129,7 @@ Resolve conflicts with:
 				case skill.SyncAlreadyCurrent:
 					current++
 				case skill.SyncStaleAddress:
-					staleAddrs = append(staleAddrs, p)
+					staleAddrs = append(staleAddrs, [2]string{p.Addr, p.AgentName})
 				}
 				if p.Warning != "" {
 					fmt.Printf("  %-*s  %-*s  %s\n", addrW, "", agentW, "", yellow("warning: "+p.Warning))
@@ -143,14 +143,7 @@ Resolve conflicts with:
 				fmt.Printf(", %d error(s)", errCount)
 			}
 			fmt.Println()
-			if len(staleAddrs) > 0 {
-				fmt.Printf("\n  %s\n", yellow(fmt.Sprintf("%d stale skill address(es) — skill path no longer exists upstream:", len(staleAddrs))))
-				for _, s := range staleAddrs {
-					fmt.Printf("    %-*s  %-*s\n", addrW, s.Addr, agentW, s.AgentName)
-				}
-				fmt.Printf("\n  To remove a stale mapping: skillpack remove <addr> [--agent <name>]\n")
-				fmt.Printf("  To check for a replacement: skillpack repo list-skills <repo>\n")
-			}
+			printStaleSection(staleAddrs, addrW, agentW)
 			if conflicts > 0 {
 				return fmt.Errorf(
 					"%d conflict(s) skipped — resolve with: skillpack sync --force-remote|--force-local|--merge <addr>",
@@ -190,7 +183,7 @@ Resolve conflicts with:
 
 		// Tally
 		var updated, published, current, errCount int
-		var staleAddrs []skill.SyncResult
+		var staleAddrs [][2]string
 		for _, r := range results {
 			switch {
 			case r.Err != nil:
@@ -205,7 +198,7 @@ Resolve conflicts with:
 			case r.Action == skill.SyncAlreadyCurrent:
 				current++
 			case r.Action == skill.SyncStaleAddress:
-				staleAddrs = append(staleAddrs, r)
+				staleAddrs = append(staleAddrs, [2]string{r.Addr, r.AgentName})
 			}
 			if r.Warning != "" {
 				fmt.Printf("  %-*s  %-*s  %s\n", addrW, "", agentW, "", yellow("warning: "+r.Warning))
@@ -236,14 +229,7 @@ Resolve conflicts with:
 		fmt.Println()
 
 		// Stale-address remediation section.
-		if len(staleAddrs) > 0 {
-			fmt.Printf("\n  %s\n", yellow(fmt.Sprintf("%d stale skill address(es) — skill path no longer exists upstream:", len(staleAddrs))))
-			for _, s := range staleAddrs {
-				fmt.Printf("    %-*s  %-*s\n", addrW, s.Addr, agentW, s.AgentName)
-			}
-			fmt.Printf("\n  To remove a stale mapping: skillpack remove <addr> [--agent <name>]\n")
-			fmt.Printf("  To check for a replacement: skillpack repo list-skills <repo>\n")
-		}
+		printStaleSection(staleAddrs, addrW, agentW)
 
 		// Internal functions (skill.Resolve, skill.ApplySync) persist state
 		// themselves — no explicit save needed here.
@@ -299,7 +285,7 @@ func syncOne(cmd *cobra.Command, addr string, dryRun, forceRemote, forceLocal, d
 	}
 
 	var updated, published, current, conflictCount, errCount int
-	var staleAddrs []skill.SyncPlanItem
+	var staleAddrs [][2]string
 
 	for _, p := range plan {
 		if p.Err != nil {
@@ -311,7 +297,7 @@ func syncOne(cmd *cobra.Command, addr string, dryRun, forceRemote, forceLocal, d
 		case skill.SyncAlreadyCurrent:
 			current++
 		case skill.SyncStaleAddress:
-			staleAddrs = append(staleAddrs, p)
+			staleAddrs = append(staleAddrs, [2]string{p.Addr, p.AgentName})
 		case skill.SyncUpdated:
 			if dryRun {
 				fmt.Printf("  %-*s  %-*s  [dry-run] would update\n", addrW, p.Addr, agentW, p.AgentName)
@@ -397,14 +383,7 @@ func syncOne(cmd *cobra.Command, addr string, dryRun, forceRemote, forceLocal, d
 	}
 	fmt.Println()
 
-	if len(staleAddrs) > 0 {
-		fmt.Printf("\n  %s\n", yellow(fmt.Sprintf("%d stale skill address(es) — skill path no longer exists upstream:", len(staleAddrs))))
-		for _, s := range staleAddrs {
-			fmt.Printf("    %-*s  %-*s\n", addrW, s.Addr, agentW, s.AgentName)
-		}
-		fmt.Printf("\n  To remove a stale mapping: skillpack remove <addr> [--agent <name>]\n")
-		fmt.Printf("  To check for a replacement: skillpack repo list-skills <repo>\n")
-	}
+	printStaleSection(staleAddrs, addrW, agentW)
 
 	if conflictCount > 0 {
 		return fmt.Errorf("%d conflict(s) skipped — resolve with: skillpack sync --force-remote|--force-local|--merge %s", conflictCount, addr)
@@ -442,6 +421,21 @@ func applyMerge(addr, agentName, llmAgent, token string, app *App, addrW, agentW
 		fmt.Printf("  %-*s  %-*s  %s\n", addrW, addr, agentW, agentName, green("merged cleanly"))
 	}
 	return false, false
+}
+
+// printStaleSection prints the stale-address remediation block shared by the
+// sync output paths. rows holds the (addr, agent) pairs whose skill path no
+// longer exists upstream. It prints nothing when rows is empty.
+func printStaleSection(rows [][2]string, addrW, agentW int) {
+	if len(rows) == 0 {
+		return
+	}
+	fmt.Printf("\n  %s\n", yellow(fmt.Sprintf("%d stale skill address(es) — skill path no longer exists upstream:", len(rows))))
+	for _, s := range rows {
+		fmt.Printf("    %-*s  %-*s\n", addrW, s[0], agentW, s[1])
+	}
+	fmt.Printf("\n  To remove a stale mapping: skillpack remove <addr> [--agent <name>]\n")
+	fmt.Printf("  To check for a replacement: skillpack repo list-skills <repo>\n")
 }
 
 func countInstalled(st *state.State) int {

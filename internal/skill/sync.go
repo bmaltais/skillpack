@@ -109,17 +109,15 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 			// the repo cache has not yet been populated (e.g. in tests using empty
 			// temp dirs as CachePath).
 			{
-				var checkDir string
+				checkDir := cacheDirFor(addr, rec, item.UpstreamDisabled, st)
 				var cacheRoot string
 				if item.UpstreamDisabled {
-					checkDir = ownRepoCacheDirFor(addr, st)
 					if parts := strings.SplitN(addr, "/", 2); len(parts) == 2 {
 						if r, ok := st.Repos[parts[0]]; ok {
 							cacheRoot = r.CachePath
 						}
 					}
 				} else {
-					checkDir = upstreamCacheDirFor(addr, rec, st)
 					srcAddr := addr
 					if isFork(rec) {
 						srcAddr = rec.UpstreamAddr
@@ -160,13 +158,7 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 				// touching only unrelated paths in the same repo do not produce a
 				// spurious SyncUpdated. Fall back to the coarser SHA result only
 				// when the upstream cache directory cannot be located or hashed.
-				var cacheDir string
-				if item.UpstreamDisabled {
-					// Upstream not available; use the skill's own repo cache.
-					cacheDir = ownRepoCacheDirFor(addr, st)
-				} else {
-					cacheDir = upstreamCacheDirFor(addr, rec, st)
-				}
+				cacheDir := cacheDirFor(addr, rec, item.UpstreamDisabled, st)
 				if cacheDir != "" {
 					if cacheHash, uErr := ComputeHash(cacheDir); uErr == nil {
 						hasUpstream = cacheHash != rec.InstalledHash
@@ -187,12 +179,7 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 				// byte-identical to the upstream cache. If they are, the stored
 				// InstalledHash is merely stale (e.g. after a --force-remote reset) and
 				// there is no real conflict — treat it as already-current.
-				var conflictCheckDir string
-				if item.UpstreamDisabled {
-					conflictCheckDir = ownRepoCacheDirFor(addr, st)
-				} else {
-					conflictCheckDir = upstreamCacheDirFor(addr, rec, st)
-				}
+				conflictCheckDir := cacheDirFor(addr, rec, item.UpstreamDisabled, st)
 				if conflictCheckDir != "" {
 					cacheHash, uErr := ComputeHash(conflictCheckDir)
 					if uErr == nil && installedHash == cacheHash {
@@ -245,6 +232,16 @@ func upstreamCacheDirFor(addr string, rec state.InstalledSkillRecord, st *state.
 		return ""
 	}
 	return filepath.Join(repoRec.CachePath, filepath.FromSlash(parts[1]))
+}
+
+// cacheDirFor returns the cache directory a skill's installed contents should be
+// compared against: the skill's own repo cache when upstream tracking is
+// disabled, otherwise the upstream cache directory.
+func cacheDirFor(addr string, rec state.InstalledSkillRecord, upstreamDisabled bool, st *state.State) string {
+	if upstreamDisabled {
+		return ownRepoCacheDirFor(addr, st)
+	}
+	return upstreamCacheDirFor(addr, rec, st)
 }
 
 // repoHeadForRecord returns the relevant HEAD SHA for a skill record:

@@ -437,17 +437,12 @@ func TestRelinkUpstream_ClearUpstream(t *testing.T) {
 
 	rec := st.InstalledSkills[forkAddr][agentName]
 
+	// isFork contract: a record with no UpstreamAddr is not a fork.
 	if rec.UpstreamAddr != "" {
 		t.Errorf("UpstreamAddr should be cleared, got %q", rec.UpstreamAddr)
 	}
 	if rec.UpstreamSHA != "" {
 		t.Errorf("UpstreamSHA should be cleared, got %q", rec.UpstreamSHA)
-	}
-
-	// isFork contract: record with no UpstreamAddr is not a fork.
-	// (isFork is package-internal; verify via InstalledSkillRecord directly.)
-	if rec.UpstreamAddr != "" {
-		t.Error("expected non-fork record after clear-upstream")
 	}
 }
 

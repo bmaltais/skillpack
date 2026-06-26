@@ -35,7 +35,7 @@ files, use --set-upstream or --clear-upstream instead of a positional new-addr.`
 		setUpstream, _ := cmd.Flags().GetString("set-upstream")
 		clearUpstream, _ := cmd.Flags().GetBool("clear-upstream")
 
-		// Validate mutual exclusion.
+		// Validate flag combinations and argument requirements.
 		if err := validateRelinkFlags(len(args), setUpstream, clearUpstream); err != nil {
 			return err
 		}

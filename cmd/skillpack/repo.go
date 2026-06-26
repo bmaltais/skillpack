@@ -145,8 +145,10 @@ var repoUpdateCmd = &cobra.Command{
 		var errs []string
 		for _, name := range names {
 			fmt.Printf("Updating %s...\n", name)
-			if err := repo.Update(name, app.Cfg.TokenForRepo(name), app.St); err != nil {
+			if warn, err := repo.Update(name, app.Cfg.TokenForRepo(name), app.St); err != nil {
 				errs = append(errs, fmt.Sprintf("  %s: %v", name, err))
+			} else if warn != "" {
+				fmt.Printf("  notice: %s\n", warn)
 			}
 		}
 		if len(errs) > 0 {

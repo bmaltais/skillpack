@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 
 	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/gitops"
@@ -121,19 +123,23 @@ func RenameCache(oldName, newName string) error {
 // directly edited by the user. A hard reset recovers automatically from any
 // non-fast-forward divergence (e.g. after a force-push upstream).
 // token is optional; pass "" to rely on env vars.
-func Update(name, token string, st *state.State) error {
+//
+// Returns (warning, error). warning is non-empty when a configured credential
+// failed but the repo was successfully fetched anonymously (stale credential on
+// a public repo). In that case error is nil.
+func Update(name, token string, st *state.State) (string, error) {
 	rec, ok := st.Repos[name]
 	if !ok {
-		return fmt.Errorf("repo %q not found", name)
+		return "", fmt.Errorf("repo %q not found", name)
 	}
 
 	r, err := gogit.PlainOpen(rec.CachePath)
 	if err != nil {
-		return fmt.Errorf("opening repo cache: %w", err)
+		return "", fmt.Errorf("opening repo cache: %w", err)
 	}
 	w, err := r.Worktree()
 	if err != nil {
-		return fmt.Errorf("getting worktree: %w", err)
+		return "", fmt.Errorf("getting worktree: %w", err)
 	}
 
 	fetchOpts := &gogit.FetchOptions{
@@ -142,28 +148,52 @@ func Update(name, token string, st *state.State) error {
 	}
 	auth, err := gitops.Auth(rec.URL, token)
 	if err != nil {
-		return err
+		return "", err
 	}
 	fetchOpts.Auth = auth
 
-	err = r.Fetch(fetchOpts)
-	if err != nil && err != gogit.NoErrAlreadyUpToDate {
-		return fmt.Errorf("fetching repo: %w", err)
+	var warning string
+	fetchErr := r.Fetch(fetchOpts)
+	switch {
+	case fetchErr == nil || fetchErr == gogit.NoErrAlreadyUpToDate:
+		// success
+	case isAuthError(fetchErr) && !gitops.IsSSHURL(rec.URL) && token != "":
+		// Credential failed for an HTTPS repo. Retry anonymously — if the repo
+		// is public, anonymous fetch succeeds and we surface a stale-credential
+		// notice rather than a hard error.
+		anonOpts := *fetchOpts
+		anonOpts.Auth = nil
+		anonErr := r.Fetch(&anonOpts)
+		if anonErr == nil || anonErr == gogit.NoErrAlreadyUpToDate {
+			warning = fmt.Sprintf("stale credential for %q ignored; repo is public and was fetched anonymously", name)
+		} else {
+			// Both authenticated and anonymous fetches failed: genuine private-repo auth failure.
+			return "", fmt.Errorf("private repo auth failed for %q (check your token): %w", name, fetchErr)
+		}
+	default:
+		return "", fmt.Errorf("fetching repo: %w", fetchErr)
 	}
 
 	// Resolve origin/HEAD to the remote tip hash.
 	hash, err := resolveRemoteHEAD(r)
 	if err != nil {
-		return fmt.Errorf("resolving remote HEAD: %w", err)
+		return "", fmt.Errorf("resolving remote HEAD: %w", err)
 	}
 
 	if err := w.Reset(&gogit.ResetOptions{Commit: *hash, Mode: gogit.HardReset}); err != nil {
-		return fmt.Errorf("resetting to remote HEAD: %w", err)
+		return "", fmt.Errorf("resetting to remote HEAD: %w", err)
 	}
 
 	rec.LastUpdated = time.Now()
 	st.Repos[name] = rec
-	return state.Save(st)
+	return warning, state.Save(st)
+}
+
+// isAuthError reports whether err indicates an authentication or authorisation
+// failure from the remote git transport.
+func isAuthError(err error) bool {
+	return errors.Is(err, transport.ErrAuthenticationRequired) ||
+		errors.Is(err, transport.ErrAuthorizationFailed)
 }
 
 // resolveRemoteHEAD returns the hash the remote tip the local worktree tracks.

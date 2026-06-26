@@ -94,7 +94,7 @@ func (m *model) cmdCheckStatus() tea.Cmd {
 	return func() tea.Msg {
 		// Fetch repos first
 		for name := range stCopy.Repos {
-			_ = repo.Update(name, cfg.TokenForRepo(name), stCopy)
+			_, _ = repo.Update(name, cfg.TokenForRepo(name), stCopy)
 		}
 
 		info := make(map[string]map[string]string)

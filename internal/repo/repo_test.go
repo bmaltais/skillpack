@@ -279,7 +279,7 @@ func TestUpdate_DivergedCache(t *testing.T) {
 		},
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
 	}
-	if err := repo.Update("test-repo", "", st); err != nil {
+	if _, err := repo.Update("test-repo", "", st); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 

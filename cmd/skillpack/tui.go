@@ -22,6 +22,7 @@ Skills panel:
   ←/→         Move between agent columns
   Space/Enter  Toggle install/remove or expand/collapse
   f           Fork a skill into your repo
+  R           Repair a stale or broken-upstream skill
   v           View SKILL.md of the selected skill
   Type        Filter skills (incremental search)
   Backspace   Delete filter character

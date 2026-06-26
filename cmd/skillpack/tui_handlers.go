@@ -181,6 +181,106 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 		case tea.KeyCtrlC:
 			return *m, tea.Quit
 		}
+
+	case modeRelinkStaleInput:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.inputMode = modeNormal
+			m.message = ""
+		case tea.KeyEnter:
+			var newAddr string
+			if m.relinkCandidateMode && len(m.relinkCandidates) > 0 {
+				newAddr = m.relinkCandidates[m.relinkCandidateCursor]
+			} else {
+				newAddr = strings.TrimSpace(m.relinkInput)
+			}
+			if newAddr == "" {
+				m.message = "✗ Replacement address cannot be empty"
+				m.inputMode = modeNormal
+				return *m, nil
+			}
+			m.inputMode = modeNormal
+			m.busy = "Relinking..."
+			return *m, m.cmdRelink(m.relinkAddr, newAddr, m.relinkAgentName)
+		case tea.KeyUp:
+			if m.relinkCandidateMode && m.relinkCandidateCursor > 0 {
+				m.relinkCandidateCursor--
+			}
+		case tea.KeyDown:
+			if m.relinkCandidateMode && m.relinkCandidateCursor < len(m.relinkCandidates)-1 {
+				m.relinkCandidateCursor++
+			}
+		case tea.KeyTab:
+			// Toggle between candidate list and free-text input
+			if len(m.relinkCandidates) > 0 {
+				m.relinkCandidateMode = !m.relinkCandidateMode
+				if !m.relinkCandidateMode {
+					m.relinkInput = ""
+				}
+			}
+		case tea.KeyBackspace:
+			if !m.relinkCandidateMode && len(m.relinkInput) > 0 {
+				m.relinkInput = m.relinkInput[:len(m.relinkInput)-1]
+			}
+		case tea.KeyRunes:
+			if !m.relinkCandidateMode {
+				m.relinkInput += msg.String()
+			}
+		case tea.KeySpace:
+			if !m.relinkCandidateMode {
+				m.relinkInput += " "
+			}
+		case tea.KeyCtrlC:
+			return *m, tea.Quit
+		}
+
+	case modeRelinkBrokenChoice:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.inputMode = modeNormal
+			m.message = ""
+		case tea.KeyRunes:
+			switch msg.String() {
+			case "1":
+				// Set upstream — prompt for new address
+				m.relinkInput = ""
+				m.inputMode = modeRelinkBrokenSetInput
+			case "2":
+				// Clear upstream
+				m.inputMode = modeNormal
+				m.busy = "Clearing upstream pointer..."
+				return *m, m.cmdRelinkUpstream(m.relinkAddr, "", m.relinkAgentName)
+			}
+		case tea.KeyCtrlC:
+			return *m, tea.Quit
+		}
+
+	case modeRelinkBrokenSetInput:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.inputMode = modeNormal
+			m.message = ""
+		case tea.KeyEnter:
+			newUpstream := strings.TrimSpace(m.relinkInput)
+			if newUpstream == "" {
+				m.message = "✗ Upstream address cannot be empty"
+				m.inputMode = modeNormal
+				return *m, nil
+			}
+			m.inputMode = modeNormal
+			m.busy = "Setting upstream pointer..."
+			return *m, m.cmdRelinkUpstream(m.relinkAddr, newUpstream, m.relinkAgentName)
+		case tea.KeyBackspace:
+			if len(m.relinkInput) > 0 {
+				m.relinkInput = m.relinkInput[:len(m.relinkInput)-1]
+			}
+		case tea.KeyRunes:
+			m.relinkInput += msg.String()
+		case tea.KeySpace:
+			m.relinkInput += " "
+		case tea.KeyCtrlC:
+			return *m, tea.Quit
+		}
 	}
 	return *m, nil
 }
@@ -489,6 +589,39 @@ func (m *model) execFork(targetRepo string, mode skill.ForkMode) {
 
 	m.message = fmt.Sprintf("🍴 Forked %s → %s", m.forkAddr, newAddr)
 	m.inputMode = modeNormal
+}
+
+func (m *model) startRepair() {
+	if m.cursorRow < 0 || m.cursorRow >= len(m.rows) {
+		return
+	}
+	row := m.rows[m.cursorRow]
+	if row.kind != skillRow {
+		m.message = "Select a skill to repair"
+		return
+	}
+	if row.problem == problemNone {
+		m.message = "No repair needed for this skill"
+		return
+	}
+
+	agent := m.agents[m.cursorCol]
+	m.relinkAddr = row.addr
+	m.relinkAgentName = agent
+	m.relinkInput = ""
+
+	switch row.problem {
+	case problemStale:
+		candidates := skill.SuggestReplacements(row.addr, m.st)
+		m.relinkCandidates = candidates
+		m.relinkCandidateCursor = 0
+		m.relinkCandidateMode = len(candidates) > 0
+		m.inputMode = modeRelinkStaleInput
+		m.message = ""
+	case problemBrokenUpstream:
+		m.inputMode = modeRelinkBrokenChoice
+		m.message = ""
+	}
 }
 
 func (m *model) updateSelectedSkill() {

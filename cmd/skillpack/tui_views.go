@@ -31,6 +31,8 @@ var (
 	bannerStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("220")).Bold(true)
 	bannerBtnActive   = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("62")).Bold(true)
 	bannerBtnInactive = lipgloss.NewStyle().Foreground(lipgloss.Color("242")).Background(lipgloss.Color("238"))
+	staleStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true) // orange  - stale address
+	brokenUpstreamStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true) // red - broken upstream
 )
 
 // View renders the entire TUI (delegates to the four panel-specific view* methods).
@@ -158,6 +160,77 @@ func (m model) viewSkills(b *strings.Builder) {
 		return
 	}
 
+	// Stale skill repair overlay
+	if m.inputMode == modeRelinkStaleInput {
+		b.WriteString(staleStyle.Render(fmt.Sprintf(" Relink stale skill: %q", m.relinkAddr)))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render(fmt.Sprintf(" Agent: %s", m.relinkAgentName)))
+		b.WriteString("\n\n")
+		if m.relinkCandidateMode && len(m.relinkCandidates) > 0 {
+			b.WriteString(dimStyle.Render(" Suggested replacements (↑↓ to select, Tab to type manually, Enter to confirm):"))
+			b.WriteString("\n\n")
+			for i, c := range m.relinkCandidates {
+				if i == m.relinkCandidateCursor {
+					b.WriteString(selectedStyle.Render(fmt.Sprintf(" ▶ %-*s", m.width-4, c)))
+				} else {
+					b.WriteString(fmt.Sprintf("   %s", c))
+				}
+				b.WriteString("\n")
+			}
+		} else {
+			if len(m.relinkCandidates) > 0 {
+				b.WriteString(dimStyle.Render(" Enter replacement address (Tab to use candidates list):"))
+			} else {
+				b.WriteString(dimStyle.Render(" Enter replacement address:"))
+			}
+			b.WriteString("\n")
+			b.WriteString(inputStyle.Render(fmt.Sprintf("   %s▌", m.relinkInput)))
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render(" Enter to confirm • Esc to cancel"))
+		b.WriteString("\n")
+		if m.message != "" {
+			b.WriteString(msgStyle.Render(" " + m.message))
+		}
+		return
+	}
+
+	// Broken-upstream repair overlay: choose repair action
+	if m.inputMode == modeRelinkBrokenChoice {
+		b.WriteString(brokenUpstreamStyle.Render(fmt.Sprintf(" Repair broken upstream pointer: %q", m.relinkAddr)))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render(fmt.Sprintf(" Agent: %s", m.relinkAgentName)))
+		b.WriteString("\n\n")
+		b.WriteString(fmt.Sprintf(" %s  Set new upstream address (--set-upstream)\n", inputStyle.Render(" 1 ")))
+		b.WriteString(fmt.Sprintf(" %s  Clear upstream pointer (--clear-upstream)\n", inputStyle.Render(" 2 ")))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render(" Press 1 or 2 to choose • Esc to cancel"))
+		b.WriteString("\n")
+		if m.message != "" {
+			b.WriteString(msgStyle.Render(" " + m.message))
+		}
+		return
+	}
+
+	// Broken-upstream repair overlay: set upstream address input
+	if m.inputMode == modeRelinkBrokenSetInput {
+		b.WriteString(brokenUpstreamStyle.Render(fmt.Sprintf(" Set upstream for: %q", m.relinkAddr)))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render(fmt.Sprintf(" Agent: %s", m.relinkAgentName)))
+		b.WriteString("\n\n")
+		b.WriteString(dimStyle.Render(" New upstream skill address:"))
+		b.WriteString("\n")
+		b.WriteString(inputStyle.Render(fmt.Sprintf("   %s▌", m.relinkInput)))
+		b.WriteString("\n\n")
+		b.WriteString(dimStyle.Render(" Enter to confirm • Esc to cancel"))
+		b.WriteString("\n")
+		if m.message != "" {
+			b.WriteString(msgStyle.Render(" " + m.message))
+		}
+		return
+	}
+
 	// Filter
 	if m.filter != "" {
 		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s▌", m.filter)))
@@ -269,14 +342,55 @@ func (m model) viewSkills(b *strings.Builder) {
 				b.WriteString(repoStyle.Render(padded))
 			}
 		} else {
-			// Skill name
+			// Skill name with optional glyphs/badges
 			upstream := m.upstreamAddr(row.addr)
 			isFork := upstream != ""
+
 			const forkGlyph = " ⑂"
-			const forkGlyphW = 2 // visible columns: space + ⑂
+			const forkGlyphW = 2
+			const staleGlyph = " [stale]"
+			const staleGlyphW = 8
+			const brokenGlyph = " [broken upstream]"
+			const brokenGlyphW = 18
+
 			label := fmt.Sprintf("     %s", row.relPath)
-			if isFork {
-				// Reserve room for the glyph; truncate label if needed
+
+			switch {
+			case row.problem == problemStale:
+				// [stale] badge — skill is no longer discoverable upstream
+				maxLabelW := nameColW - staleGlyphW
+				if maxLabelW < 1 {
+					maxLabelW = 1
+				}
+				if len(label) > maxLabelW {
+					label = label[:maxLabelW-1] + "…"
+				}
+				nameStr := fmt.Sprintf("%-*s", nameColW+1-staleGlyphW, label)
+				if isSelected {
+					b.WriteString(selectedStyle.Render(nameStr))
+				} else {
+					b.WriteString(nameStr)
+				}
+				b.WriteString(staleStyle.Render(staleGlyph))
+			case row.problem == problemBrokenUpstream:
+				// fork glyph + [broken upstream] badge
+				maxLabelW := nameColW - forkGlyphW - brokenGlyphW
+				if maxLabelW < 1 {
+					maxLabelW = 1
+				}
+				if len(label) > maxLabelW {
+					label = label[:maxLabelW-1] + "…"
+				}
+				nameStr := fmt.Sprintf("%-*s", nameColW+1-forkGlyphW-brokenGlyphW, label)
+				if isSelected {
+					b.WriteString(selectedStyle.Render(nameStr))
+				} else {
+					b.WriteString(nameStr)
+				}
+				b.WriteString(forkStyle.Render(forkGlyph))
+				b.WriteString(brokenUpstreamStyle.Render(brokenGlyph))
+			case isFork:
+				// Normal fork: fork glyph only
 				maxLabelW := nameColW - forkGlyphW
 				if len(label) > maxLabelW {
 					label = label[:maxLabelW-1] + "…"
@@ -288,7 +402,7 @@ func (m model) viewSkills(b *strings.Builder) {
 					b.WriteString(nameStr)
 				}
 				b.WriteString(forkStyle.Render(forkGlyph))
-			} else {
+			default:
 				if len(label) > nameColW {
 					label = label[:nameColW-1] + "…"
 				}
@@ -365,22 +479,31 @@ func (m model) viewSkills(b *strings.Builder) {
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render(" ↑↓ navigate  ←→ agents  Space/Enter toggle  f fork  v view  Tab switch  q quit"))
+	b.WriteString(helpStyle.Render(" ↑↓ navigate  ←→ agents  Space/Enter toggle  f fork  R repair  v view  Tab switch  q quit"))
 	b.WriteString("\n")
 	if m.message != "" {
 		b.WriteString(msgStyle.Render(" " + m.message))
 	} else {
-		// Show fork provenance when cursor is on a forked skill
+		// Show problem badge hint or fork provenance when cursor is on a skill
 		if m.cursorRow >= 0 && m.cursorRow < len(m.rows) {
 			selRow := m.rows[m.cursorRow]
 			if selRow.kind == skillRow {
-				if upstream := m.upstreamAddr(selRow.addr); upstream != "" {
-					line := fmt.Sprintf(" ⑂ forked from %s", upstream)
-					if m.width > 2 && len(line) > m.width-2 {
-						line = line[:m.width-3] + "…"
-					}
-					b.WriteString(forkStyle.Render(line))
+				switch selRow.problem {
+				case problemStale:
+					b.WriteString(staleStyle.Render(" [stale] skill path no longer exists upstream — press R to repair"))
 					return
+				case problemBrokenUpstream:
+					b.WriteString(brokenUpstreamStyle.Render(" [broken upstream] upstream tracking pointer is invalid — press R to repair"))
+					return
+				default:
+					if upstream := m.upstreamAddr(selRow.addr); upstream != "" {
+						line := fmt.Sprintf(" ⑂ forked from %s", upstream)
+						if m.width > 2 && len(line) > m.width-2 {
+							line = line[:m.width-3] + "…"
+						}
+						b.WriteString(forkStyle.Render(line))
+						return
+					}
 				}
 			}
 		}

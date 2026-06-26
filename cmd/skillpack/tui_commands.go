@@ -52,6 +52,28 @@ func (m *model) cmdRegisterForkProvenance(addr, upstream string) tea.Cmd {
 	}
 }
 
+func (m *model) cmdRelink(oldAddr, newAddr, agentName string) tea.Cmd {
+	stCopy := cloneState(m.st)
+	return func() tea.Msg {
+		err := skill.Relink(oldAddr, newAddr, agentName, false, stCopy)
+		if err != nil {
+			return relinkDoneMsg{oldAddr: oldAddr, newAddr: newAddr, agent: agentName, err: err}
+		}
+		return relinkDoneMsg{oldAddr: oldAddr, newAddr: newAddr, agent: agentName, st: stCopy}
+	}
+}
+
+func (m *model) cmdRelinkUpstream(addr, newUpstreamAddr, agentName string) tea.Cmd {
+	stCopy := cloneState(m.st)
+	return func() tea.Msg {
+		err := skill.RelinkUpstream(addr, newUpstreamAddr, agentName, stCopy)
+		if err != nil {
+			return relinkUpstreamDoneMsg{addr: addr, newUpstream: newUpstreamAddr, agent: agentName, err: err}
+		}
+		return relinkUpstreamDoneMsg{addr: addr, newUpstream: newUpstreamAddr, agent: agentName, st: stCopy}
+	}
+}
+
 // viewSkillMdAt stats path and either sets an error message or returns a
 // command to open the file in the platform default viewer.
 func (m *model) viewSkillMdAt(path string) tea.Cmd {

@@ -139,6 +139,11 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 								// rather than marking the fork as stale.
 								ownRepo := strings.SplitN(addr, "/", 2)[0]
 								headSHA = repoHeads[ownRepo]
+								if headSHA == "" {
+									item.Err = fmt.Errorf("repo %q not found in local cache — run 'skillpack repo add' to register it", ownRepo)
+									plan = append(plan, item)
+									continue
+								}
 								item.UpstreamDisabled = true
 								item.Warning = "upstream source no longer exists — upstream tracking disabled; run 'skillpack relink' to fix"
 							} else {

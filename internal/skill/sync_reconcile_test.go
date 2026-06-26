@@ -891,6 +891,9 @@ func TestReconcilePlan_Fork_UpstreamPathMissing(t *testing.T) {
 	if !item.UpstreamDisabled {
 		t.Errorf("want UpstreamDisabled=true, got false")
 	}
+	if !item.UpstreamPathBroken {
+		t.Errorf("want UpstreamPathBroken=true, got false")
+	}
 	if item.Warning == "" {
 		t.Errorf("want non-empty Warning for broken upstream pointer, got empty")
 	}
@@ -967,5 +970,65 @@ func TestReconcilePlan_StaleAddress_DoesNotBlockOtherSkills(t *testing.T) {
 	}
 	if goodItem.Action != skill.SyncAlreadyCurrent {
 		t.Errorf("good skill: want SyncAlreadyCurrent, got %q", goodItem.Action)
+	}
+}
+
+// ─── UpstreamPathBroken vs unregistered upstream repo ─────────────────────────
+
+// TestReconcilePlan_Fork_UnregisteredUpstream_UpstreamPathBrokenFalse verifies
+// that when upstream tracking is disabled because the upstream repo is not
+// registered (case 1), UpstreamPathBroken is false. Only the broken-path case
+// (upstream repo registered but skill path gone) should set UpstreamPathBroken.
+func TestReconcilePlan_Fork_UnregisteredUpstream_UpstreamPathBrokenFalse(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	forkAddr := "my-skills/diagnose"
+	upstreamAddr := "upstream-skills/engineering/diagnose"
+	agentName := "copilot"
+
+	// Install dir with SKILL.md.
+	installDir := t.TempDir()
+	writeFile(t, filepath.Join(installDir, "SKILL.md"), "# Diagnose (fork)")
+	hash, err := skill.ComputeHash(installDir)
+	if err != nil {
+		t.Fatalf("ComputeHash: %v", err)
+	}
+
+	// Fork's own repo cache only — upstream repo is NOT registered.
+	forkCacheRoot := t.TempDir()
+
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"my-skills": {CachePath: forkCacheRoot},
+			// "upstream-skills" intentionally absent
+		},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			forkAddr: {
+				agentName: {
+					InstalledAtSHA: "fork-sha-abc",
+					InstalledHash:  hash,
+					LocalPath:      installDir,
+					UpstreamAddr:   upstreamAddr,
+					UpstreamSHA:    "upstream-sha-abc",
+				},
+			},
+		},
+	}
+	repoHeads := map[string]string{
+		"my-skills": "fork-sha-abc",
+		// "upstream-skills" absent — upstream repo not registered
+	}
+
+	plan := skill.ReconcilePlan(st, repoHeads)
+	item := planByAddr(plan, forkAddr, agentName)
+
+	if item.Err != nil {
+		t.Fatalf("unexpected error: %v", item.Err)
+	}
+	if !item.UpstreamDisabled {
+		t.Errorf("want UpstreamDisabled=true, got false")
+	}
+	if item.UpstreamPathBroken {
+		t.Errorf("want UpstreamPathBroken=false for unregistered-upstream case, got true")
 	}
 }

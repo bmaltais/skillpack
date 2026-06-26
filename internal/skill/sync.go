@@ -30,6 +30,9 @@ type SyncResult struct {
 	Err       error
 	// Warning is a non-fatal message propagated from the plan item.
 	Warning string
+	// UpstreamPathBroken is true when upstream tracking was disabled because the
+	// upstream skill path no longer exists (mirrored from SyncPlanItem).
+	UpstreamPathBroken bool
 }
 
 // SyncPlanItem is the decision for one installed skill, computed without git or network I/O.
@@ -48,6 +51,11 @@ type SyncPlanItem struct {
 	// ApplySync uses this to copy from the fork's own repo cache instead of the
 	// upstream origin.
 	UpstreamDisabled bool
+	// UpstreamPathBroken is true when upstream tracking was disabled specifically
+	// because the upstream skill path no longer exists in the upstream repo cache
+	// (e.g. the upstream skill was renamed or deleted). It is false when
+	// UpstreamDisabled is true due to an unregistered upstream repo.
+	UpstreamPathBroken bool
 }
 
 // ReconcilePlan determines the sync action for every installed skill using only
@@ -145,6 +153,7 @@ func ReconcilePlan(st *state.State, repoHeads map[string]string) []SyncPlanItem 
 									continue
 								}
 								item.UpstreamDisabled = true
+								item.UpstreamPathBroken = true
 								item.Warning = "upstream source no longer exists — upstream tracking disabled; run 'skillpack relink' to fix"
 							} else {
 								item.Action = SyncStaleAddress
@@ -306,16 +315,16 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 	conflicts = make([]SyncResult, 0, len(plan))
 	for _, item := range plan {
 		if item.Err != nil {
-			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: item.Err, Warning: item.Warning})
+			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: item.Err, Warning: item.Warning, UpstreamPathBroken: item.UpstreamPathBroken})
 			continue
 		}
 		repoName := strings.SplitN(item.Addr, "/", 2)[0]
 		switch item.Action {
 		case SyncStaleAddress:
 			// Skill path no longer exists upstream — report as stale, do not apply.
-			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncStaleAddress, Warning: item.Warning})
+			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncStaleAddress, Warning: item.Warning, UpstreamPathBroken: item.UpstreamPathBroken})
 		case SyncConflict:
-			conflicts = append(conflicts, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncConflict, Warning: item.Warning})
+			conflicts = append(conflicts, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncConflict, Warning: item.Warning, UpstreamPathBroken: item.UpstreamPathBroken})
 		case SyncUpdated:
 			var applyErr error
 			if item.UpstreamDisabled {
@@ -324,16 +333,16 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 				applyErr = applyUpdate(item.Addr, item.AgentName, tokenFor(repoName), st)
 			}
 			if applyErr != nil {
-				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: applyErr, Warning: item.Warning})
+				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: applyErr, Warning: item.Warning, UpstreamPathBroken: item.UpstreamPathBroken})
 				continue
 			}
-			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncUpdated, Warning: item.Warning})
+			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncUpdated, Warning: item.Warning, UpstreamPathBroken: item.UpstreamPathBroken})
 		case SyncPublished:
 			if pubErr := publish(item.Addr, item.AgentName, tokenFor(repoName), st); pubErr != nil {
-				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: pubErr, Warning: item.Warning})
+				results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Err: pubErr, Warning: item.Warning, UpstreamPathBroken: item.UpstreamPathBroken})
 				continue
 			}
-			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncPublished, Warning: item.Warning})
+			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncPublished, Warning: item.Warning, UpstreamPathBroken: item.UpstreamPathBroken})
 		default: // SyncAlreadyCurrent
 			// For non-forked skills, refresh a stale InstalledHash/InstalledAtSHA so
 			// the phantom conflict cannot reappear on the next sync.
@@ -344,12 +353,12 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 			if rec, ok := st.InstalledSkills[item.Addr][item.AgentName]; ok && !isFork(rec) {
 				if currentHash, hashErr := ComputeHash(rec.LocalPath); hashErr == nil && currentHash != rec.InstalledHash {
 					if snapErr := snapshotInstalled(item.Addr, item.AgentName, st); snapErr != nil {
-						results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncAlreadyCurrent, Err: snapErr, Warning: item.Warning})
+						results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncAlreadyCurrent, Err: snapErr, Warning: item.Warning, UpstreamPathBroken: item.UpstreamPathBroken})
 						continue
 					}
 				}
 			}
-			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncAlreadyCurrent, Warning: item.Warning})
+			results = append(results, SyncResult{Addr: item.Addr, AgentName: item.AgentName, Action: SyncAlreadyCurrent, Warning: item.Warning, UpstreamPathBroken: item.UpstreamPathBroken})
 		}
 	}
 	return results, conflicts, nil

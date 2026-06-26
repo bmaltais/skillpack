@@ -51,30 +51,26 @@ func Add(name, url, token string, st *state.State) (recovered bool, err error) {
 				return false, fmt.Errorf("removing partial cache dir %s: %w", cachePath, err)
 			}
 		} else {
-			// Valid git repo left behind by a previous repo remove — re-register
-			// it rather than failing. The caller is responsible for reporting
-			// this outcome to the user.
-			st.Repos[name] = state.RepoRecord{
-				URL:         url,
-				CachePath:   cachePath,
-				LastUpdated: time.Now(),
-			}
-			return true, state.Save(st)
+			// Valid git repo left behind by a previous repo remove — reuse it
+			// rather than failing. The caller reports this outcome to the user.
+			recovered = true
 		}
 	}
 
-	cloneOpts := &gogit.CloneOptions{
-		URL:      url,
-		Progress: os.Stdout,
-	}
-	auth, err := gitops.Auth(url, token)
-	if err != nil {
-		return false, err
-	}
-	cloneOpts.Auth = auth
+	if !recovered {
+		cloneOpts := &gogit.CloneOptions{
+			URL:      url,
+			Progress: os.Stdout,
+		}
+		auth, err := gitops.Auth(url, token)
+		if err != nil {
+			return false, err
+		}
+		cloneOpts.Auth = auth
 
-	if _, err := gogit.PlainClone(cachePath, false, cloneOpts); err != nil {
-		return false, fmt.Errorf("cloning %s: %w", url, err)
+		if _, err := gogit.PlainClone(cachePath, false, cloneOpts); err != nil {
+			return false, fmt.Errorf("cloning %s: %w", url, err)
+		}
 	}
 
 	st.Repos[name] = state.RepoRecord{
@@ -82,7 +78,7 @@ func Add(name, url, token string, st *state.State) (recovered bool, err error) {
 		CachePath:   cachePath,
 		LastUpdated: time.Now(),
 	}
-	return false, state.Save(st)
+	return recovered, state.Save(st)
 }
 
 // Remove unregisters a repo from state. The local cache clone is kept on disk.

@@ -120,3 +120,44 @@ func Relink(oldAddr, newAddr, agentName string, force bool, st *state.State) err
 	}
 	return state.Save(st)
 }
+
+// RelinkUpstream updates the upstream tracking pointer on an installed fork
+// without touching the installed files or the fork's own address.
+//
+// When newUpstreamAddr is non-empty (--set-upstream), the address must resolve
+// to a valid skill in a registered, locally-cached repo; its repo HEAD SHA is
+// recorded as the new UpstreamSHA.
+//
+// When newUpstreamAddr is empty (--clear-upstream), both UpstreamAddr and
+// UpstreamSHA are cleared, converting the fork to a regular installed skill.
+func RelinkUpstream(addr, newUpstreamAddr, agentName string, st *state.State) error {
+	agents, ok := st.InstalledSkills[addr]
+	if !ok {
+		return fmt.Errorf("skill %q is not installed", addr)
+	}
+	rec, ok := agents[agentName]
+	if !ok {
+		return fmt.Errorf("skill %q is not installed for agent %q", addr, agentName)
+	}
+
+	if newUpstreamAddr == "" {
+		// --clear-upstream: strip both fields.
+		rec.UpstreamAddr = ""
+		rec.UpstreamSHA = ""
+	} else {
+		// --set-upstream: resolve addr and capture repo HEAD SHA.
+		info, err := repo.FindSkill(newUpstreamAddr, st)
+		if err != nil {
+			return fmt.Errorf("upstream skill %q not found: %w", newUpstreamAddr, err)
+		}
+		sha, err := repo.HeadSHA(info.RepoName, st)
+		if err != nil {
+			return fmt.Errorf("getting repo HEAD SHA for %q: %w", info.RepoName, err)
+		}
+		rec.UpstreamAddr = newUpstreamAddr
+		rec.UpstreamSHA = sha
+	}
+
+	agents[agentName] = rec
+	return state.Save(st)
+}

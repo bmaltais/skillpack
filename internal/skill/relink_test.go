@@ -302,3 +302,165 @@ func TestRelink_ModifiedWithoutForce(t *testing.T) {
 		t.Errorf("forced relink should refresh content, got %q", string(data))
 	}
 }
+
+// TestRelinkUpstream_SetUpstream updates UpstreamAddr and UpstreamSHA in state
+// without touching installed files or the fork's own address.
+func TestRelinkUpstream_SetUpstream(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	forkAddr := "my-skills/debugger"
+	newUpstream := "upstream-repo/debugger"
+	agentName := "copilot"
+
+	upstreamCache := t.TempDir()
+	writeFile(t, filepath.Join(upstreamCache, "debugger", "SKILL.md"), "# Upstream Debugger")
+	initGitRepo(t, upstreamCache)
+
+	installDir := filepath.Join(t.TempDir(), "debugger")
+	writeFile(t, filepath.Join(installDir, "SKILL.md"), "# My forked debugger")
+
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"upstream-repo": {CachePath: upstreamCache},
+		},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			forkAddr: {
+				agentName: {
+					InstalledAtSHA: "sha-fork",
+					InstalledHash:  "hash-fork",
+					LocalPath:      installDir,
+					UpstreamAddr:   "old-upstream/debugger",
+					UpstreamSHA:    "sha-old-upstream",
+				},
+			},
+		},
+	}
+
+	if err := skill.RelinkUpstream(forkAddr, newUpstream, agentName, st); err != nil {
+		t.Fatalf("RelinkUpstream: %v", err)
+	}
+
+	rec := st.InstalledSkills[forkAddr][agentName]
+
+	// Upstream pointer updated.
+	if rec.UpstreamAddr != newUpstream {
+		t.Errorf("UpstreamAddr = %q, want %q", rec.UpstreamAddr, newUpstream)
+	}
+	if rec.UpstreamSHA == "" || rec.UpstreamSHA == "sha-old-upstream" {
+		t.Errorf("UpstreamSHA should be updated to new repo HEAD, got %q", rec.UpstreamSHA)
+	}
+
+	// Fork's own address unchanged.
+	if _, ok := st.InstalledSkills[forkAddr]; !ok {
+		t.Errorf("fork address %q should remain unchanged", forkAddr)
+	}
+
+	// Installed files untouched (byte-identical).
+	data, _ := os.ReadFile(filepath.Join(installDir, "SKILL.md"))
+	if string(data) != "# My forked debugger" {
+		t.Errorf("installed file should be untouched, got %q", string(data))
+	}
+
+	// InstalledHash unchanged.
+	if rec.InstalledHash != "hash-fork" {
+		t.Errorf("InstalledHash should be unchanged, got %q", rec.InstalledHash)
+	}
+}
+
+// TestRelinkUpstream_SetUpstream_InvalidAddr rejects an address that does not
+// exist in any registered repo without writing any state change.
+func TestRelinkUpstream_SetUpstream_InvalidAddr(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	forkAddr := "my-skills/debugger"
+	agentName := "copilot"
+
+	cache := t.TempDir()
+	writeFile(t, filepath.Join(cache, "README.md"), "empty repo")
+	initGitRepo(t, cache)
+
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"upstream-repo": {CachePath: cache},
+		},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			forkAddr: {
+				agentName: {
+					UpstreamAddr: "old-upstream/debugger",
+					UpstreamSHA:  "sha-original",
+				},
+			},
+		},
+	}
+
+	err := skill.RelinkUpstream(forkAddr, "upstream-repo/nonexistent", agentName, st)
+	if err == nil {
+		t.Fatal("expected error for invalid upstream addr, got nil")
+	}
+
+	// No state change.
+	rec := st.InstalledSkills[forkAddr][agentName]
+	if rec.UpstreamAddr != "old-upstream/debugger" {
+		t.Errorf("UpstreamAddr should be unchanged after error, got %q", rec.UpstreamAddr)
+	}
+	if rec.UpstreamSHA != "sha-original" {
+		t.Errorf("UpstreamSHA should be unchanged after error, got %q", rec.UpstreamSHA)
+	}
+}
+
+// TestRelinkUpstream_ClearUpstream clears both UpstreamAddr and UpstreamSHA,
+// so isFork returns false for the record afterward.
+func TestRelinkUpstream_ClearUpstream(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	forkAddr := "my-skills/debugger"
+	agentName := "copilot"
+
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			forkAddr: {
+				agentName: {
+					InstalledAtSHA: "sha-fork",
+					InstalledHash:  "hash-fork",
+					UpstreamAddr:   "upstream-repo/debugger",
+					UpstreamSHA:    "sha-upstream",
+				},
+			},
+		},
+	}
+
+	// Pass empty string to clear upstream.
+	if err := skill.RelinkUpstream(forkAddr, "", agentName, st); err != nil {
+		t.Fatalf("RelinkUpstream (clear): %v", err)
+	}
+
+	rec := st.InstalledSkills[forkAddr][agentName]
+
+	if rec.UpstreamAddr != "" {
+		t.Errorf("UpstreamAddr should be cleared, got %q", rec.UpstreamAddr)
+	}
+	if rec.UpstreamSHA != "" {
+		t.Errorf("UpstreamSHA should be cleared, got %q", rec.UpstreamSHA)
+	}
+
+	// isFork contract: record with no UpstreamAddr is not a fork.
+	// (isFork is package-internal; verify via InstalledSkillRecord directly.)
+	if rec.UpstreamAddr != "" {
+		t.Error("expected non-fork record after clear-upstream")
+	}
+}
+
+// TestRelinkUpstream_NotInstalled errors when the skill is not installed.
+func TestRelinkUpstream_NotInstalled(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	st := &state.State{
+		Repos:           map[string]state.RepoRecord{},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{},
+	}
+
+	if err := skill.RelinkUpstream("nonexistent/skill", "upstream/skill", "copilot", st); err == nil {
+		t.Fatal("expected error for not-installed skill, got nil")
+	}
+}

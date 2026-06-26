@@ -27,22 +27,9 @@ var removeCmd = &cobra.Command{
 			return fmt.Errorf("configuration not available")
 		}
 
-		var targets []string
-		if allAgents {
-			if agents, ok := app.St.InstalledSkills[addr]; ok {
-				for name := range agents {
-					targets = append(targets, name)
-				}
-			}
-			if len(targets) == 0 {
-				return fmt.Errorf("skill %q is not installed for any agent", addr)
-			}
-		} else {
-			var err error
-			targets, err = resolveAgents(agentName, false, app.Cfg)
-			if err != nil {
-				return err
-			}
+		targets, err := resolveInstalledTargets(addr, agentName, allAgents, app)
+		if err != nil {
+			return err
 		}
 
 		for _, target := range targets {

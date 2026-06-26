@@ -32,3 +32,23 @@ func resolveAgents(agentName string, allAgents bool, cfg *config.Config) ([]stri
 	}
 	return []string{agentName}, nil
 }
+
+// resolveInstalledTargets returns the agent names a command should act on for an
+// already-installed skill. When allAgents is true it returns every agent the
+// skill is installed for (erroring if none); otherwise it falls back to
+// resolveAgents (the --agent flag or the configured default).
+func resolveInstalledTargets(addr, agentName string, allAgents bool, app *App) ([]string, error) {
+	if allAgents {
+		var targets []string
+		if agents, ok := app.St.InstalledSkills[addr]; ok {
+			for name := range agents {
+				targets = append(targets, name)
+			}
+		}
+		if len(targets) == 0 {
+			return nil, fmt.Errorf("skill %q is not installed for any agent", addr)
+		}
+		return targets, nil
+	}
+	return resolveAgents(agentName, false, app.Cfg)
+}

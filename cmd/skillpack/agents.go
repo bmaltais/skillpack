@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/bmaltais/skillpack/internal/config"
 )
@@ -48,6 +49,7 @@ func resolveInstalledTargets(addr, agentName string, allAgents bool, app *App) (
 		if len(targets) == 0 {
 			return nil, fmt.Errorf("skill %q is not installed for any agent", addr)
 		}
+		sort.Strings(targets)
 		return targets, nil
 	}
 	return resolveAgents(agentName, false, app.Cfg)

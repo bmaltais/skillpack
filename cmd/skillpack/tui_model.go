@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -22,12 +23,22 @@ const (
 	skillRow
 )
 
+// skillProblem describes the health state of an installed skill row.
+type skillProblem int
+
+const (
+	problemNone          skillProblem = iota
+	problemStale                      // skill's own path no longer exists upstream (SyncStaleAddress)
+	problemBrokenUpstream             // fork with an UpstreamAddr that no longer exists
+)
+
 type tuiRow struct {
 	kind     rowKind
 	repoName string
-	addr     string // full skill address (only for skillRow)
-	relPath  string // repo-relative path (only for skillRow)
-	expanded bool   // only for repoRow
+	addr     string       // full skill address (only for skillRow)
+	relPath  string       // repo-relative path (only for skillRow)
+	expanded bool         // only for repoRow
+	problem  skillProblem // only for skillRow
 }
 
 // --- Panels ---
@@ -54,6 +65,9 @@ const (
 	modeForkResolveChoice
 	modeAdoptSelectRepo
 	modeRegisterForkInput
+	modeRelinkStaleInput    // stale repair: user types (or selects) a replacement address
+	modeRelinkBrokenChoice  // broken-upstream repair: choose set-upstream (1) or clear (2)
+	modeRelinkBrokenSetInput // broken-upstream repair: user types new upstream address
 )
 
 // --- Model ---
@@ -100,6 +114,14 @@ type model struct {
 	forkCandidates    map[string]string // addr → candidate upstream addr
 	registerForkAddr  string            // skill addr being registered
 	registerForkInput string            // current input buffer (editable upstream addr)
+
+	// Relink flow state (stale and broken-upstream repair)
+	relinkAddr            string   // skill address being relinked
+	relinkAgentName       string   // agent for the relink operation
+	relinkCandidates      []string // SuggestReplacements candidates (stale flow)
+	relinkCandidateCursor int      // cursor within relinkCandidates list
+	relinkInput           string   // current input buffer for address entry
+	relinkCandidateMode   bool     // true = candidate list shown; false = free-text input
 
 	// Unmanaged panel
 	unmanagedEntries []unmanagedEntry
@@ -161,6 +183,33 @@ func (m *model) refreshSkills() {
 	// Discover skills from registered repos
 	allSkills, _ := repo.DiscoverAllSkills(m.st)
 
+	// Build set of discovered addresses so we can detect stale installed skills
+	discoveredAddrs := make(map[string]bool, len(allSkills))
+	for _, s := range allSkills {
+		discoveredAddrs[s.Address] = true
+	}
+
+	// Add stale installed skills: in InstalledSkills but no longer discoverable
+	for addr := range m.st.InstalledSkills {
+		if discoveredAddrs[addr] {
+			continue
+		}
+		repoName := ""
+		relPath := addr
+		if parts := strings.SplitN(addr, "/", 2); len(parts) == 2 {
+			repoName = parts[0]
+			relPath = parts[1]
+		}
+		allSkills = append(allSkills, repo.SkillInfo{
+			Address:  addr,
+			RepoName: repoName,
+			RelPath:  relPath,
+		})
+	}
+
+	// Compute skill problems for all installed skills
+	skillProblems := computeSkillProblems(m.st, discoveredAddrs)
+
 	// Group by repo
 	repoSkills := make(map[string][]repo.SkillInfo)
 	for _, s := range allSkills {
@@ -184,7 +233,13 @@ func (m *model) refreshSkills() {
 		skills := repoSkills[rn]
 		sort.Slice(skills, func(i, j int) bool { return skills[i].Address < skills[j].Address })
 		for _, s := range skills {
-			m.rows = append(m.rows, tuiRow{kind: skillRow, repoName: rn, addr: s.Address, relPath: s.RelPath})
+			m.rows = append(m.rows, tuiRow{
+				kind:     skillRow,
+				repoName: rn,
+				addr:     s.Address,
+				relPath:  s.RelPath,
+				problem:  skillProblems[s.Address],
+			})
 		}
 	}
 
@@ -269,8 +324,54 @@ func (m *model) refreshUnmanaged() {
 	})
 }
 
-func sampleData() ([]string, map[string][]repo.SkillInfo) {
-	repoNames := []string{"awesome-skills", "community-skills"}
+// computeSkillProblems classifies installed skills into health states.
+// discoveredAddrs is the set of addresses found by repo.DiscoverAllSkills;
+// addresses absent from this set are classified as problemStale.
+// For forks (UpstreamAddr set), if the upstream skill cache path no longer
+// contains a SKILL.md the skill is classified as problemBrokenUpstream.
+// The function performs only local filesystem stat calls — no git or network I/O.
+func computeSkillProblems(st *state.State, discoveredAddrs map[string]bool) map[string]skillProblem {
+	problems := make(map[string]skillProblem)
+	for addr, agents := range st.InstalledSkills {
+		// If already flagged (e.g. from a previous loop iteration), skip.
+		if problems[addr] != problemNone {
+			continue
+		}
+		if !discoveredAddrs[addr] {
+			// Installed but not discoverable → stale address.
+			problems[addr] = problemStale
+			continue
+		}
+		// Check for broken upstream pointer on forks.
+		for _, rec := range agents {
+			if rec.UpstreamAddr == "" {
+				continue
+			}
+			upstreamParts := strings.SplitN(rec.UpstreamAddr, "/", 2)
+			if len(upstreamParts) != 2 {
+				continue
+			}
+			upstreamRepo, ok := st.Repos[upstreamParts[0]]
+			if !ok {
+				// Upstream repo not registered — not necessarily broken, just unknown.
+				continue
+			}
+			// Only flag broken if the upstream repo is a real git clone
+			// (avoids false positives on empty test fixtures).
+			if _, gitErr := os.Stat(filepath.Join(upstreamRepo.CachePath, ".git")); gitErr != nil {
+				continue
+			}
+			upstreamSkillPath := filepath.Join(upstreamRepo.CachePath, filepath.FromSlash(upstreamParts[1]))
+			if _, statErr := os.Stat(filepath.Join(upstreamSkillPath, "SKILL.md")); os.IsNotExist(statErr) {
+				problems[addr] = problemBrokenUpstream
+			}
+			break // one agent record is enough to determine fork status
+		}
+	}
+	return problems
+}
+
+func sampleData() ([]string, map[string][]repo.SkillInfo) {	repoNames := []string{"awesome-skills", "community-skills"}
 	skills := map[string][]repo.SkillInfo{
 		"awesome-skills": {
 			{Address: "awesome-skills/coding/debugger", RepoName: "awesome-skills", RelPath: "coding/debugger"},
@@ -303,6 +404,22 @@ type registerForkDoneMsg struct {
 	upstream string
 	st       *state.State // updated state on success; nil on error
 	err      error
+}
+
+type relinkDoneMsg struct {
+	oldAddr string
+	newAddr string
+	agent   string
+	st      *state.State // updated state on success; nil on error
+	err     error
+}
+
+type relinkUpstreamDoneMsg struct {
+	addr        string
+	newUpstream string // "" means clear
+	agent       string
+	st          *state.State // updated state on success; nil on error
+	err         error
 }
 
 type selfUpdateDoneMsg struct {

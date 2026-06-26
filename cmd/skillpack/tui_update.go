@@ -85,6 +85,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case relinkDoneMsg:
+		m.busy = ""
+		if msg.err != nil {
+			m.message = fmt.Sprintf("✗ Relink failed: %v", msg.err)
+		} else {
+			if msg.st != nil {
+				*m.st = *msg.st
+			}
+			m.refreshSkills()
+			m.message = fmt.Sprintf("✓ Relinked %s → %s (%s)", msg.oldAddr, msg.newAddr, msg.agent)
+		}
+		return m, nil
+
+	case relinkUpstreamDoneMsg:
+		m.busy = ""
+		if msg.err != nil {
+			m.message = fmt.Sprintf("✗ Relink upstream failed: %v", msg.err)
+		} else {
+			if msg.st != nil {
+				*m.st = *msg.st
+			}
+			m.refreshSkills()
+			if msg.newUpstream == "" {
+				m.message = fmt.Sprintf("✓ Cleared upstream pointer for %s (%s)", msg.addr, msg.agent)
+			} else {
+				m.message = fmt.Sprintf("✓ Set upstream %s → %s (%s)", msg.addr, msg.newUpstream, msg.agent)
+			}
+		}
+		return m, nil
+
 	case selfUpdateDoneMsg:
 		m.busy = ""
 		m.message = msg.summary
@@ -216,6 +246,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if ch == "f" && m.filter == "" {
 					m.startFork()
+					return m, nil
+				}
+				if ch == "R" && m.filter == "" {
+					m.startRepair()
 					return m, nil
 				}
 				if ch == "v" && m.filter == "" {

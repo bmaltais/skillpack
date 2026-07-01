@@ -126,6 +126,7 @@ type model struct {
 	// Unmanaged panel
 	unmanagedEntries []unmanagedEntry
 	unmanagedCursor  int
+	unmanagedFilter  string // incremental filter for the unmanaged panel
 	adoptCursor      int // cursor for repo selection in adopt flow
 
 	// Config/state refs
@@ -301,7 +302,7 @@ func (m *model) refreshUnmanaged() {
 			if _, err := os.Stat(filepath.Join(fullPath, "SKILL.md")); err != nil {
 				continue
 			}
-			if !knownPaths[fullPath] {
+			if !knownPaths[fullPath] && (m.unmanagedFilter == "" || unmanagedMatches(entry.Name(), agentName, fullPath, m.unmanagedFilter)) {
 				m.unmanagedEntries = append(m.unmanagedEntries, unmanagedEntry{
 					agentName: agentName,
 					skillName: entry.Name(),
@@ -322,6 +323,15 @@ func (m *model) refreshUnmanaged() {
 		}
 		return m.unmanagedEntries[i].agentName < m.unmanagedEntries[j].agentName
 	})
+}
+
+// unmanagedMatches returns true if the given skill entry matches the filter
+// substring (case-insensitive) against skill name, agent name, or local path.
+func unmanagedMatches(skillName, agentName, localPath, filter string) bool {
+	lower := strings.ToLower(filter)
+	return strings.Contains(strings.ToLower(skillName), lower) ||
+		strings.Contains(strings.ToLower(agentName), lower) ||
+		strings.Contains(strings.ToLower(localPath), lower)
 }
 
 // computeSkillProblems classifies installed skills into health states.

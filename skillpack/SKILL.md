@@ -50,6 +50,19 @@ credentials:
 > `credentials` in `~/.skillpack/config.yaml`. Add it with the same token used for your
 > other repos — the key must exactly match the name shown by `skillpack repo list`.
 
+> **Stale token (credential present but still failing):** If the repo IS already listed under
+> `credentials` but sync still fails with *"authentication required"* or *"Invalid username or token"*,
+> the stored token has expired. Refresh it:
+> ```bash
+> # Get the current valid token from gh CLI (ensure gh auth status shows the right account active)
+> gh auth switch -u <your-github-username>   # if needed
+> NEW_TOKEN=$(gh auth token)
+> # Update config.yaml
+> sed -i "s|<repo-name>: gho_.*|<repo-name>: ${NEW_TOKEN}|" ~/.skillpack/config.yaml
+> ```
+> Note: `gh auth switch` / `gh auth login` only refreshes the gh CLI's own token — it does **not**
+> automatically update tokens stored in `~/.skillpack/config.yaml`. You must update both separately.
+
 Token lookup order: `credentials` in config → `SKILLPACK_GIT_TOKEN` env var → `GITHUB_TOKEN` env var.
 
 ## Commands

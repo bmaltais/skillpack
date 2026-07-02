@@ -54,14 +54,19 @@ credentials:
 > `credentials` but sync still fails with *"authentication required"* or *"Invalid username or token"*,
 > the stored token has expired. Refresh it:
 > ```bash
-> # Get the current valid token from gh CLI (ensure gh auth status shows the right account active)
-> gh auth switch -u <your-github-username>   # if needed
-> NEW_TOKEN=$(gh auth token)
-> # Update config.yaml
-> sed -i "s|<repo-name>: gho_.*|<repo-name>: ${NEW_TOKEN}|" ~/.skillpack/config.yaml
+> # Get the current valid token from gh CLI — use -u <username> in multi-account environments
+> NEW_TOKEN=$(gh auth token -u <your-github-username>)
+> # Replace ALL gho_* tokens in config.yaml at once (covers multiple credential entries)
+> sed -i -E "s/gho_[A-Za-z0-9]+/${NEW_TOKEN}/g" ~/.skillpack/config.yaml
+> # Verify
+> skillpack sync
 > ```
 > Note: `gh auth switch` / `gh auth login` only refreshes the gh CLI's own token — it does **not**
 > automatically update tokens stored in `~/.skillpack/config.yaml`. You must update both separately.
+>
+> **Long-term fix:** Replace `gho_*` OAuth tokens with a classic PAT (no expiration) at
+> https://github.com/settings/tokens — scopes `repo` + `read:org`. OAuth tokens issued by
+> `gh auth login` (browser flow) expire or get silently revoked; classic PATs with no expiry do not.
 
 Token lookup order: `credentials` in config → `SKILLPACK_GIT_TOKEN` env var → `GITHUB_TOKEN` env var.
 

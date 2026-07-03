@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"path"
+	"path/filepath"
 	"sort"
 
 	"github.com/spf13/cobra"
 
+	"github.com/bmaltais/skillpack/internal/pack"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/state"
 )
@@ -39,9 +41,9 @@ var packListCmd = &cobra.Command{
 }
 
 // packListInstalled prints all installed packs with their completion status.
+// Produces empty output when no packs are installed (scriptable).
 func packListInstalled(st *state.State) error {
 	if len(st.InstalledPacks) == 0 {
-		fmt.Println("No packs installed. Run: skillpack pack install <repo>/<path/to/pack>")
 		return nil
 	}
 
@@ -119,12 +121,16 @@ func packListAvailable(repoFilter string, st *state.State) error {
 	for _, g := range groups {
 		fmt.Printf("%s/\n", bold(g.prefix))
 		for _, p := range g.items {
-			name := path.Base(p.Address)
 			installed := ""
 			if _, ok := st.InstalledPacks[p.Address]; ok {
 				installed = "  " + green("[installed]")
 			}
-			fmt.Printf("  %-38s%s\n", name, installed)
+			// Read pack.yaml to surface the description.
+			desc := ""
+			if pk, err := pack.ParseFile(filepath.Join(p.FullPath, "pack.yaml")); err == nil && pk.Description != "" {
+				desc = "  " + pk.Description
+			}
+			fmt.Printf("  %-48s%s%s\n", p.Address, desc, installed)
 			total++
 		}
 	}

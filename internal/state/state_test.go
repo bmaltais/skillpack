@@ -2,6 +2,7 @@ package state_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/bmaltais/skillpack/internal/state"
 )
@@ -187,10 +188,13 @@ func TestRecordRenameAddr_EmptyNewAddrError(t *testing.T) {
 func TestInstalledPacks_RoundTrip(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
+	now := time.Now().UTC().Truncate(time.Second) // truncate to survive JSON round-trip
+
 	st := emptyState()
 	st.InstalledPacks = make(map[string]state.InstalledPackRecord)
 	st.InstalledPacks["awesome-skills/packs/go-dev"] = state.InstalledPackRecord{
 		PackAddress: "awesome-skills/packs/go-dev",
+		InstalledAt: now,
 		Agents:      []string{"claude-code"},
 		Skills: map[string]state.PackSkillStatus{
 			"awesome-skills/coding/debugger": {Installed: true, Agent: "claude-code"},
@@ -213,6 +217,9 @@ func TestInstalledPacks_RoundTrip(t *testing.T) {
 	}
 	if rec.PackAddress != "awesome-skills/packs/go-dev" {
 		t.Errorf("PackAddress = %q", rec.PackAddress)
+	}
+	if !rec.InstalledAt.Equal(now) {
+		t.Errorf("InstalledAt = %v, want %v", rec.InstalledAt, now)
 	}
 	if len(rec.Agents) != 1 || rec.Agents[0] != "claude-code" {
 		t.Errorf("Agents = %v", rec.Agents)

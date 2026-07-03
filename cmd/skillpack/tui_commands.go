@@ -296,3 +296,19 @@ func (m *model) cmdCompleteDeployment(packAddr string) tea.Cmd {
 		return packCompleteDoneMsg{packAddr: packAddr, st: stCopy, summary: summary}
 	}
 }
+
+// cmdLaunchPackEdit suspends the main TUI and runs `skillpack pack edit <addr>`
+// as a child process. When the wizard exits, control returns to the main TUI
+// and packEditExitMsg is sent to Update.
+func cmdLaunchPackEdit(packAddr string) tea.Cmd {
+	self, err := os.Executable()
+	if err != nil {
+		return func() tea.Msg {
+			return packEditExitMsg{packAddr: packAddr, err: fmt.Errorf("cannot locate own executable: %w", err)}
+		}
+	}
+	cmd := exec.Command(self, "pack", "edit", packAddr)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return packEditExitMsg{packAddr: packAddr, err: err}
+	})
+}

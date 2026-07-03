@@ -15,11 +15,12 @@ import (
 
 	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/gitops"
+	"github.com/bmaltais/skillpack/internal/pack"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
-// ─── cobra command ────────────────────────────────────────────────────────────
+// ─── cobra command (create) ───────────────────────────────────────────────────
 
 var packCreateCmd = &cobra.Command{
 	Use:   "create",
@@ -36,6 +37,28 @@ publishing it to a registered repo.`,
 			return fmt.Errorf("configuration not available")
 		}
 		return runPackCreateWizard(app.Cfg, app.St)
+	},
+}
+
+// ─── cobra command (edit) ─────────────────────────────────────────────────────
+
+var packEditCmd = &cobra.Command{
+	Use:   "edit <address>",
+	Short: "Edit an existing pack and re-publish it",
+	Long: `Launch an interactive TUI wizard pre-populated with the existing pack's
+name, description, and skill list. On confirm the updated pack.yaml is
+committed and pushed to the pack's repo.`,
+	Example: `  skillpack pack edit my-repo/packs/go-dev`,
+	Args:    cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if !isInteractive() {
+			return fmt.Errorf("pack edit requires an interactive terminal")
+		}
+		app := AppFromCtx(cmd.Context())
+		if app == nil {
+			return fmt.Errorf("configuration not available")
+		}
+		return runPackEditWizard(args[0], app.Cfg, app.St)
 	},
 }
 
@@ -57,6 +80,12 @@ const (
 
 type packCreateModel struct {
 	step createStep
+
+	// editMode is true when the wizard is editing an existing pack rather than
+	// creating a new one. editPackAddr is the canonical address of the pack
+	// being edited (e.g. "my-repo/packs/go-dev").
+	editMode    bool
+	editPackAddr string
 
 	// --- text input state ---
 	nameInput string
@@ -113,6 +142,54 @@ func initialPackCreateModel(cfg *config.Config, st *state.State) packCreateModel
 	sort.Slice(m.repoList, func(i, j int) bool { return m.repoList[i].name < m.repoList[j].name })
 
 	return m
+}
+
+// initialPackEditModel builds a packCreateModel pre-populated from the
+// existing pack at packAddr. Returns an error when the pack cannot be found or
+// its pack.yaml cannot be parsed.
+func initialPackEditModel(packAddr string, cfg *config.Config, st *state.State) (packCreateModel, error) {
+	// Locate the pack on disk.
+	packInfo, err := repo.FindPack(packAddr, st)
+	if err != nil {
+		return packCreateModel{}, fmt.Errorf("finding pack: %w", err)
+	}
+
+	// Parse the existing pack.yaml.
+	pk, err := pack.ParseFile(filepath.Join(packInfo.FullPath, "pack.yaml"))
+	if err != nil {
+		return packCreateModel{}, fmt.Errorf("reading pack.yaml: %w", err)
+	}
+
+	// Build the base model (discovers all skills and repos).
+	m := initialPackCreateModel(cfg, st)
+	m.editMode = true
+	m.editPackAddr = packAddr
+
+	// Pre-populate text fields.
+	m.nameInput = pk.Name
+	m.descInput = pk.Description
+	m.pathInput = packInfo.RelPath // e.g. "packs/go-dev"
+
+	// Pre-select skills that are already in the pack.
+	packSkills := make(map[string]bool, len(pk.Skills))
+	for _, s := range pk.Skills {
+		packSkills[s] = true
+	}
+	for i, s := range m.allSkills {
+		if packSkills[s.Address] {
+			m.skillSel[i] = true
+		}
+	}
+
+	// Pre-select the repo that currently hosts the pack.
+	for i, r := range m.repoList {
+		if r.name == packInfo.RepoName {
+			m.repoCursor = i
+			break
+		}
+	}
+
+	return m, nil
 }
 
 // rebuildVisible recomputes visibleSkills to match the current skillFilter.
@@ -445,6 +522,9 @@ func (m packCreateModel) cmdCommitAndPush() tea.Cmd {
 		token := cfg.TokenForRepo(selectedRepo.name)
 		name := strings.TrimSpace(m.nameInput)
 		commitMsg := fmt.Sprintf("feat: add pack %q", name)
+		if m.editMode {
+			commitMsg = fmt.Sprintf("feat: update pack %q", name)
+		}
 		result, err := gitops.CommitAndPush(rec.CachePath, cleanPath, commitMsg, rec.URL, token)
 		if err != nil {
 			return packCreateDoneMsg{err: fmt.Errorf("publishing pack: %w", err)}
@@ -477,17 +557,26 @@ var (
 func (m packCreateModel) View() string {
 	var b strings.Builder
 
-	header := createTitleStyle.Render(" SkillPack — Create Pack")
+	title := "Create Pack"
+	if m.editMode {
+		title = "Edit Pack"
+	}
+	header := createTitleStyle.Render(" SkillPack — " + title)
 	b.WriteString(header + "\n\n")
+
+	stepPrefix := "Step"
+	if m.editMode {
+		stepPrefix = "Edit"
+	}
 
 	switch m.step {
 	case createStepName:
-		b.WriteString(createPromptStyle.Render("Step 1/6 — Pack name") + "\n\n")
+		b.WriteString(createPromptStyle.Render(stepPrefix+" 1/6 — Pack name") + "\n\n")
 		b.WriteString("  Name: " + createInputStyle.Render(m.nameInput) + "█\n\n")
 		b.WriteString(createHelpStyle.Render("  enter=next  ctrl+c=quit") + "\n")
 
 	case createStepDesc:
-		b.WriteString(createPromptStyle.Render("Step 2/6 — Description (optional)") + "\n\n")
+		b.WriteString(createPromptStyle.Render(stepPrefix+" 2/6 — Description (optional)") + "\n\n")
 		b.WriteString("  Name: " + createInputStyle.Render(m.nameInput) + "\n")
 		cursor := "█"
 		if m.descInput == "" {
@@ -497,7 +586,7 @@ func (m packCreateModel) View() string {
 		b.WriteString(createHelpStyle.Render("  enter=next  esc=back  ctrl+c=quit") + "\n")
 
 	case createStepSkills:
-		b.WriteString(createPromptStyle.Render("Step 3/6 — Select skills") + "\n")
+		b.WriteString(createPromptStyle.Render(stepPrefix+" 3/6 — Select skills") + "\n")
 		count := 0
 		for _, sel := range m.skillSel {
 			if sel {
@@ -543,13 +632,13 @@ func (m packCreateModel) View() string {
 		b.WriteString("\n" + createHelpStyle.Render("  ↑↓=navigate  space=toggle  type=filter  backspace=delete char  enter=next  esc=back") + "\n")
 
 	case createStepPath:
-		b.WriteString(createPromptStyle.Render("Step 4/6 — Pack directory path in repo") + "\n\n")
+		b.WriteString(createPromptStyle.Render(stepPrefix+" 4/6 — Pack directory path in repo") + "\n\n")
 		b.WriteString("  Path: " + createInputStyle.Render(m.pathInput) + "█\n\n")
 		b.WriteString(createHelpStyle.Render("  The pack.yaml will be written at <repo>/<path>/pack.yaml") + "\n")
 		b.WriteString(createHelpStyle.Render("  enter=next  esc=back  ctrl+c=quit") + "\n")
 
 	case createStepRepo:
-		b.WriteString(createPromptStyle.Render("Step 5/6 — Select target repo") + "\n\n")
+		b.WriteString(createPromptStyle.Render(stepPrefix+" 5/6 — Select target repo") + "\n\n")
 		if len(m.repoList) == 0 {
 			b.WriteString("  " + createErrorStyle.Render("No repos registered. Run: skillpack repo add <name> <url>") + "\n")
 			b.WriteString(createHelpStyle.Render("  esc=back  ctrl+c=quit") + "\n")
@@ -565,7 +654,7 @@ func (m packCreateModel) View() string {
 		b.WriteString("\n" + createHelpStyle.Render("  ↑↓=navigate  enter=select  esc=back  ctrl+c=quit") + "\n")
 
 	case createStepPreview:
-		b.WriteString(createPromptStyle.Render("Step 6/6 — Preview") + "\n\n")
+		b.WriteString(createPromptStyle.Render(stepPrefix+" 6/6 — Preview") + "\n\n")
 		selectedRepo := ""
 		if m.repoCursor < len(m.repoList) {
 			selectedRepo = m.repoList[m.repoCursor].name
@@ -607,6 +696,16 @@ func runPackCreateWizard(cfg *config.Config, st *state.State) error {
 	m := initialPackCreateModel(cfg, st)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
+	return err
+}
+
+func runPackEditWizard(packAddr string, cfg *config.Config, st *state.State) error {
+	m, err := initialPackEditModel(packAddr, cfg, st)
+	if err != nil {
+		return err
+	}
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	_, err = p.Run()
 	return err
 }
 

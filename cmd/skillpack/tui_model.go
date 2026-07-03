@@ -488,6 +488,12 @@ type packCompleteDoneMsg struct {
 	err      error
 }
 
+// packEditExitMsg is sent when the pack edit wizard subprocess exits.
+type packEditExitMsg struct {
+	packAddr string
+	err      error
+}
+
 type selfUpdateDoneMsg struct {
 	summary      string
 	needsRestart bool

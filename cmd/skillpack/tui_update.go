@@ -231,6 +231,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activePanel == panelSkills {
 				m.handleEnter()
 			}
+			if m.activePanel == panelUnmanaged {
+				m.unmanagedFilter += " "
+				m.refreshUnmanaged()
+			}
 		case tea.KeyDelete:
 			if m.activePanel == panelRepos {
 				m.startRemoveRepo()
@@ -241,6 +245,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.activePanel == panelUnmanaged && len(m.unmanagedFilter) > 0 {
 				m.unmanagedFilter = m.unmanagedFilter[:len(m.unmanagedFilter)-1]
+				m.refreshUnmanaged()
 			}
 		case tea.KeyRunes:
 			ch := msg.String()
@@ -319,10 +324,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.startRemoveRepo()
 				}
 			case panelUnmanaged:
-				if ch == "q" {
+				if ch == "q" && m.unmanagedFilter == "" {
 					return m, tea.Quit
 				}
-				if ch == "v" {
+				if ch == "v" && m.unmanagedFilter == "" {
 					if m.unmanagedCursor >= 0 && m.unmanagedCursor < len(m.unmanagedEntries) {
 						entry := m.unmanagedEntries[m.unmanagedCursor]
 						skillMd := filepath.Join(entry.localPath, "SKILL.md")
@@ -331,6 +336,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.unmanagedFilter += ch
+				m.refreshUnmanaged()
 			}
 		}
 	}

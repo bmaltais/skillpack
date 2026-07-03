@@ -1058,9 +1058,9 @@ func (m model) viewPacks(b *strings.Builder) {
 		b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 		b.WriteString("\n")
 		if row.isPartial {
-			b.WriteString(helpStyle.Render(" c complete deployment  D remove  Esc back  Tab switch  q quit"))
+			b.WriteString(helpStyle.Render(" c complete deployment  e edit  D remove  Esc back  Tab switch  q quit"))
 		} else {
-			b.WriteString(helpStyle.Render(" D remove  Esc back  Tab switch  q quit"))
+			b.WriteString(helpStyle.Render(" e edit  D remove  Esc back  Tab switch  q quit"))
 		}
 		b.WriteString("\n")
 		if m.message != "" {
@@ -1155,7 +1155,7 @@ func (m model) viewPacks(b *strings.Builder) {
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render(" ↑↓ navigate  Enter detail  c complete  D remove  Tab switch  q quit"))
+	b.WriteString(helpStyle.Render(" ↑↓ navigate  Enter detail  c complete  e edit  D remove  Tab switch  q quit"))
 	b.WriteString("\n")
 	if m.message != "" {
 		b.WriteString(msgStyle.Render(" " + m.message))

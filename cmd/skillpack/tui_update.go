@@ -138,6 +138,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case packEditExitMsg:
+		m.refreshPacks()
+		if msg.err != nil {
+			m.message = fmt.Sprintf("✗ Edit failed: %v", msg.err)
+		} else {
+			m.message = fmt.Sprintf("✓ Pack %s updated", msg.packAddr)
+		}
+		return m, nil
+
 	case packCompleteDoneMsg:
 		m.busy = ""
 		if msg.err != nil {
@@ -361,6 +370,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch ch {
 				case "q":
 					return m, tea.Quit
+				case "e":
+					// Launch edit wizard for the selected pack
+					if m.packCursor < len(m.packRows) {
+						packAddr := m.packRows[m.packCursor].packAddr
+						return m, cmdLaunchPackEdit(packAddr)
+					}
 				case "c":
 					// Complete deployment for the selected partial pack
 					if m.packCursor < len(m.packRows) && m.packRows[m.packCursor].isPartial {

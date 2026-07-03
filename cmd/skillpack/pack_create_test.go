@@ -288,3 +288,148 @@ func TestPackYAMLWriteAndRead(t *testing.T) {
 		t.Errorf("pack.yaml round-trip mismatch:\ngot:  %q\nwant: %q", string(data), content)
 	}
 }
+
+// ─── initialPackEditModel ─────────────────────────────────────────────────────
+
+func TestInitialPackEditModel_PrePopulated(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	// Build a minimal repo cache with a pack.yaml.
+	cacheDir := t.TempDir()
+	packDir := filepath.Join(cacheDir, "packs", "go-dev")
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	packYAMLContent := `name: Go Dev
+description: Go development pack
+repos:
+  - name: my-repo
+    url: https://github.com/example/my-repo
+skills:
+  - my-repo/coding/debugger
+  - my-repo/coding/tester
+`
+	if err := os.WriteFile(filepath.Join(packDir, "pack.yaml"), []byte(packYAMLContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"my-repo": {URL: "https://github.com/example/my-repo", CachePath: cacheDir},
+		},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+	cfg := &config.Config{Agents: make(map[string]config.AgentConfig)}
+
+	m, err := initialPackEditModel("my-repo/packs/go-dev", cfg, st)
+	if err != nil {
+		t.Fatalf("initialPackEditModel() error: %v", err)
+	}
+
+	if !m.editMode {
+		t.Error("expected editMode=true")
+	}
+	if m.editPackAddr != "my-repo/packs/go-dev" {
+		t.Errorf("editPackAddr = %q, want %q", m.editPackAddr, "my-repo/packs/go-dev")
+	}
+	if m.nameInput != "Go Dev" {
+		t.Errorf("nameInput = %q, want %q", m.nameInput, "Go Dev")
+	}
+	if m.descInput != "Go development pack" {
+		t.Errorf("descInput = %q, want %q", m.descInput, "Go development pack")
+	}
+	if m.pathInput != "packs/go-dev" {
+		t.Errorf("pathInput = %q, want %q", m.pathInput, "packs/go-dev")
+	}
+	if m.repoCursor != 0 {
+		t.Errorf("repoCursor = %d, want 0 (my-repo is the only repo)", m.repoCursor)
+	}
+}
+
+func TestInitialPackEditModel_SkillsPreSelected(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	// Build a cache dir that also has the skills discoverable.
+	cacheDir := t.TempDir()
+
+	// Create skill directories with SKILL.md so DiscoverAllSkills finds them.
+	for _, relPath := range []string{"coding/debugger", "coding/tester", "writing/blogger"} {
+		dir := filepath.Join(cacheDir, filepath.FromSlash(relPath))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# skill\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Create the pack.yaml selecting only two of the three skills.
+	packDir := filepath.Join(cacheDir, "packs", "go-dev")
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	packYAMLContent := `name: Go Dev
+repos:
+  - name: my-repo
+    url: https://github.com/example/my-repo
+skills:
+  - my-repo/coding/debugger
+  - my-repo/coding/tester
+`
+	if err := os.WriteFile(filepath.Join(packDir, "pack.yaml"), []byte(packYAMLContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Add a git marker so DiscoverAllSkills walks this cache.
+	if err := os.MkdirAll(filepath.Join(cacheDir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"my-repo": {URL: "https://github.com/example/my-repo", CachePath: cacheDir},
+		},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+	cfg := &config.Config{Agents: make(map[string]config.AgentConfig)}
+
+	m, err := initialPackEditModel("my-repo/packs/go-dev", cfg, st)
+	if err != nil {
+		t.Fatalf("initialPackEditModel() error: %v", err)
+	}
+
+	// Count pre-selected skills.
+	selected := 0
+	for _, sel := range m.skillSel {
+		if sel {
+			selected++
+		}
+	}
+	if selected != 2 {
+		t.Errorf("pre-selected skills = %d, want 2", selected)
+	}
+
+	// Verify the non-pack skill (blogger) is not selected.
+	for i, s := range m.allSkills {
+		if strings.Contains(s.Address, "blogger") && m.skillSel[i] {
+			t.Errorf("skill %q should not be pre-selected", s.Address)
+		}
+	}
+}
+
+func TestInitialPackEditModel_MissingPack(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"my-repo": {URL: "https://example.com", CachePath: t.TempDir()},
+		},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+	cfg := &config.Config{Agents: make(map[string]config.AgentConfig)}
+
+	_, err := initialPackEditModel("my-repo/packs/nonexistent", cfg, st)
+	if err == nil {
+		t.Error("expected error for nonexistent pack, got nil")
+	}
+}

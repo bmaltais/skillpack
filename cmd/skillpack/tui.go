@@ -41,9 +41,12 @@ Repos panel:
   d/Delete    Remove selected repo
 
 Unmanaged panel:
-  ↑/↓         Move between unmanaged skills
-  Enter       Adopt selected skill into a registered repo
-  v           View SKILL.md of the selected skill
+  ↑/↓         Move between items
+  Type       Filter skills (incremental search)
+  Backspace  Delete filter character
+  Esc        Clear filter
+  Enter      Adopt selected skill into a registered repo
+  v          View SKILL.md of the selected skill
 
 All changes are applied immediately.`,
 	RunE: func(cmd *cobra.Command, args []string) error {

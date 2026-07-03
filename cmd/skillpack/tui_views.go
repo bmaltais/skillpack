@@ -847,6 +847,14 @@ func (m model) viewUnmanaged(b *strings.Builder) {
 		return
 	}
 
+	// Filter indicator
+	if m.unmanagedFilter != "" {
+		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s▌", m.unmanagedFilter)))
+		b.WriteString("\n")
+	} else {
+		b.WriteString("\n")
+	}
+
 	if len(m.unmanagedEntries) == 0 {
 		b.WriteString(emptyStyle.Render("   No unmanaged skills found."))
 		b.WriteString("\n")
@@ -925,7 +933,7 @@ func (m model) viewUnmanaged(b *strings.Builder) {
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render(" ↑↓ navigate  Enter adopt into repo  v view  Tab switch  q quit"))
+	b.WriteString(helpStyle.Render(" ↑↓ navigate  Type to filter  Enter adopt into repo  v view  Tab switch  q quit"))
 	b.WriteString("\n")
 	if m.message != "" {
 		b.WriteString(msgStyle.Render(" " + m.message))

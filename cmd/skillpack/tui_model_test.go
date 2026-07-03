@@ -282,3 +282,155 @@ func TestRefreshSkills_BrokenUpstreamMarked(t *testing.T) {
 		t.Errorf("expected problemBrokenUpstream, got %v", found.problem)
 	}
 }
+
+// --- refreshPacks tests ---
+
+// TestRefreshPacks_Empty verifies refreshPacks produces no rows when no packs are installed.
+func TestRefreshPacks_Empty(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	st := &state.State{
+		Repos:           make(map[string]state.RepoRecord),
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+		InstalledPacks:  make(map[string]state.InstalledPackRecord),
+	}
+
+	m := initialModel(cfg, st)
+	if len(m.packRows) != 0 {
+		t.Errorf("expected 0 packRows, got %d", len(m.packRows))
+	}
+}
+
+// TestRefreshPacks_Complete verifies a fully installed pack is flagged isPartial=false.
+func TestRefreshPacks_Complete(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	st := &state.State{
+		Repos:           make(map[string]state.RepoRecord),
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+		InstalledPacks: map[string]state.InstalledPackRecord{
+			"my-repo/packs/go-dev": {
+				PackAddress: "my-repo/packs/go-dev",
+				Agents:      []string{"claude-code"},
+				Skills: map[string]map[string]state.PackSkillStatus{
+					"my-repo/skills/go": {
+						"claude-code": {Installed: true},
+					},
+				},
+			},
+		},
+	}
+
+	m := initialModel(cfg, st)
+	if len(m.packRows) != 1 {
+		t.Fatalf("expected 1 packRow, got %d", len(m.packRows))
+	}
+	row := m.packRows[0]
+	if row.packAddr != "my-repo/packs/go-dev" {
+		t.Errorf("unexpected packAddr: %s", row.packAddr)
+	}
+	if row.isPartial {
+		t.Error("expected isPartial=false for a fully installed pack")
+	}
+}
+
+// TestRefreshPacks_Partial verifies a pack with a missing skill is flagged isPartial=true.
+func TestRefreshPacks_Partial(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	st := &state.State{
+		Repos:           make(map[string]state.RepoRecord),
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+		InstalledPacks: map[string]state.InstalledPackRecord{
+			"my-repo/packs/go-dev": {
+				PackAddress: "my-repo/packs/go-dev",
+				Agents:      []string{"claude-code"},
+				Skills: map[string]map[string]state.PackSkillStatus{
+					"my-repo/skills/go": {
+						"claude-code": {Installed: true},
+					},
+					"my-repo/skills/missing": {
+						"claude-code": {Installed: false, Error: "repo unavailable"},
+					},
+				},
+			},
+		},
+	}
+
+	m := initialModel(cfg, st)
+	if len(m.packRows) != 1 {
+		t.Fatalf("expected 1 packRow, got %d", len(m.packRows))
+	}
+	if !m.packRows[0].isPartial {
+		t.Error("expected isPartial=true when a skill is not installed")
+	}
+}
+
+// TestRefreshPacks_SortedByAddr verifies pack rows are sorted by address.
+func TestRefreshPacks_SortedByAddr(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	st := &state.State{
+		Repos:           make(map[string]state.RepoRecord),
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+		InstalledPacks: map[string]state.InstalledPackRecord{
+			"z-repo/packs/z": {PackAddress: "z-repo/packs/z", Skills: map[string]map[string]state.PackSkillStatus{}},
+			"a-repo/packs/a": {PackAddress: "a-repo/packs/a", Skills: map[string]map[string]state.PackSkillStatus{}},
+		},
+	}
+
+	m := initialModel(cfg, st)
+	if len(m.packRows) != 2 {
+		t.Fatalf("expected 2 packRows, got %d", len(m.packRows))
+	}
+	if m.packRows[0].packAddr != "a-repo/packs/a" {
+		t.Errorf("expected first row to be a-repo/packs/a, got %s", m.packRows[0].packAddr)
+	}
+	if m.packRows[1].packAddr != "z-repo/packs/z" {
+		t.Errorf("expected second row to be z-repo/packs/z, got %s", m.packRows[1].packAddr)
+	}
+}
+
+// TestCloneState_CopiesInstalledPacks verifies cloneState correctly copies InstalledPacks.
+func TestCloneState_CopiesInstalledPacks(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	src := &state.State{
+		Repos:           make(map[string]state.RepoRecord),
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+		InstalledPacks: map[string]state.InstalledPackRecord{
+			"my-repo/packs/go-dev": {
+				PackAddress: "my-repo/packs/go-dev",
+				Agents:      []string{"claude-code"},
+				Skills: map[string]map[string]state.PackSkillStatus{
+					"my-repo/skills/go": {"claude-code": {Installed: true}},
+				},
+			},
+		},
+	}
+
+	dst := cloneState(src)
+
+	// Verify the pack was copied
+	if len(dst.InstalledPacks) != 1 {
+		t.Fatalf("expected 1 InstalledPack in clone, got %d", len(dst.InstalledPacks))
+	}
+	rec, ok := dst.InstalledPacks["my-repo/packs/go-dev"]
+	if !ok {
+		t.Fatal("pack not found in cloned state")
+	}
+	if len(rec.Skills) != 1 {
+		t.Errorf("expected 1 skill in cloned pack, got %d", len(rec.Skills))
+	}
+
+	// Verify it is a deep copy — mutations don't bleed back
+	dst.InstalledPacks["my-repo/packs/go-dev"].Skills["my-repo/skills/go"]["claude-code"] = state.PackSkillStatus{Installed: false}
+	origStatus := src.InstalledPacks["my-repo/packs/go-dev"].Skills["my-repo/skills/go"]["claude-code"]
+	if !origStatus.Installed {
+		t.Error("cloneState is not deep-copying InstalledPacks — mutation in dst affected src")
+	}
+}

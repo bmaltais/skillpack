@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -31,8 +32,9 @@ var (
 	bannerStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("220")).Bold(true)
 	bannerBtnActive   = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("62")).Bold(true)
 	bannerBtnInactive = lipgloss.NewStyle().Foreground(lipgloss.Color("242")).Background(lipgloss.Color("238"))
-	staleStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true) // orange  - stale address
+	staleStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true) // orange  - stale address
 	brokenUpstreamStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true) // red - broken upstream
+	partialStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)  // yellow - partial pack
 )
 
 // View renders the entire TUI (delegates to the four panel-specific view* methods).
@@ -51,6 +53,8 @@ func (m model) View() string {
 		b.WriteString(tabInactive.Render(" Repos "))
 		b.WriteString("  ")
 		b.WriteString(tabInactive.Render(" Unmanaged "))
+		b.WriteString("  ")
+		b.WriteString(tabInactive.Render(" Packs "))
 	case panelStatus:
 		b.WriteString(tabInactive.Render(" Skills "))
 		b.WriteString("  ")
@@ -59,6 +63,8 @@ func (m model) View() string {
 		b.WriteString(tabInactive.Render(" Repos "))
 		b.WriteString("  ")
 		b.WriteString(tabInactive.Render(" Unmanaged "))
+		b.WriteString("  ")
+		b.WriteString(tabInactive.Render(" Packs "))
 	case panelRepos:
 		b.WriteString(tabInactive.Render(" Skills "))
 		b.WriteString("  ")
@@ -67,6 +73,8 @@ func (m model) View() string {
 		b.WriteString(tabActive.Render("[Repos]"))
 		b.WriteString("  ")
 		b.WriteString(tabInactive.Render(" Unmanaged "))
+		b.WriteString("  ")
+		b.WriteString(tabInactive.Render(" Packs "))
 	case panelUnmanaged:
 		b.WriteString(tabInactive.Render(" Skills "))
 		b.WriteString("  ")
@@ -75,6 +83,18 @@ func (m model) View() string {
 		b.WriteString(tabInactive.Render(" Repos "))
 		b.WriteString("  ")
 		b.WriteString(tabActive.Render("[Unmanaged]"))
+		b.WriteString("  ")
+		b.WriteString(tabInactive.Render(" Packs "))
+	case panelPacks:
+		b.WriteString(tabInactive.Render(" Skills "))
+		b.WriteString("  ")
+		b.WriteString(tabInactive.Render(" Status "))
+		b.WriteString("  ")
+		b.WriteString(tabInactive.Render(" Repos "))
+		b.WriteString("  ")
+		b.WriteString(tabInactive.Render(" Unmanaged "))
+		b.WriteString("  ")
+		b.WriteString(tabActive.Render("[Packs]"))
 	}
 	b.WriteString("\n")
 
@@ -114,6 +134,8 @@ func (m model) View() string {
 		m.viewRepos(&b)
 	case panelUnmanaged:
 		m.viewUnmanaged(&b)
+	case panelPacks:
+		m.viewPacks(&b)
 	}
 
 	return b.String()
@@ -942,7 +964,222 @@ func (m model) viewUnmanaged(b *strings.Builder) {
 	}
 }
 
-// --- Small pure helpers moved with the view layer (Phase 1) ---
+func (m model) viewPacks(b *strings.Builder) {
+	b.WriteString("\n")
+
+	// Detail overlay: show per-skill, per-agent status for the selected pack.
+	if m.packDetailOpen && m.packCursor < len(m.packRows) {
+		row := m.packRows[m.packCursor]
+		rec, ok := m.st.InstalledPacks[row.packAddr]
+		if !ok {
+			b.WriteString(dimStyle.Render(" Pack record not found."))
+			b.WriteString("\n")
+			return
+		}
+		statusLabel := checkStyle.Render("complete")
+		if row.isPartial {
+			statusLabel = partialStyle.Render("partial")
+		}
+		b.WriteString(fmt.Sprintf(" Pack: %s  [%s]\n", bold(row.packAddr), statusLabel))
+		b.WriteString(fmt.Sprintf(" Installed: %s\n", rec.InstalledAt.Format("2006-01-02 15:04:05")))
+		b.WriteString(fmt.Sprintf(" Agents:    %s\n\n", strings.Join(rec.Agents, ", ")))
+
+		// Collect and sort skills
+		var skillAddrs []string
+		for s := range rec.Skills {
+			skillAddrs = append(skillAddrs, s)
+		}
+		sort.Strings(skillAddrs)
+
+		skillW, agentW := 5, 5
+		for _, sa := range skillAddrs {
+			if len(sa) > skillW {
+				skillW = len(sa)
+			}
+			for ag := range rec.Skills[sa] {
+				if len(ag) > agentW {
+					agentW = len(ag)
+				}
+			}
+		}
+		if skillW > m.width/2 {
+			skillW = m.width / 2
+		}
+
+		header := fmt.Sprintf("  %-*s  %-*s  %s", skillW, "SKILL", agentW, "AGENT", "STATUS")
+		b.WriteString(dimStyle.Render(header))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render("  " + safeRepeat("─", m.width-4)))
+		b.WriteString("\n")
+
+		maxRows := m.height - 12
+		if maxRows < 3 {
+			maxRows = 3
+		}
+		displayed := 0
+		for _, sa := range skillAddrs {
+			if displayed >= maxRows {
+				break
+			}
+			agentStatuses := rec.Skills[sa]
+			var agents []string
+			for ag := range agentStatuses {
+				agents = append(agents, ag)
+			}
+			sort.Strings(agents)
+			for _, ag := range agents {
+				if displayed >= maxRows {
+					break
+				}
+				s := agentStatuses[ag]
+				var statusStr string
+				if s.Installed {
+					statusStr = checkStyle.Render("✓ installed")
+				} else if s.Error != "" {
+					statusStr = conflictStyle.Render("✗ error: " + s.Error)
+				} else {
+					statusStr = partialStyle.Render("⚠ missing")
+				}
+				skillShort := sa
+				if len(skillShort) > skillW {
+					skillShort = skillShort[:skillW-1] + "…"
+				}
+				fmt.Fprintf(b, "  %-*s  %-*s  ", skillW, skillShort, agentW, ag)
+				b.WriteString(statusStr)
+				b.WriteString("\n")
+				displayed++
+			}
+		}
+		for i := displayed; i < maxRows; i++ {
+			b.WriteString("\n")
+		}
+
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
+		b.WriteString("\n")
+		if row.isPartial {
+			b.WriteString(helpStyle.Render(" c complete deployment  D remove  Esc back  Tab switch  q quit"))
+		} else {
+			b.WriteString(helpStyle.Render(" D remove  Esc back  Tab switch  q quit"))
+		}
+		b.WriteString("\n")
+		if m.message != "" {
+			b.WriteString(msgStyle.Render(" " + m.message))
+		}
+		return
+	}
+
+	// List view
+	if len(m.packRows) == 0 {
+		b.WriteString(emptyStyle.Render("   No packs installed."))
+		b.WriteString("\n")
+		b.WriteString(emptyStyle.Render("   Install a pack with: skillpack pack install <address>"))
+		b.WriteString("\n")
+	} else {
+		// Column widths
+		addrW := 12
+		for _, row := range m.packRows {
+			if len(row.packAddr) > addrW {
+				addrW = len(row.packAddr)
+			}
+		}
+		const partialBadgeW = 10 // " [partial]" suffix width
+		addrW += 2
+		if addrW > m.width*2/3 {
+			addrW = m.width * 2 / 3
+		}
+		agentsColW := m.width - addrW - 16 // STATUS col is ~10 + padding
+		if agentsColW < 8 {
+			agentsColW = 8
+		}
+
+		header := fmt.Sprintf(" %-*s  %-*s  %s", addrW, "PACK", agentsColW, "AGENTS", "STATUS")
+		b.WriteString(dimStyle.Render(header))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
+		b.WriteString("\n")
+
+		maxRows := m.height - 10
+		if maxRows < 3 {
+			maxRows = 3
+		}
+
+		offset := 0
+		if m.packCursor >= maxRows {
+			offset = m.packCursor - maxRows + 1
+		}
+
+		displayed := 0
+		for i := offset; i < len(m.packRows) && displayed < maxRows; i++ {
+			row := m.packRows[i]
+			isSelected := i == m.packCursor
+
+			addr := row.packAddr
+			if row.isPartial && len(addr)+partialBadgeW > addrW {
+				trunc := addrW - partialBadgeW - 1
+				if trunc > 0 {
+					addr = addr[:trunc] + "…"
+				}
+			} else if len(addr) > addrW {
+				addr = addr[:addrW-1] + "…"
+			}
+
+			agentsStr := strings.Join(row.agents, ", ")
+			if len(agentsStr) > agentsColW {
+				agentsStr = agentsStr[:agentsColW-1] + "…"
+			}
+
+			var statusStr string
+			if row.isPartial {
+				statusStr = partialStyle.Render("⚠ partial")
+			} else {
+				statusStr = checkStyle.Render("✓ complete")
+			}
+
+			line := fmt.Sprintf(" %-*s  %-*s  ", addrW, addr, agentsColW, agentsStr)
+			if isSelected {
+				b.WriteString(selectedStyle.Render(fmt.Sprintf(" %-*s  %-*s ", addrW, addr, agentsColW, agentsStr)))
+			} else {
+				if row.isPartial {
+					b.WriteString(partialStyle.Render(fmt.Sprintf(" %-*s", addrW, addr)))
+					b.WriteString(fmt.Sprintf("  %-*s  ", agentsColW, agentsStr))
+				} else {
+					b.WriteString(line)
+				}
+			}
+			b.WriteString(statusStr)
+			b.WriteString("\n")
+			displayed++
+		}
+
+		for i := displayed; i < maxRows; i++ {
+			b.WriteString("\n")
+		}
+	}
+
+	// Footer
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
+	b.WriteString("\n")
+	b.WriteString(helpStyle.Render(" ↑↓ navigate  Enter detail  c complete  D remove  Tab switch  q quit"))
+	b.WriteString("\n")
+	if m.message != "" {
+		b.WriteString(msgStyle.Render(" " + m.message))
+	} else {
+		total := len(m.packRows)
+		partialCount := 0
+		for _, row := range m.packRows {
+			if row.isPartial {
+				partialCount++
+			}
+		}
+		if partialCount > 0 {
+			b.WriteString(dimStyle.Render(fmt.Sprintf(" %d pack(s) installed  •  %s", total, partialStyle.Render(fmt.Sprintf("%d partial", partialCount)))))
+		} else {
+			b.WriteString(dimStyle.Render(fmt.Sprintf(" %d pack(s) installed", total)))
+		}
+	}
+}
 
 // visibleRows returns indices into m.rows that should be displayed given
 // the current filter and expand/collapse state.

@@ -138,6 +138,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case packCompleteDoneMsg:
+		m.busy = ""
+		if msg.err != nil {
+			m.message = fmt.Sprintf("✗ Complete deployment failed: %v", msg.err)
+		} else {
+			if msg.st != nil {
+				*m.st = *msg.st
+			}
+			m.refreshPacks()
+			m.refreshSkills()
+			m.message = msg.summary
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// Block input while busy
 		if m.busy != "" {
@@ -202,12 +216,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.activePanel = panelUnmanaged
 				m.refreshUnmanaged()
 			case panelUnmanaged:
+				m.activePanel = panelPacks
+				m.refreshPacks()
+			case panelPacks:
 				m.activePanel = panelSkills
 			}
 			m.message = ""
 		case tea.KeyEsc:
 			if m.activePanel == panelUnmanaged {
 				m.unmanagedFilter = ""
+			} else if m.activePanel == panelPacks && m.packDetailOpen {
+				m.packDetailOpen = false
+				m.message = ""
 			} else if m.filter != "" {
 				m.filter = ""
 			} else {
@@ -337,6 +357,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.unmanagedFilter += ch
 				m.refreshUnmanaged()
+			case panelPacks:
+				switch ch {
+				case "q":
+					return m, tea.Quit
+				case "c":
+					// Complete deployment for the selected partial pack
+					if m.packCursor < len(m.packRows) && m.packRows[m.packCursor].isPartial {
+						packAddr := m.packRows[m.packCursor].packAddr
+						m.busy = "Completing deployment..."
+						m.message = ""
+						return m, m.cmdCompleteDeployment(packAddr)
+					} else if m.packCursor < len(m.packRows) {
+						m.message = "Pack is already fully deployed"
+					}
+				case "D":
+					// Remove pack (with confirmation)
+					m.startPackRemove()
+				}
 			}
 		}
 	}

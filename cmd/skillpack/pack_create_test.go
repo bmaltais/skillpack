@@ -233,17 +233,44 @@ func TestRebuildVisible(t *testing.T) {
 	}
 }
 
-// ─── cmdCommitAndPush (filesystem side-effect) ───────────────────────────────
+// ─── sanitizePackPath ────────────────────────────────────────────────────────
 
-func TestCmdCommitAndPush_WritesPACKFile(t *testing.T) {
+func TestSanitizePackPath(t *testing.T) {
+	cases := []struct {
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{"packs/go-dev", "packs/go-dev", false},
+		{"  packs/go-dev  ", "packs/go-dev", false},
+		{"packs//go-dev", "packs/go-dev", false}, // double slash cleaned
+		{"/etc/passwd", "", true},                // absolute path rejected
+		{"../escape", "", true},                  // traversal rejected
+		{"packs/../../../etc", "", true},          // traversal via clean rejected
+		{"", "", true},                           // empty rejected
+		{".", "", true},                           // dot-only rejected
+	}
+	for _, tc := range cases {
+		got, err := sanitizePackPath(tc.input)
+		if (err != nil) != tc.wantErr {
+			t.Errorf("sanitizePackPath(%q) error=%v wantErr=%v", tc.input, err, tc.wantErr)
+			continue
+		}
+		if !tc.wantErr && got != tc.want {
+			t.Errorf("sanitizePackPath(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+// ─── cmdCommitAndPush filesystem write (smoke test only) ─────────────────────
+
+// TestPackYAMLWriteAndRead verifies that pack YAML content can be written to
+// and read back from disk without corruption. It does not test git operations
+// (which require a real repo and remote) — that coverage lives in gitops tests.
+func TestPackYAMLWriteAndRead(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
-	// Create a minimal fake git repo in a temp dir.
-	repoDir := t.TempDir()
-
-	// We can't do a real git push in unit tests, but we can verify the file
-	// write step by testing writePackFile directly.
-	packDir := filepath.Join(repoDir, "packs", "test-pack")
+	packDir := filepath.Join(t.TempDir(), "packs", "test-pack")
 	if err := os.MkdirAll(packDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -258,6 +285,6 @@ func TestCmdCommitAndPush_WritesPACKFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(data) != content {
-		t.Errorf("pack.yaml content mismatch:\ngot:  %q\nwant: %q", string(data), content)
+		t.Errorf("pack.yaml round-trip mismatch:\ngot:  %q\nwant: %q", string(data), content)
 	}
 }

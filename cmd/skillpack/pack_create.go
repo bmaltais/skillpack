@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -152,11 +153,12 @@ func (m *packCreateModel) buildPackFromWizard() (*packYAML, error) {
 	sort.Strings(skillAddrs)
 
 	// Build the repos section from the skills' parent repos.
+	// Error rather than silently omit: a missing repo would produce an invalid pack.yaml.
 	var repos []packRepoRef
 	for rn := range reposSeen {
 		rec, ok := m.st.Repos[rn]
 		if !ok {
-			continue
+			return nil, fmt.Errorf("selected skills include repo %q which is not registered in state", rn)
 		}
 		repos = append(repos, packRepoRef{Name: rn, URL: rec.URL})
 	}
@@ -259,8 +261,10 @@ func (m packCreateModel) updateTextInput(
 			m.step = prevStep
 		}
 	case tea.KeyBackspace, tea.KeyDelete:
-		if len(*field) > 0 {
-			*field = (*field)[:len(*field)-1]
+		// Trim the last rune (not byte) to correctly handle multi-byte UTF-8 characters.
+		runes := []rune(*field)
+		if len(runes) > 0 {
+			*field = string(runes[:len(runes)-1])
 		}
 	case tea.KeyEnter:
 		// Validate name when advancing from name step.
@@ -410,8 +414,15 @@ func (m packCreateModel) cmdCommitAndPush() tea.Cmd {
 			return packCreateDoneMsg{err: fmt.Errorf("repo %q has no remote URL — cannot push", selectedRepo.name)}
 		}
 
-		// Write pack.yaml to the repo cache.
-		packDir := filepath.Join(rec.CachePath, filepath.FromSlash(packPath))
+		// Sanitize and validate packPath before any filesystem access.
+		cleanPath, pathErr := sanitizePackPath(packPath)
+		if pathErr != nil {
+			return packCreateDoneMsg{err: pathErr}
+		}
+
+		// Write pack.yaml to the repo cache. cleanPath uses forward slashes;
+		// convert to OS-native separators only for filesystem operations.
+		packDir := filepath.Join(rec.CachePath, filepath.FromSlash(cleanPath))
 		if err := os.MkdirAll(packDir, 0755); err != nil {
 			return packCreateDoneMsg{err: fmt.Errorf("creating pack directory: %w", err)}
 		}
@@ -420,20 +431,21 @@ func (m packCreateModel) cmdCommitAndPush() tea.Cmd {
 			return packCreateDoneMsg{err: fmt.Errorf("writing pack.yaml: %w", err)}
 		}
 
-		// Commit and push.
+		// Commit and push. Pass cleanPath (forward-slash) as the git rel-path.
 		token := cfg.TokenForRepo(selectedRepo.name)
 		name := strings.TrimSpace(m.nameInput)
 		commitMsg := fmt.Sprintf("feat: add pack %q", name)
-		result, err := gitops.CommitAndPush(rec.CachePath, packPath, commitMsg, rec.URL, token)
+		result, err := gitops.CommitAndPush(rec.CachePath, cleanPath, commitMsg, rec.URL, token)
 		if err != nil {
 			return packCreateDoneMsg{err: fmt.Errorf("publishing pack: %w", err)}
 		}
 
-		packAddr := selectedRepo.name + "/" + strings.TrimPrefix(packPath, "/")
-		summary := fmt.Sprintf("Pack %q published to %s", name, packAddr)
-		if result.Committed {
-			summary += fmt.Sprintf(" (commit %s)", result.CommitHash[:8])
+		packAddr := selectedRepo.name + "/" + cleanPath
+		if !result.Committed {
+			summary := fmt.Sprintf("Pack %q already up-to-date at %s (no changes to commit)", name, packAddr)
+			return packCreateDoneMsg{result: summary}
 		}
+		summary := fmt.Sprintf("Pack %q published to %s (commit %s)", name, packAddr, result.CommitHash[:8])
 		return packCreateDoneMsg{result: summary}
 	}
 }
@@ -518,7 +530,7 @@ func (m packCreateModel) View() string {
 		if len(m.visibleSkills) == 0 {
 			b.WriteString("  " + createHelpStyle.Render("(no skills match filter)") + "\n")
 		}
-		b.WriteString("\n" + createHelpStyle.Render("  ↑↓=navigate  space=toggle  type=filter  backspace=clear filter  enter=next  esc=back") + "\n")
+		b.WriteString("\n" + createHelpStyle.Render("  ↑↓=navigate  space=toggle  type=filter  backspace=delete char  enter=next  esc=back") + "\n")
 
 	case createStepPath:
 		b.WriteString(createPromptStyle.Render("Step 4/6 — Pack directory path in repo") + "\n\n")
@@ -589,6 +601,24 @@ func runPackCreateWizard(cfg *config.Config, st *state.State) error {
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
+
+// sanitizePackPath cleans and validates a relative pack path for use inside a
+// repo cache. It rejects absolute paths, ".." traversal components, and empty
+// inputs. The returned path always uses forward slashes (suitable for git
+// operations and CommitAndPush).
+func sanitizePackPath(raw string) (string, error) {
+	cleaned := path.Clean(filepath.ToSlash(strings.TrimSpace(raw)))
+	if cleaned == "" || cleaned == "." {
+		return "", fmt.Errorf("pack path cannot be empty")
+	}
+	if path.IsAbs(cleaned) {
+		return "", fmt.Errorf("pack path must be relative (got absolute path %q)", cleaned)
+	}
+	if strings.HasPrefix(cleaned, "..") {
+		return "", fmt.Errorf("pack path must not escape the repo root (got %q)", cleaned)
+	}
+	return cleaned, nil
+}
 
 // ValidatePackCreate validates the inputs for a pack create operation without
 // running the TUI. Used in tests.

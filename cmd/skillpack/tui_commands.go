@@ -239,3 +239,60 @@ func cmdSelfUpdate() tea.Cmd {
 		}
 	}
 }
+
+// cmdCompleteDeployment installs all missing skills in a partial pack.
+// It mirrors the logic of packUpdateCmd but targets only skills marked not-installed.
+func (m *model) cmdCompleteDeployment(packAddr string) tea.Cmd {
+	cfg := m.cfg
+	stCopy := cloneState(m.st)
+	return func() tea.Msg {
+		rec, ok := stCopy.InstalledPacks[packAddr]
+		if !ok {
+			return packCompleteDoneMsg{
+				packAddr: packAddr,
+				err:      fmt.Errorf("pack %q not found in state", packAddr),
+			}
+		}
+
+		installed := 0
+		failed := 0
+		for skillAddr, agStatuses := range rec.Skills {
+			for ag, agStatus := range agStatuses {
+				if agStatus.Installed {
+					continue // already installed
+				}
+				installErr := skill.Install(skillAddr, ag, cfg, stCopy, false)
+				if installErr != nil {
+					rec.Skills[skillAddr][ag] = state.PackSkillStatus{
+						Installed: false,
+						Error:     installErr.Error(),
+					}
+					failed++
+				} else {
+					rec.Skills[skillAddr][ag] = state.PackSkillStatus{Installed: true}
+					installed++
+				}
+			}
+		}
+
+		if err := stCopy.RecordPackInstall(packAddr, rec); err != nil {
+			return packCompleteDoneMsg{packAddr: packAddr, err: err}
+		}
+		if err := state.Save(stCopy); err != nil {
+			return packCompleteDoneMsg{packAddr: packAddr, err: err}
+		}
+
+		var summary string
+		switch {
+		case installed > 0 && failed == 0:
+			summary = fmt.Sprintf("✓ Pack %q complete — %d skill(s) installed", packAddr, installed)
+		case installed > 0 && failed > 0:
+			summary = fmt.Sprintf("⚠ Pack %q still partial — %d installed, %d failed", packAddr, installed, failed)
+		case installed == 0 && failed == 0:
+			summary = fmt.Sprintf("✓ Pack %q already fully deployed", packAddr)
+		default:
+			summary = fmt.Sprintf("✗ Pack %q — all %d skill(s) failed to install", packAddr, failed)
+		}
+		return packCompleteDoneMsg{packAddr: packAddr, st: stCopy, summary: summary}
+	}
+}

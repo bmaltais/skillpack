@@ -281,6 +281,28 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 		case tea.KeyCtrlC:
 			return *m, tea.Quit
 		}
+
+	case modePackConfirmRemove:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.inputMode = modeNormal
+			m.message = ""
+		case tea.KeyRunes:
+			ch := msg.String()
+			if ch == "y" || ch == "Y" {
+				m.doPackRemove()
+			} else {
+				m.inputMode = modeNormal
+				m.message = ""
+			}
+		case tea.KeyEnter:
+			m.doPackRemove()
+		case tea.KeyCtrlC:
+			return *m, tea.Quit
+		default:
+			m.inputMode = modeNormal
+			m.message = ""
+		}
 	}
 	return *m, nil
 }
@@ -301,6 +323,13 @@ func (m *model) handleUp() {
 		if m.unmanagedCursor > 0 {
 			m.unmanagedCursor--
 		}
+	case panelPacks:
+		if m.packCursor > 0 {
+			m.packCursor--
+			if m.packDetailOpen {
+				m.packDetailOpen = false // close detail on navigation
+			}
+		}
 	}
 }
 
@@ -320,6 +349,13 @@ func (m *model) handleDown() {
 		if m.unmanagedCursor < len(m.unmanagedEntries)-1 {
 			m.unmanagedCursor++
 		}
+	case panelPacks:
+		if m.packCursor < len(m.packRows)-1 {
+			m.packCursor++
+			if m.packDetailOpen {
+				m.packDetailOpen = false // close detail on navigation
+			}
+		}
 	}
 }
 
@@ -331,6 +367,12 @@ func (m *model) handleAction() {
 		m.updateSelectedSkill()
 	case panelUnmanaged:
 		m.startAdopt()
+	case panelPacks:
+		// Toggle detail view
+		if len(m.packRows) > 0 && m.packCursor < len(m.packRows) {
+			m.packDetailOpen = !m.packDetailOpen
+			m.message = ""
+		}
 	}
 }
 
@@ -660,4 +702,72 @@ func (m *model) updateSelectedSkill() {
 		}
 	}
 	m.message = fmt.Sprintf("✓ Updated %s for %s", row.addr, row.agentName)
+}
+
+func (m *model) startPackRemove() {
+	if len(m.packRows) == 0 {
+		m.message = "No packs to remove"
+		return
+	}
+	if m.packCursor >= len(m.packRows) {
+		return
+	}
+	packAddr := m.packRows[m.packCursor].packAddr
+	m.message = fmt.Sprintf("Remove pack %q? (y/N)", packAddr)
+	m.inputMode = modePackConfirmRemove
+}
+
+func (m *model) doPackRemove() {
+	if m.packCursor >= len(m.packRows) {
+		m.inputMode = modeNormal
+		return
+	}
+	packAddr := m.packRows[m.packCursor].packAddr
+	rec, ok := m.st.InstalledPacks[packAddr]
+	if !ok {
+		m.message = fmt.Sprintf("✗ Pack %q not found in state", packAddr)
+		m.inputMode = modeNormal
+		return
+	}
+
+	// Remove all skills for all agents in the pack; count failures for user feedback.
+	removeFailures := 0
+	for skillAddr, agStatuses := range rec.Skills {
+		for ag, agStatus := range agStatuses {
+			if !agStatus.Installed {
+				continue
+			}
+			is, err := skill.Open(skillAddr, ag, m.cfg, m.st)
+			if err != nil {
+				continue // skill not installed — nothing to remove
+			}
+			if err := is.Remove(true); err != nil {
+				removeFailures++
+			}
+		}
+	}
+
+	if err := m.st.RecordPackRemove(packAddr); err != nil {
+		m.message = fmt.Sprintf("✗ Remove failed: %v", err)
+		m.inputMode = modeNormal
+		return
+	}
+	if err := state.Save(m.st); err != nil {
+		m.message = fmt.Sprintf("✗ Save failed: %v", err)
+		m.inputMode = modeNormal
+		return
+	}
+
+	m.refreshPacks()
+	m.refreshSkills()
+	m.packDetailOpen = false
+	if m.packCursor >= len(m.packRows) && m.packCursor > 0 {
+		m.packCursor--
+	}
+	if removeFailures > 0 {
+		m.message = fmt.Sprintf("⚠ Removed pack %s (%d skill file(s) could not be deleted — check manually)", packAddr, removeFailures)
+	} else {
+		m.message = fmt.Sprintf("➖ Removed pack %s", packAddr)
+	}
+	m.inputMode = modeNormal
 }

@@ -50,6 +50,7 @@ const (
 	panelRepos
 	panelStatus
 	panelUnmanaged
+	panelPacks
 )
 
 // --- Input mode ---
@@ -65,9 +66,10 @@ const (
 	modeForkResolveChoice
 	modeAdoptSelectRepo
 	modeRegisterForkInput
-	modeRelinkStaleInput    // stale repair: user types (or selects) a replacement address
-	modeRelinkBrokenChoice  // broken-upstream repair: choose set-upstream (1) or clear (2)
+	modeRelinkStaleInput     // stale repair: user types (or selects) a replacement address
+	modeRelinkBrokenChoice   // broken-upstream repair: choose set-upstream (1) or clear (2)
 	modeRelinkBrokenSetInput // broken-upstream repair: user types new upstream address
+	modePackConfirmRemove    // packs panel: confirm pack removal
 )
 
 // --- Model ---
@@ -127,7 +129,12 @@ type model struct {
 	unmanagedEntries []unmanagedEntry
 	unmanagedCursor  int
 	unmanagedFilter  string // incremental filter for the unmanaged panel
-	adoptCursor      int // cursor for repo selection in adopt flow
+	adoptCursor      int    // cursor for repo selection in adopt flow
+
+	// Packs panel
+	packRows       []packRow
+	packCursor     int
+	packDetailOpen bool // true when showing per-skill detail overlay for selected pack
 
 	// Config/state refs
 	cfg *config.Config
@@ -141,6 +148,13 @@ type model struct {
 type repoEntry struct {
 	name string
 	url  string
+}
+
+// packRow holds display data for one row in the packs panel.
+type packRow struct {
+	packAddr  string
+	isPartial bool
+	agents    []string
 }
 
 type unmanagedEntry struct {
@@ -174,6 +188,7 @@ func initialModel(cfg *config.Config, st *state.State) model {
 	m.refreshSkills()
 	m.refreshRepos()
 	m.refreshUnmanaged()
+	m.refreshPacks()
 
 	return m
 }
@@ -260,6 +275,39 @@ func (m *model) refreshRepos() {
 		m.repoList = append(m.repoList, repoEntry{name: name, url: rec.URL})
 	}
 	sort.Slice(m.repoList, func(i, j int) bool { return m.repoList[i].name < m.repoList[j].name })
+}
+
+func (m *model) refreshPacks() {
+	m.packRows = nil
+
+	addrs := make([]string, 0, len(m.st.InstalledPacks))
+	for addr := range m.st.InstalledPacks {
+		addrs = append(addrs, addr)
+	}
+	sort.Strings(addrs)
+
+	for _, addr := range addrs {
+		rec := m.st.InstalledPacks[addr]
+		agents := make([]string, len(rec.Agents))
+		copy(agents, rec.Agents)
+		partial := false
+		for _, agentStatuses := range rec.Skills {
+			for _, s := range agentStatuses {
+				if !s.Installed {
+					partial = true
+				}
+			}
+		}
+		m.packRows = append(m.packRows, packRow{
+			packAddr:  addr,
+			isPartial: partial,
+			agents:    agents,
+		})
+	}
+
+	if m.packCursor >= len(m.packRows) {
+		m.packCursor = 0
+	}
 }
 
 func (m *model) refreshUnmanaged() {
@@ -432,6 +480,14 @@ type relinkUpstreamDoneMsg struct {
 	err         error
 }
 
+// packCompleteDoneMsg is sent when a "complete deployment" finishes.
+type packCompleteDoneMsg struct {
+	packAddr string
+	st       *state.State // updated state on success
+	summary  string
+	err      error
+}
+
 type selfUpdateDoneMsg struct {
 	summary      string
 	needsRestart bool
@@ -482,6 +538,7 @@ func cloneState(src *state.State) *state.State {
 	dst := &state.State{
 		Repos:           make(map[string]state.RepoRecord, len(src.Repos)),
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord, len(src.InstalledSkills)),
+		InstalledPacks:  make(map[string]state.InstalledPackRecord, len(src.InstalledPacks)),
 	}
 	for k, v := range src.Repos {
 		dst.Repos[k] = v
@@ -491,6 +548,21 @@ func cloneState(src *state.State) *state.State {
 		for agent, rec := range agents {
 			dst.InstalledSkills[addr][agent] = rec
 		}
+	}
+	for packAddr, rec := range src.InstalledPacks {
+		newRec := state.InstalledPackRecord{
+			PackAddress: rec.PackAddress,
+			InstalledAt: rec.InstalledAt,
+			Agents:      append([]string{}, rec.Agents...),
+			Skills:      make(map[string]map[string]state.PackSkillStatus, len(rec.Skills)),
+		}
+		for skillAddr, agStatuses := range rec.Skills {
+			newRec.Skills[skillAddr] = make(map[string]state.PackSkillStatus, len(agStatuses))
+			for agName, s := range agStatuses {
+				newRec.Skills[skillAddr][agName] = s
+			}
+		}
+		dst.InstalledPacks[packAddr] = newRec
 	}
 	return dst
 }

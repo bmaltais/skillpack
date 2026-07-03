@@ -17,6 +17,8 @@ The binary entry point is `cmd/skillpack/`. There is no other binary in this rep
 
 | File | Purpose |
 |------|---------|
+| `docs/adr/` | Architecture Decision Records |
+| `docs/adr/0001-packs-feature-design.md` | Packs feature design decisions |
 | `CONTEXT.md` | Canonical domain glossary — read this first |
 | `plan.md` | Full design spec with resolved decisions |
 | `internal/config/config.go` | Config loading (`~/.skillpack/config.yaml`) |

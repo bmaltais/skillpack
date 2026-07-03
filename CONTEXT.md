@@ -55,3 +55,37 @@ The act of copying a locally-modified skill from an agent's `skill_dir` back int
 ## Sync
 
 A two-way reconciliation command. Pulls all registered repos, applies upstream changes to unmodified installed skills, publishes locally-modified skills to their remotes, and warns on conflicts.
+
+---
+
+## Pack
+
+A named, curated collection of skills bundled as a recipe. A pack declares the repos and skills that belong together for a given purpose (e.g. "go-dev", "writing-tools"). Installing a pack clones/updates all referenced repos, then installs all listed skills in one operation. A pack is a distribution unit (shareable) and an installation shortcut (one command deploys many skills).
+
+## Pack Recipe
+
+The `pack.yaml` file that defines a pack. Contains the pack's name, an optional description, and an explicit list of repos (with URLs) and skills (with their addresses) that make up the pack. The recipe is the only artifact — packs do not bundle skill file contents.
+
+## Pack Address
+
+The canonical identifier for a pack: `<repo-name>/<repo-relative/path/to/pack>`. Discovery follows the same recursive walk as skill discovery — any directory inside a repo cache that contains a `pack.yaml` is a pack. Example: `awesome-skills/packs/go-dev`.
+
+## Pack Deployment
+
+The act of installing all skills declared in a pack recipe for one or more selected agents. A pack deployment is a first-class entity tracked in state, distinct from the individual skill installs it produces.
+
+## Partial Pack Deployment
+
+A pack deployment where one or more skills failed to install — typically because a referenced repo required authentication that was not available. Tracked in state. Listed as partial in CLI output and the TUI. The user can complete a partial deployment once credentials are configured; skillpack never completes it automatically.
+
+## Pack Authoring
+
+The process of assembling a new pack using the TUI. The TUI guides the user through naming the pack, selecting skills from registered repos, and choosing which repo to publish the recipe to. The resulting `pack.yaml` is saved locally and optionally published.
+
+## Pack Publication
+
+The act of committing and pushing a `pack.yaml` to a selected skill repo, making the pack discoverable by other users of that repo.
+
+## Installed Pack
+
+A pack that has been deployed on the local machine. Tracked in state with the pack address, the agents it was deployed for, the list of skills it installed per agent, and whether the deployment is complete or partial.

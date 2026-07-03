@@ -288,6 +288,94 @@ skillpack/
 
 A separate `.github/workflows/ci.yml` runs tests + vet on every push and PR.
 
+## Packs
+
+A pack bundles a curated set of skills into a shareable, installable recipe. See `docs/adr/0001-packs-feature-design.md` for full design decisions.
+
+### Pack Recipe Format
+
+A `pack.yaml` in a named directory, discovered by the same recursive repo walk as skills:
+
+```
+awesome-skills/
+└── packs/
+    └── go-dev/
+        └── pack.yaml    # address: awesome-skills/packs/go-dev
+```
+
+```yaml
+name: go-dev
+description: "Go development skills"  # optional
+repos:
+  - name: awesome-skills
+    url: https://github.com/example/awesome-skills
+skills:
+  - awesome-skills/coding/debugger
+  - awesome-skills/coding/test-writer
+```
+
+### Pack Commands
+
+```
+skillpack pack install <address|url|filepath>  # deploy a pack; prompts for agent selection
+skillpack pack list                            # list installed packs; partial deployments flagged
+skillpack pack create                          # TUI flow to author + publish a pack
+skillpack pack remove  <address>               # remove skills installed by pack from selected agent(s)
+skillpack pack update  <address>               # re-run install to pick up latest skill content
+skillpack pack status  <address>               # show per-skill/per-agent deployment status
+```
+
+### Partial Deployments
+
+When a repo requires auth the user cannot provide:
+1. Prompt for credentials; if unavailable, continue with accessible repos.
+2. Mark the pack as partially deployed in state.
+3. Surface in `pack list` and TUI with a "complete deployment" action.
+4. Never auto-repair — the user must explicitly trigger completion.
+
+A pack also becomes partial if the user directly removes one of its skills via `skillpack remove`. The user is notified and the pack is flagged in state.
+
+### Pack State Schema
+
+```go
+// added to ~/.skillpack/state.json
+type InstalledPackRecord struct {
+    PackAddress string                     `json:"pack_address"`
+    InstalledAt time.Time                  `json:"installed_at"`
+    Agents      []string                   `json:"agents"`
+    Skills      map[string]PackSkillStatus `json:"skills"` // key: skill address
+}
+
+type PackSkillStatus struct {
+    Installed bool   `json:"installed"`
+    Agent     string `json:"agent"`
+    Error     string `json:"error,omitempty"`
+}
+```
+
+### Pack Authoring (TUI flow)
+
+1. Name + optional description.
+2. Browse registered repos, select skills.
+3. Review generated `pack.yaml`.
+4. Select target repo to publish to.
+5. Confirm — skillpack writes, commits, pushes.
+
+### Phase 6: Packs
+
+- [ ] `pack.yaml` discovery in repo walk
+- [ ] `pack install` with multi-agent selection + partial deployment tracking
+- [ ] `pack list` with partial/complete status
+- [ ] `pack remove` (removes member skills from selected agents)
+- [ ] `pack update`
+- [ ] `pack status`
+- [ ] `pack create` TUI flow
+- [ ] Partial deployment completion action in TUI
+- [ ] State: `installed_packs` top-level map in `state.json`
+- [ ] Direct `skillpack remove` on a pack member marks pack partial
+
+---
+
 ## Out of Scope for v1
 
 - `SKILL.md.sig` integrity/signing

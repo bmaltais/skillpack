@@ -171,6 +171,30 @@ On startup, the TUI checks GitHub for a newer release. If found, a yellow banner
 | `skillpack list --available` | Browse all skills in registered repos |
 | `skillpack list --modified` | Show locally-edited skills |
 
+### Packs
+
+A **pack** is a curated collection of skills defined by a `pack.yaml` file.
+Installing a pack deploys all member skills in a single command and tracks
+them as a named unit in state.
+
+| Command | Description |
+|---------|-------------|
+| `skillpack pack install <addr>` | Install all skills in a pack for the default agent |
+| `skillpack pack install <addr> --agent <name>` | Install for a specific agent |
+| `skillpack pack install <addr> --all-agents` | Install for every configured agent |
+| `skillpack pack install <url>` | Fetch a raw `pack.yaml` from an HTTPS URL, register its repos, install |
+| `skillpack pack install <path>` | Read a local `pack.yaml`, register its repos, install |
+| `skillpack pack remove <addr>` | Remove all member skills and the pack record |
+| `skillpack pack update <addr>` | Pull latest repo content and reinstall changed skills |
+| `skillpack pack status <addr>` | Show per-skill, per-agent install status |
+| `skillpack pack list` | List installed packs with complete/partial status |
+| `skillpack pack list --available` | Browse packs available in registered repos |
+
+**Partial deployments:** if a repo requires auth the user cannot supply, pack
+install continues for accessible repos and marks the pack as `partial` in
+state. Running `skillpack remove` directly on a skill that belongs to a pack
+also marks the pack partial and prints a notice.
+
 ### Sync
 
 | Command | Description |

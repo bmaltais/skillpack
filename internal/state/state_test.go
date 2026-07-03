@@ -196,9 +196,13 @@ func TestInstalledPacks_RoundTrip(t *testing.T) {
 		PackAddress: "awesome-skills/packs/go-dev",
 		InstalledAt: now,
 		Agents:      []string{"claude-code"},
-		Skills: map[string]state.PackSkillStatus{
-			"awesome-skills/coding/debugger": {Installed: true, Agent: "claude-code"},
-			"awesome-skills/coding/linter":   {Installed: false, Agent: "claude-code", Error: "auth failed"},
+		Skills: map[string]map[string]state.PackSkillStatus{
+			"awesome-skills/coding/debugger": {
+				"claude-code": {Installed: true},
+			},
+			"awesome-skills/coding/linter": {
+				"claude-code": {Installed: false, Error: "auth failed"},
+			},
 		},
 	}
 
@@ -227,11 +231,11 @@ func TestInstalledPacks_RoundTrip(t *testing.T) {
 	if len(rec.Skills) != 2 {
 		t.Errorf("len(Skills) = %d, want 2", len(rec.Skills))
 	}
-	debugger := rec.Skills["awesome-skills/coding/debugger"]
-	if !debugger.Installed || debugger.Agent != "claude-code" {
+	debugger := rec.Skills["awesome-skills/coding/debugger"]["claude-code"]
+	if !debugger.Installed {
 		t.Errorf("debugger skill status wrong: %+v", debugger)
 	}
-	linter := rec.Skills["awesome-skills/coding/linter"]
+	linter := rec.Skills["awesome-skills/coding/linter"]["claude-code"]
 	if linter.Installed || linter.Error != "auth failed" {
 		t.Errorf("linter skill status wrong: %+v", linter)
 	}

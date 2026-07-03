@@ -9,7 +9,7 @@ Owns the Cobra CLI surface: commands, flags, TUI, and re-exec plumbing. Translat
 | Concern | Owner |
 |---------|-------|
 | Command registration & flag wiring | `cmd/skillpack/root.go` |
-| Install/remove/list/fork/publish/relink/repo/selfupdate/status/sync | `cmd/skillpack/*.go` |
+| Install/remove/list/fork/publish/relink/repo/selfupdate/status/sync/pack | `cmd/skillpack/*.go` |
 | TUI (bubbletea model, views, handlers, commands) | `cmd/skillpack/tui*.go` |
 | Cross-platform re-exec (macOS launchd, Windows) | `cmd/skillpack/reexec_*.go` |
 | Color output | `cmd/skillpack/color.go` |

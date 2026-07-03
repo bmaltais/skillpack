@@ -22,16 +22,16 @@ type State struct {
 
 // InstalledPackRecord holds the state for one installed pack.
 type InstalledPackRecord struct {
-	PackAddress string                     `json:"pack_address"`
-	InstalledAt time.Time                  `json:"installed_at"`
-	Agents      []string                   `json:"agents"`
-	Skills      map[string]PackSkillStatus `json:"skills"` // key: skill address
+	PackAddress string                                `json:"pack_address"`
+	InstalledAt time.Time                             `json:"installed_at"`
+	Agents      []string                              `json:"agents"`
+	Skills      map[string]map[string]PackSkillStatus `json:"skills"` // outer key: skill address; inner key: agent name
 }
 
-// PackSkillStatus describes whether a single skill in a pack was successfully installed.
+// PackSkillStatus describes whether a single skill in a pack was successfully installed
+// for a specific agent. The agent name is the inner map key in InstalledPackRecord.Skills.
 type PackSkillStatus struct {
 	Installed bool   `json:"installed"`
-	Agent     string `json:"agent"`
 	Error     string `json:"error,omitempty"`
 }
 
@@ -193,6 +193,59 @@ func (st *State) RecordSHA(addr, agentName, sha string) error {
 	rec.InstalledAtSHA = sha
 	st.InstalledSkills[addr][agentName] = rec
 	return nil
+}
+
+// RecordPackInstall stores or replaces the pack installation record.
+func (st *State) RecordPackInstall(packAddr string, rec InstalledPackRecord) error {
+	if packAddr == "" {
+		return fmt.Errorf("packAddr must not be empty")
+	}
+	if st.InstalledPacks == nil {
+		st.InstalledPacks = make(map[string]InstalledPackRecord)
+	}
+	st.InstalledPacks[packAddr] = rec
+	return nil
+}
+
+// RecordPackRemove deletes the pack installation record.
+func (st *State) RecordPackRemove(packAddr string) error {
+	if packAddr == "" {
+		return fmt.Errorf("packAddr must not be empty")
+	}
+	delete(st.InstalledPacks, packAddr)
+	return nil
+}
+
+// MarkPackSkillMissing marks a single skill inside a pack as not installed for an agent.
+// Used when the skill is directly removed by the user outside of pack commands.
+// Only updates existing skill+agent entries — no-op when the entry does not exist,
+// to avoid incorrectly marking the pack partial for an agent it was never installed for.
+func (st *State) MarkPackSkillMissing(packAddr, skillAddr, agentName, errMsg string) {
+	rec, ok := st.InstalledPacks[packAddr]
+	if !ok {
+		return
+	}
+	agentStatuses, ok := rec.Skills[skillAddr]
+	if !ok {
+		return // skill not tracked in this pack — no-op
+	}
+	if _, ok := agentStatuses[agentName]; !ok {
+		return // agent not tracked for this skill — no-op
+	}
+	agentStatuses[agentName] = PackSkillStatus{Installed: false, Error: errMsg}
+	st.InstalledPacks[packAddr] = rec
+}
+
+// FindPacksOwningSkill returns the pack addresses of every installed pack that
+// lists skillAddr as a member. Returns nil when the skill belongs to no pack.
+func (st *State) FindPacksOwningSkill(skillAddr string) []string {
+	var packs []string
+	for packAddr, rec := range st.InstalledPacks {
+		if _, ok := rec.Skills[skillAddr]; ok {
+			packs = append(packs, packAddr)
+		}
+	}
+	return packs
 }
 
 // RecordRenameAddr moves all installed-skill entries from oldAddr to newAddr.

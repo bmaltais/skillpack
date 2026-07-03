@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bmaltais/skillpack/internal/skill"
+	"github.com/bmaltais/skillpack/internal/state"
 )
 
 var removeCmd = &cobra.Command{
@@ -32,6 +33,10 @@ var removeCmd = &cobra.Command{
 			return err
 		}
 
+		// Identify owning packs before removing (InstalledPacks is unaffected by Remove).
+		owningPacks := app.St.FindPacksOwningSkill(addr)
+
+		packMarked := false
 		for _, target := range targets {
 			fmt.Printf("Removing %s from %s...\n", addr, target)
 			is, err := skill.Open(addr, target, app.Cfg, app.St)
@@ -42,6 +47,21 @@ var removeCmd = &cobra.Command{
 				return err
 			}
 			fmt.Printf("  removed\n")
+
+			// Mark owning packs as partial.
+			for _, packAddr := range owningPacks {
+				app.St.MarkPackSkillMissing(packAddr, addr, target, "directly removed by user")
+				fmt.Printf("  %s This skill is part of pack %s — the pack is now %s.\n",
+					yellow("notice:"), bold(packAddr), yellow("partially deployed"))
+				packMarked = true
+			}
+		}
+
+		// Persist pack partial marks (is.Remove already called state.Save for skill removal).
+		if packMarked {
+			if err := state.Save(app.St); err != nil {
+				return err
+			}
 		}
 		return nil
 	},

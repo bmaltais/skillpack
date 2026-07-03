@@ -284,6 +284,32 @@ func FindSkill(addr string, st *state.State) (*SkillInfo, error) {
 	}, nil
 }
 
+// FindPack resolves a pack address (e.g. "awesome-skills/packs/go-dev") to its location on disk.
+func FindPack(addr string, st *state.State) (*PackInfo, error) {
+	parts := strings.SplitN(addr, "/", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid pack address %q: expected <repo>/<path>", addr)
+	}
+	repoName, relPath := parts[0], parts[1]
+
+	rec, ok := st.Repos[repoName]
+	if !ok {
+		return nil, fmt.Errorf("repo %q not found; register it with: skillpack repo add <url>", repoName)
+	}
+
+	packPath := filepath.Join(rec.CachePath, filepath.FromSlash(relPath))
+	if _, err := os.Stat(filepath.Join(packPath, "pack.yaml")); err != nil {
+		return nil, fmt.Errorf("pack %q not found in repo %q (expected pack.yaml at %s)", relPath, repoName, packPath)
+	}
+
+	return &PackInfo{
+		Address:  addr,
+		RepoName: repoName,
+		RelPath:  relPath,
+		FullPath: packPath,
+	}, nil
+}
+
 // HeadSHA returns the current HEAD commit SHA for a registered repo.
 func HeadSHA(repoName string, st *state.State) (string, error) {
 	rec, ok := st.Repos[repoName]

@@ -181,3 +181,75 @@ func TestRecordRenameAddr_EmptyNewAddrError(t *testing.T) {
 		t.Error("want error for empty newAddr, got nil")
 	}
 }
+
+// ─── InstalledPacks round-trip ────────────────────────────────────────────────
+
+func TestInstalledPacks_RoundTrip(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	st := emptyState()
+	st.InstalledPacks = make(map[string]state.InstalledPackRecord)
+	st.InstalledPacks["awesome-skills/packs/go-dev"] = state.InstalledPackRecord{
+		PackAddress: "awesome-skills/packs/go-dev",
+		Agents:      []string{"claude-code"},
+		Skills: map[string]state.PackSkillStatus{
+			"awesome-skills/coding/debugger": {Installed: true, Agent: "claude-code"},
+			"awesome-skills/coding/linter":   {Installed: false, Agent: "claude-code", Error: "auth failed"},
+		},
+	}
+
+	if err := state.Save(st); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded, err := state.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	rec, ok := loaded.InstalledPacks["awesome-skills/packs/go-dev"]
+	if !ok {
+		t.Fatal("pack record not found after round-trip")
+	}
+	if rec.PackAddress != "awesome-skills/packs/go-dev" {
+		t.Errorf("PackAddress = %q", rec.PackAddress)
+	}
+	if len(rec.Agents) != 1 || rec.Agents[0] != "claude-code" {
+		t.Errorf("Agents = %v", rec.Agents)
+	}
+	if len(rec.Skills) != 2 {
+		t.Errorf("len(Skills) = %d, want 2", len(rec.Skills))
+	}
+	debugger := rec.Skills["awesome-skills/coding/debugger"]
+	if !debugger.Installed || debugger.Agent != "claude-code" {
+		t.Errorf("debugger skill status wrong: %+v", debugger)
+	}
+	linter := rec.Skills["awesome-skills/coding/linter"]
+	if linter.Installed || linter.Error != "auth failed" {
+		t.Errorf("linter skill status wrong: %+v", linter)
+	}
+}
+
+func TestInstalledPacks_EmptyOnLoad(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	// State saved without InstalledPacks (simulates existing state.json before packs feature)
+	st := &state.State{
+		Repos:           map[string]state.RepoRecord{},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{},
+	}
+	if err := state.Save(st); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	loaded, err := state.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.InstalledPacks == nil {
+		t.Error("InstalledPacks should be initialized (not nil) after Load")
+	}
+	if len(loaded.InstalledPacks) != 0 {
+		t.Errorf("InstalledPacks should be empty, got %d entries", len(loaded.InstalledPacks))
+	}
+}

@@ -16,6 +16,23 @@ type State struct {
 	InstalledSkills map[string]map[string]InstalledSkillRecord `json:"installed_skills"`
 	// InstalledSkills key: skill address (e.g. "awesome-skills/coding/debugger")
 	// inner key: agent name (e.g. "claude-code")
+	InstalledPacks map[string]InstalledPackRecord `json:"installed_packs,omitempty"`
+	// InstalledPacks key: pack address (e.g. "awesome-skills/packs/go-dev")
+}
+
+// InstalledPackRecord holds the state for one installed pack.
+type InstalledPackRecord struct {
+	PackAddress string                     `json:"pack_address"`
+	InstalledAt time.Time                  `json:"installed_at"`
+	Agents      []string                   `json:"agents"`
+	Skills      map[string]PackSkillStatus `json:"skills"` // key: skill address
+}
+
+// PackSkillStatus describes whether a single skill in a pack was successfully installed.
+type PackSkillStatus struct {
+	Installed bool   `json:"installed"`
+	Agent     string `json:"agent"`
+	Error     string `json:"error,omitempty"`
 }
 
 // RepoRecord holds metadata for a registered skill repo.
@@ -62,6 +79,9 @@ func Load() (*State, error) {
 	if st.InstalledSkills == nil {
 		st.InstalledSkills = make(map[string]map[string]InstalledSkillRecord)
 	}
+	if st.InstalledPacks == nil {
+		st.InstalledPacks = make(map[string]InstalledPackRecord)
+	}
 	return &st, nil
 }
 
@@ -94,6 +114,7 @@ func empty() *State {
 	return &State{
 		Repos:           make(map[string]RepoRecord),
 		InstalledSkills: make(map[string]map[string]InstalledSkillRecord),
+		InstalledPacks:  make(map[string]InstalledPackRecord),
 	}
 }
 

@@ -17,12 +17,15 @@ The binary entry point is `cmd/skillpack/`. There is no other binary in this rep
 
 | File | Purpose |
 |------|---------|
+| `docs/adr/` | Architecture Decision Records |
+| `docs/adr/0001-packs-feature-design.md` | Packs feature design decisions |
 | `CONTEXT.md` | Canonical domain glossary — read this first |
 | `plan.md` | Full design spec with resolved decisions |
 | `internal/config/config.go` | Config loading (`~/.skillpack/config.yaml`) |
 | `internal/state/state.go` | State management (`~/.skillpack/state.json`) |
 | `internal/repo/repo.go` | Repo management + skill discovery |
 | `internal/skill/skill.go` | Install, remove, hash, conflict detection |
+| `internal/pack/pack.go` | Pack schema: `pack.yaml` parsing and validation |
 
 ## Architecture Constraints — Do Not Violate
 
@@ -204,5 +207,6 @@ When the user requests a durable behavior change, record it here or in the relev
 | [`internal/skill/AGENTS.md`](internal/skill/AGENTS.md) | Skill lifecycle: install, remove, update, fork, sync, publish, relink |
 | [`internal/gitops/AGENTS.md`](internal/gitops/AGENTS.md) | Git operations: auth, commit, push, diff, file listing |
 | [`internal/testutil/AGENTS.md`](internal/testutil/AGENTS.md) | Test helpers: isolated temp HOME for tests |
+| `internal/pack/` | Pack schema: `pack.yaml` parsing, validation, `PackInfo` type |
 
 Each child AGENTS.md lists its own children (if any) at the bottom. The repo child points to gitops as its only sub-domain.

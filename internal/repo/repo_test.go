@@ -365,3 +365,126 @@ func TestAdd_RecoverFromLeftOverCache(t *testing.T) {
 		t.Errorf("URL = %q, want %q", rec.URL, remoteDir)
 	}
 }
+
+// ─── Pack discovery ───────────────────────────────────────────────────────────
+
+func mkPack(t *testing.T, root, relPath string) {
+	t.Helper()
+	dir := filepath.Join(root, relPath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	yaml := `name: test-pack
+repos:
+  - name: my-repo
+    url: https://example.com/my-repo
+skills:
+  - my-repo/skill
+`
+	if err := os.WriteFile(filepath.Join(dir, "pack.yaml"), []byte(yaml), 0600); err != nil {
+		t.Fatalf("WriteFile pack.yaml: %v", err)
+	}
+}
+
+func TestDiscoverPacks_Flat(t *testing.T) {
+	root := t.TempDir()
+	mkPack(t, root, filepath.Join("packs", "go-dev"))
+	mkPack(t, root, filepath.Join("packs", "writing"))
+
+	st := &state.State{
+		Repos:           map[string]state.RepoRecord{"my-repo": {CachePath: root}},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+
+	packs, err := repo.DiscoverPacks("my-repo", st)
+	if err != nil {
+		t.Fatalf("DiscoverPacks: %v", err)
+	}
+	if len(packs) != 2 {
+		t.Errorf("expected 2 packs, got %d: %v", len(packs), packAddrs(packs))
+	}
+}
+
+func TestDiscoverPacks_PrunesAtPackYAML(t *testing.T) {
+	// A pack.yaml in a parent dir should not discover a nested pack.yaml.
+	root := t.TempDir()
+	mkPack(t, root, filepath.Join("packs", "parent"))
+	mkPack(t, root, filepath.Join("packs", "parent", "nested"))
+
+	st := &state.State{
+		Repos:           map[string]state.RepoRecord{"my-repo": {CachePath: root}},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+
+	packs, err := repo.DiscoverPacks("my-repo", st)
+	if err != nil {
+		t.Fatalf("DiscoverPacks: %v", err)
+	}
+	if len(packs) != 1 {
+		t.Errorf("expected 1 pack (parent only), got %d: %v", len(packs), packAddrs(packs))
+	}
+	if packs[0].RelPath != "packs/parent" {
+		t.Errorf("expected packs/parent, got %q", packs[0].RelPath)
+	}
+}
+
+func TestDiscoverPacks_SkipsGit(t *testing.T) {
+	root := t.TempDir()
+	mkPack(t, root, filepath.Join("packs", "real-pack"))
+	mkPack(t, root, filepath.Join(".git", "packs", "sneaky"))
+
+	st := &state.State{
+		Repos:           map[string]state.RepoRecord{"my-repo": {CachePath: root}},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+
+	packs, err := repo.DiscoverPacks("my-repo", st)
+	if err != nil {
+		t.Fatalf("DiscoverPacks: %v", err)
+	}
+	if len(packs) != 1 {
+		t.Errorf("expected 1 pack, got %d: %v", len(packs), packAddrs(packs))
+	}
+}
+
+func TestDiscoverAllPacks_MultipleRepos(t *testing.T) {
+	root1 := t.TempDir()
+	root2 := t.TempDir()
+	mkPack(t, root1, filepath.Join("packs", "go-dev"))
+	mkPack(t, root2, filepath.Join("packs", "writing"))
+
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"repo-a": {CachePath: root1},
+			"repo-b": {CachePath: root2},
+		},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+
+	packs, err := repo.DiscoverAllPacks(st)
+	if err != nil {
+		t.Fatalf("DiscoverAllPacks: %v", err)
+	}
+	if len(packs) != 2 {
+		t.Errorf("expected 2 packs, got %d: %v", len(packs), packAddrs(packs))
+	}
+}
+
+func TestDiscoverPacks_RepoNotFound(t *testing.T) {
+	st := &state.State{
+		Repos:           make(map[string]state.RepoRecord),
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+	_, err := repo.DiscoverPacks("nonexistent", st)
+	if err == nil {
+		t.Error("expected error for unknown repo, got nil")
+	}
+}
+
+func packAddrs(packs []repo.PackInfo) []string {
+	out := make([]string, len(packs))
+	for i, p := range packs {
+		out[i] = p.Address
+	}
+	return out
+}

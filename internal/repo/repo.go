@@ -26,6 +26,14 @@ type SkillInfo struct {
 	FullPath string // absolute path on disk
 }
 
+// PackInfo describes a discovered pack inside a repo clone.
+type PackInfo struct {
+	Address  string // e.g. "awesome-skills/packs/go-dev"
+	RepoName string
+	RelPath  string // path relative to the repo root, slash-separated
+	FullPath string // absolute path on disk
+}
+
 // Add clones the remote repo to the local cache and registers it in state.
 // recovered is true when an existing cache directory was reused instead of
 // cloned fresh (e.g. after a previous repo remove left the clone on disk).
@@ -365,4 +373,55 @@ func walkSkills(repoName, cachePath string) ([]SkillInfo, error) {
 	return skills, err
 }
 
+// DiscoverPacks walks the cached repo and returns all packs (dirs containing pack.yaml).
+func DiscoverPacks(repoName string, st *state.State) ([]PackInfo, error) {
+	rec, ok := st.Repos[repoName]
+	if !ok {
+		return nil, fmt.Errorf("repo %q not found", repoName)
+	}
+	return walkPacks(repoName, rec.CachePath)
+}
+
+// DiscoverAllPacks walks all registered repos and returns every pack found.
+func DiscoverAllPacks(st *state.State) ([]PackInfo, error) {
+	var all []PackInfo
+	for name, rec := range st.Repos {
+		packs, err := walkPacks(name, rec.CachePath)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, packs...)
+	}
+	return all, nil
+}
+
+func walkPacks(repoName, cachePath string) ([]PackInfo, error) {
+	var packs []PackInfo
+	err := filepath.WalkDir(cachePath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if _, statErr := os.Stat(filepath.Join(path, "pack.yaml")); statErr == nil {
+			relPath, _ := filepath.Rel(cachePath, path)
+			relPath = filepath.ToSlash(relPath)
+			packs = append(packs, PackInfo{
+				Address:  repoName + "/" + relPath,
+				RepoName: repoName,
+				RelPath:  relPath,
+				FullPath: path,
+			})
+			return filepath.SkipDir
+		} else if !os.IsNotExist(statErr) {
+			return statErr
+		}
+		return nil
+	})
+	return packs, err
+}
 

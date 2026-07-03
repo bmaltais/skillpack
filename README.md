@@ -179,7 +179,7 @@ them as a named unit in state.
 
 | Command | Description |
 |---------|-------------|
-| `skillpack pack install <addr>` | Install all skills in a pack for the default agent |
+| `skillpack pack install <addr>` | Install all skills in a pack; prompts for agent selection (defaults to default agent when non-interactive) |
 | `skillpack pack install <addr> --agent <name>` | Install for a specific agent |
 | `skillpack pack install <addr> --all-agents` | Install for every configured agent |
 | `skillpack pack install <url>` | Fetch a raw `pack.yaml` from an HTTPS URL, register its repos, install |

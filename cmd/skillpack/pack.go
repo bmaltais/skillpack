@@ -257,8 +257,8 @@ func runPackInstall(addr, agentName string, allAgents bool, app *App) error {
 //   - a local filepath to a pack.yaml file or directory containing one
 func loadPackDefinition(addr string, cfg *config.Config, st *state.State) (*pack.Pack, string, error) {
 	switch {
-	case strings.HasPrefix(addr, "https://") || strings.HasPrefix(addr, "http://"):
-		// Fetch raw pack.yaml content.
+	case strings.HasPrefix(addr, "https://"):
+		// Fetch raw pack.yaml content. Only HTTPS is accepted (see fetchURL).
 		data, err := fetchURL(addr)
 		if err != nil {
 			return nil, "", fmt.Errorf("fetching pack.yaml from %s: %w", addr, err)
@@ -305,9 +305,9 @@ func loadPackDefinition(addr string, cfg *config.Config, st *state.State) (*pack
 	}
 }
 
-// isLocalPath returns true when addr looks like a filesystem path.
+// isLocalPath returns true when addr looks like a filesystem path (cross-platform).
 func isLocalPath(addr string) bool {
-	return strings.HasPrefix(addr, "/") ||
+	return filepath.IsAbs(addr) ||
 		strings.HasPrefix(addr, "./") ||
 		strings.HasPrefix(addr, "../") ||
 		strings.HasPrefix(addr, "~/")
@@ -320,8 +320,13 @@ func packAddrFromName(name string) string {
 }
 
 // fetchURL downloads the content at rawURL and returns the bytes.
+// Only HTTPS URLs are accepted to prevent MITM tampering of downloaded pack.yaml.
 func fetchURL(rawURL string) ([]byte, error) {
-	resp, err := http.Get(rawURL) //nolint:gosec
+	if !strings.HasPrefix(rawURL, "https://") {
+		return nil, fmt.Errorf("only HTTPS URLs are supported for pack.yaml downloads (got %q)", rawURL)
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(rawURL) //nolint:gosec
 	if err != nil {
 		return nil, err
 	}
@@ -580,6 +585,10 @@ var packUpdateCmd = &cobra.Command{
 		changed := 0
 		for _, skillAddr := range pk.Skills {
 			repoName := repoNameFromAddr(skillAddr)
+			// Ensure the per-skill inner map exists before any write.
+			if rec.Skills[skillAddr] == nil {
+				rec.Skills[skillAddr] = make(map[string]state.PackSkillStatus)
+			}
 			for _, ag := range rec.Agents {
 				if repoErr, failed := repoErrors[repoName]; failed {
 					rec.Skills[skillAddr][ag] = state.PackSkillStatus{
@@ -595,18 +604,12 @@ var packUpdateCmd = &cobra.Command{
 					fmt.Printf("  installing missing %s [%s] ...\n", skillAddr, ag)
 					installErr := skill.Install(skillAddr, ag, app.Cfg, app.St, false)
 					if installErr != nil {
-						if rec.Skills[skillAddr] == nil {
-							rec.Skills[skillAddr] = make(map[string]state.PackSkillStatus)
-						}
 						rec.Skills[skillAddr][ag] = state.PackSkillStatus{
 							Installed: false,
 							Error:     installErr.Error(),
 						}
 						fmt.Printf("    %s\n", yellow("warning: "+installErr.Error()))
 					} else {
-						if rec.Skills[skillAddr] == nil {
-							rec.Skills[skillAddr] = make(map[string]state.PackSkillStatus)
-						}
 						rec.Skills[skillAddr][ag] = state.PackSkillStatus{Installed: true}
 						fmt.Printf("    installed\n")
 						changed++

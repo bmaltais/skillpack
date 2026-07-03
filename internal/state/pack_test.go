@@ -108,20 +108,19 @@ func TestMarkPackSkillMissing_NoopWhenPackMissing(t *testing.T) {
 	st.MarkPackSkillMissing("nonexistent/pack", "some/skill", "claude-code", "test")
 }
 
-func TestMarkPackSkillMissing_CreatesSkillEntry(t *testing.T) {
+func TestMarkPackSkillMissing_NoopWhenSkillNotTracked(t *testing.T) {
 	st := emptyState()
 	_ = st.RecordPackInstall("my-repo/packs/go-dev", state.InstalledPackRecord{
 		PackAddress: "my-repo/packs/go-dev",
 		Skills:      map[string]map[string]state.PackSkillStatus{},
 	})
 
-	// Marking a skill that wasn't in the pack should create the entry.
+	// Skill not tracked in the pack — should be a no-op, not create an entry.
 	st.MarkPackSkillMissing("my-repo/packs/go-dev", "my-repo/coding/linter", "claude-code", "orphaned")
 
 	rec := st.InstalledPacks["my-repo/packs/go-dev"]
-	s := rec.Skills["my-repo/coding/linter"]["claude-code"]
-	if s.Installed {
-		t.Error("skill should be marked not installed")
+	if _, ok := rec.Skills["my-repo/coding/linter"]; ok {
+		t.Error("MarkPackSkillMissing should be a no-op when skill is not tracked in the pack")
 	}
 }
 

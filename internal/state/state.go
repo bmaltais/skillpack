@@ -218,19 +218,21 @@ func (st *State) RecordPackRemove(packAddr string) error {
 
 // MarkPackSkillMissing marks a single skill inside a pack as not installed for an agent.
 // Used when the skill is directly removed by the user outside of pack commands.
-// No-op when the pack or skill entry does not exist.
+// Only updates existing skill+agent entries — no-op when the entry does not exist,
+// to avoid incorrectly marking the pack partial for an agent it was never installed for.
 func (st *State) MarkPackSkillMissing(packAddr, skillAddr, agentName, errMsg string) {
 	rec, ok := st.InstalledPacks[packAddr]
 	if !ok {
 		return
 	}
-	if rec.Skills == nil {
-		rec.Skills = make(map[string]map[string]PackSkillStatus)
+	agentStatuses, ok := rec.Skills[skillAddr]
+	if !ok {
+		return // skill not tracked in this pack — no-op
 	}
-	if rec.Skills[skillAddr] == nil {
-		rec.Skills[skillAddr] = make(map[string]PackSkillStatus)
+	if _, ok := agentStatuses[agentName]; !ok {
+		return // agent not tracked for this skill — no-op
 	}
-	rec.Skills[skillAddr][agentName] = PackSkillStatus{Installed: false, Error: errMsg}
+	agentStatuses[agentName] = PackSkillStatus{Installed: false, Error: errMsg}
 	st.InstalledPacks[packAddr] = rec
 }
 

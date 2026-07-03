@@ -229,13 +229,19 @@ func (m packCreateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch m.step {
 		case createStepName:
-			return m.updateTextInput(msg, &m.nameInput, createStepDesc, -1)
+			next, val, cmd := m.updateTextInput(msg, m.nameInput, createStepDesc, -1)
+			next.nameInput = val
+			return next, cmd
 		case createStepDesc:
-			return m.updateTextInput(msg, &m.descInput, createStepSkills, createStepName)
+			next, val, cmd := m.updateTextInput(msg, m.descInput, createStepSkills, createStepName)
+			next.descInput = val
+			return next, cmd
 		case createStepSkills:
 			return m.updateSkillSelect(msg)
 		case createStepPath:
-			return m.updateTextInput(msg, &m.pathInput, createStepRepo, createStepSkills)
+			next, val, cmd := m.updateTextInput(msg, m.pathInput, createStepRepo, createStepSkills)
+			next.pathInput = val
+			return next, cmd
 		case createStepRepo:
 			return m.updateRepoSelect(msg)
 		case createStepPreview:
@@ -248,32 +254,36 @@ func (m packCreateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // updateTextInput handles key events when the model is collecting a text field.
-// nextStep is the step to advance to on Enter; prevStep is returned to on Esc
-// (pass -1 to disable Esc going back).
+// fieldVal is the current value of the field being edited; the updated value is
+// returned as the second element so callers can assign it back to the correct
+// struct field. nextStep is the step to advance to on Enter; prevStep is
+// returned to on Esc (pass -1 to disable Esc going back).
+//
+// Design note: packCreateModel uses value receivers throughout (required by
+// Bubble Tea's tea.Model interface). Passing field *string and modifying through
+// the pointer writes into the *caller's* copy but returns a *different* copy as
+// the new model — the typed character is then lost. Passing by value and
+// returning the new value avoids this.
 func (m packCreateModel) updateTextInput(
-	msg tea.KeyMsg, field *string, nextStep, prevStep createStep,
-) (packCreateModel, tea.Cmd) {
+	msg tea.KeyMsg, fieldVal string, nextStep, prevStep createStep,
+) (packCreateModel, string, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyCtrlC:
-		return m, tea.Quit
+		return m, fieldVal, tea.Quit
 	case tea.KeyEsc:
 		if prevStep >= 0 {
 			m.step = prevStep
 		}
 	case tea.KeyBackspace, tea.KeyDelete:
 		// Trim the last rune (not byte) to correctly handle multi-byte UTF-8 characters.
-		runes := []rune(*field)
+		runes := []rune(fieldVal)
 		if len(runes) > 0 {
-			*field = string(runes[:len(runes)-1])
+			fieldVal = string(runes[:len(runes)-1])
 		}
 	case tea.KeyEnter:
 		// Validate name when advancing from name step.
-		if m.step == createStepName && strings.TrimSpace(m.nameInput) == "" {
-			return m, nil
-		}
-		// Advance to next step; if moving to path step, seed default.
-		if nextStep == createStepRepo {
-			// We just confirmed path — fall through to repo step.
+		if m.step == createStepName && strings.TrimSpace(fieldVal) == "" {
+			return m, fieldVal, nil
 		}
 		if nextStep == createStepPath && strings.TrimSpace(m.pathInput) == "" {
 			m.pathInput = defaultPackPath(m.nameInput)
@@ -284,11 +294,11 @@ func (m packCreateModel) updateTextInput(
 			m.pathInput = defaultPackPath(m.nameInput)
 		}
 	case tea.KeyRunes:
-		*field += msg.String()
+		fieldVal += msg.String()
 	case tea.KeySpace:
-		*field += " "
+		fieldVal += " "
 	}
-	return m, nil
+	return m, fieldVal, nil
 }
 
 // updateSkillSelect handles key events during the skill multi-select step.

@@ -1083,7 +1083,6 @@ func (m model) viewPacks(b *strings.Builder) {
 				addrW = len(row.packAddr)
 			}
 		}
-		const partialBadgeW = 10 // " [partial]" suffix width
 		addrW += 2
 		if addrW > m.width*2/3 {
 			addrW = m.width * 2 / 3
@@ -1115,12 +1114,7 @@ func (m model) viewPacks(b *strings.Builder) {
 			isSelected := i == m.packCursor
 
 			addr := row.packAddr
-			if row.isPartial && len(addr)+partialBadgeW > addrW {
-				trunc := addrW - partialBadgeW - 1
-				if trunc > 0 {
-					addr = addr[:trunc] + "…"
-				}
-			} else if len(addr) > addrW {
+			if len(addr) > addrW {
 				addr = addr[:addrW-1] + "…"
 			}
 

@@ -730,7 +730,8 @@ func (m *model) doPackRemove() {
 		return
 	}
 
-	// Remove all skills for all agents in the pack
+	// Remove all skills for all agents in the pack; count failures for user feedback.
+	removeFailures := 0
 	for skillAddr, agStatuses := range rec.Skills {
 		for ag, agStatus := range agStatuses {
 			if !agStatus.Installed {
@@ -738,9 +739,11 @@ func (m *model) doPackRemove() {
 			}
 			is, err := skill.Open(skillAddr, ag, m.cfg, m.st)
 			if err != nil {
-				continue // skill not installed — skip
+				continue // skill not installed — nothing to remove
 			}
-			_ = is.Remove(true) // force; ignore individual errors
+			if err := is.Remove(true); err != nil {
+				removeFailures++
+			}
 		}
 	}
 
@@ -761,6 +764,10 @@ func (m *model) doPackRemove() {
 	if m.packCursor >= len(m.packRows) && m.packCursor > 0 {
 		m.packCursor--
 	}
-	m.message = fmt.Sprintf("➖ Removed pack %s", packAddr)
+	if removeFailures > 0 {
+		m.message = fmt.Sprintf("⚠ Removed pack %s (%d skill file(s) could not be deleted — check manually)", packAddr, removeFailures)
+	} else {
+		m.message = fmt.Sprintf("➖ Removed pack %s", packAddr)
+	}
 	m.inputMode = modeNormal
 }

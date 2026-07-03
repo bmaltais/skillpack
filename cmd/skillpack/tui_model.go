@@ -280,11 +280,6 @@ func (m *model) refreshRepos() {
 func (m *model) refreshPacks() {
 	m.packRows = nil
 
-	type entry struct {
-		addr string
-		rec  interface{}
-	}
-
 	addrs := make([]string, 0, len(m.st.InstalledPacks))
 	for addr := range m.st.InstalledPacks {
 		addrs = append(addrs, addr)

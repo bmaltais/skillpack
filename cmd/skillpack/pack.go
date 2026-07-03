@@ -754,4 +754,5 @@ func init() {
 	packCmd.AddCommand(packRemoveCmd)
 	packCmd.AddCommand(packUpdateCmd)
 	packCmd.AddCommand(packStatusCmd)
+	packCmd.AddCommand(packCreateCmd)
 }

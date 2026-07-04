@@ -358,11 +358,12 @@ func (m *model) cmdPackInstall(packAddr string, agents []string) tea.Cmd {
 			return packInstallDoneMsg{packAddr: canonAddr, err: err}
 		}
 
+		// installed/failed count skill×agent installs, not unique skills.
 		var summary string
 		if failed > 0 {
-			summary = fmt.Sprintf("⚠ Pack %q installed partial — %d installed, %d failed (Enter for details)", canonAddr, installed, failed)
+			summary = fmt.Sprintf("⚠ Pack %q installed partial — %d install(s) succeeded, %d failed (Enter for details)", canonAddr, installed, failed)
 		} else {
-			summary = fmt.Sprintf("✓ Pack %q installed complete — %d skill(s) for %s", canonAddr, installed, strings.Join(agents, ", "))
+			summary = fmt.Sprintf("✓ Pack %q installed complete — %d install(s) for %s", canonAddr, installed, strings.Join(agents, ", "))
 		}
 		return packInstallDoneMsg{packAddr: canonAddr, st: stCopy, summary: summary}
 	}

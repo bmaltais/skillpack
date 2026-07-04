@@ -7,9 +7,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-
-	"github.com/bmaltais/skillpack/internal/pack"
-	"github.com/bmaltais/skillpack/internal/repo"
 )
 
 // --- View Styles (moved from tui.go in Phase 1) ---
@@ -1252,17 +1249,17 @@ func (m model) viewPacks(b *strings.Builder) {
 }
 
 // viewAvailablePackDetail renders the detail overlay for a pack that is
-// discoverable in a repo cache but not installed: its pack.yaml definition.
+// discoverable in a repo cache but not installed. The pack definition is
+// parsed once when the overlay opens (loadPackDetail) — never per frame.
 func (m model) viewAvailablePackDetail(b *strings.Builder, row packRow) {
-	info, err := repo.FindPack(row.packAddr, m.st)
-	if err != nil {
-		b.WriteString(dimStyle.Render(fmt.Sprintf(" Cannot locate pack: %v", err)))
+	if m.packDetailErr != nil {
+		b.WriteString(dimStyle.Render(fmt.Sprintf(" Cannot read pack: %v", m.packDetailErr)))
 		b.WriteString("\n")
 		return
 	}
-	pk, err := pack.ParseFile(filepath.Join(info.FullPath, "pack.yaml"))
-	if err != nil {
-		b.WriteString(dimStyle.Render(fmt.Sprintf(" Cannot read pack.yaml: %v", err)))
+	pk := m.packDetailDef
+	if pk == nil {
+		b.WriteString(dimStyle.Render(" Pack definition not loaded."))
 		b.WriteString("\n")
 		return
 	}

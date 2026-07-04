@@ -136,7 +136,9 @@ type model struct {
 	// Packs panel
 	packRows       []packRow
 	packCursor     int
-	packDetailOpen bool // true when showing per-skill detail overlay for selected pack
+	packDetailOpen bool       // true when showing per-skill detail overlay for selected pack
+	packDetailDef  *pack.Pack // parsed pack.yaml for an available pack's detail overlay, loaded once on open
+	packDetailErr  error      // load error for the detail overlay, if any
 
 	// packWizard, when non-nil, is the embedded create/edit wizard child model.
 	// It receives all key/window messages and is rendered in place of the

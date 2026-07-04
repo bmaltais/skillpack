@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/bmaltais/skillpack/internal/pack"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
@@ -319,6 +320,7 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 				}
 			}
 			if len(agents) == 0 {
+				m.message = "Select at least one agent (Space to toggle)"
 				return *m, nil
 			}
 			m.inputMode = modeNormal
@@ -419,6 +421,12 @@ func (m *model) handleAction() {
 		if len(m.packRows) > 0 && m.packCursor < len(m.packRows) {
 			m.packDetailOpen = !m.packDetailOpen
 			m.message = ""
+			// Load the pack definition once on open for available packs;
+			// rendering must not touch the disk on every frame.
+			m.packDetailDef, m.packDetailErr = nil, nil
+			if m.packDetailOpen && !m.packRows[m.packCursor].installed {
+				m.loadPackDetail(m.packRows[m.packCursor].packAddr)
+			}
 		}
 	}
 }
@@ -751,14 +759,31 @@ func (m *model) updateSelectedSkill() {
 	m.message = fmt.Sprintf("✓ Updated %s for %s", row.addr, row.agentName)
 }
 
+// loadPackDetail parses the pack.yaml for packAddr into packDetailDef so the
+// detail overlay can render without per-frame disk I/O.
+func (m *model) loadPackDetail(packAddr string) {
+	info, err := repo.FindPack(packAddr, m.st)
+	if err != nil {
+		m.packDetailErr = err
+		return
+	}
+	m.packDetailDef, m.packDetailErr = pack.ParseFile(filepath.Join(info.FullPath, "pack.yaml"))
+}
+
 // startPackInstall opens the agent-selection overlay for the selected pack.
 func (m *model) startPackInstall() {
 	if len(m.packRows) == 0 || m.packCursor >= len(m.packRows) {
 		return
 	}
 	row := m.packRows[m.packCursor]
-	if row.installed && !row.isPartial {
-		m.message = "Pack is already installed"
+	if row.installed {
+		// Re-installing would replace the pack record and lose per-skill
+		// status; partial packs are completed with 'c' instead.
+		if row.isPartial {
+			m.message = "Pack is already installed — press c to complete the partial deployment"
+		} else {
+			m.message = "Pack is already installed"
+		}
 		return
 	}
 	if len(m.agents) == 0 {

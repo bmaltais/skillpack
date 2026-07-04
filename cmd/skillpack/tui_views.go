@@ -12,29 +12,29 @@ import (
 // --- View Styles (moved from tui.go in Phase 1) ---
 
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99"))
-	tabActive     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99")).Underline(true)
-	tabInactive   = lipgloss.NewStyle().Foreground(lipgloss.Color("242"))
-	selectedStyle = lipgloss.NewStyle().Background(lipgloss.Color("237")).Bold(true)
-	cellSelStyle  = lipgloss.NewStyle().Background(lipgloss.Color("62")).Bold(true)
-	repoStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214"))
-	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("242"))
-	checkStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
-	emptyStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	filterStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
-	msgStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("117"))
-	helpStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	inputStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
-	updateStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("117")) // cyan - update available
-	modifiedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("220")) // yellow - locally modified
-	forkStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // amber  - forked skill
-	conflictStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red - conflict
-	bannerStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("220")).Bold(true)
-	bannerBtnActive   = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("62")).Bold(true)
-	bannerBtnInactive = lipgloss.NewStyle().Foreground(lipgloss.Color("242")).Background(lipgloss.Color("238"))
-	staleStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true) // orange  - stale address
+	titleStyle          = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99"))
+	tabActive           = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99")).Underline(true)
+	tabInactive         = lipgloss.NewStyle().Foreground(lipgloss.Color("242"))
+	selectedStyle       = lipgloss.NewStyle().Background(lipgloss.Color("237")).Bold(true)
+	cellSelStyle        = lipgloss.NewStyle().Background(lipgloss.Color("62")).Bold(true)
+	repoStyle           = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214"))
+	dimStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("242"))
+	checkStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+	emptyStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	filterStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
+	msgStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("117"))
+	helpStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	inputStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
+	updateStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("117")) // cyan - update available
+	modifiedStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("220")) // yellow - locally modified
+	forkStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // amber  - forked skill
+	conflictStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red - conflict
+	bannerStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("220")).Bold(true)
+	bannerBtnActive     = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("62")).Bold(true)
+	bannerBtnInactive   = lipgloss.NewStyle().Foreground(lipgloss.Color("242")).Background(lipgloss.Color("238"))
+	staleStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true) // orange  - stale address
 	brokenUpstreamStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true) // red - broken upstream
-	partialStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)  // yellow - partial pack
+	partialStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true) // yellow - partial pack
 )
 
 // View renders the entire TUI (delegates to the four panel-specific view* methods).
@@ -123,6 +123,13 @@ func (m model) View() string {
 	if m.busy != "" {
 		b.WriteString(inputStyle.Render(" ⌛ " + m.busy))
 		b.WriteString("\n")
+	}
+
+	// Embedded pack wizard replaces the active panel while open.
+	if m.packWizard != nil {
+		b.WriteString("\n")
+		b.WriteString(m.packWizard.View())
+		return b.String()
 	}
 
 	switch m.activePanel {
@@ -967,6 +974,39 @@ func (m model) viewUnmanaged(b *strings.Builder) {
 func (m model) viewPacks(b *strings.Builder) {
 	b.WriteString("\n")
 
+	// Agent-selection overlay for pack install.
+	if m.inputMode == modePackInstallAgents {
+		b.WriteString(inputStyle.Render(fmt.Sprintf(" Install pack %q for which agents?", m.packInstallAddr)))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render(" (↑↓ move, Space toggle, a all, Enter install, Esc cancel)"))
+		b.WriteString("\n\n")
+		for i, name := range m.agents {
+			check := "[ ]"
+			if m.packAgentSel[i] {
+				check = "[✓]"
+			}
+			if i == m.packAgentCursor {
+				b.WriteString(selectedStyle.Render(fmt.Sprintf(" ▶ %s %-*s", check, m.width-10, name)))
+			} else if m.packAgentSel[i] {
+				b.WriteString(fmt.Sprintf("   %s %s", checkStyle.Render(check), name))
+			} else {
+				b.WriteString(fmt.Sprintf("   %s %s", check, name))
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+		if m.message != "" {
+			b.WriteString(msgStyle.Render(" " + m.message))
+		}
+		return
+	}
+
+	// Detail overlay for a pack that is not installed: show its definition.
+	if m.packDetailOpen && m.packCursor < len(m.packRows) && !m.packRows[m.packCursor].installed {
+		m.viewAvailablePackDetail(b, m.packRows[m.packCursor])
+		return
+	}
+
 	// Detail overlay: show per-skill, per-agent status for the selected pack.
 	if m.packDetailOpen && m.packCursor < len(m.packRows) {
 		row := m.packRows[m.packCursor]
@@ -1058,9 +1098,9 @@ func (m model) viewPacks(b *strings.Builder) {
 		b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 		b.WriteString("\n")
 		if row.isPartial {
-			b.WriteString(helpStyle.Render(" c complete deployment  e edit  D remove  Esc back  Tab switch  q quit"))
+			b.WriteString(helpStyle.Render(" c complete deployment  e edit  d remove  Esc back  Tab switch  q quit"))
 		} else {
-			b.WriteString(helpStyle.Render(" e edit  D remove  Esc back  Tab switch  q quit"))
+			b.WriteString(helpStyle.Render(" e edit  d remove  Esc back  Tab switch  q quit"))
 		}
 		b.WriteString("\n")
 		if m.message != "" {
@@ -1071,9 +1111,9 @@ func (m model) viewPacks(b *strings.Builder) {
 
 	// List view
 	if len(m.packRows) == 0 {
-		b.WriteString(emptyStyle.Render("   No packs installed."))
+		b.WriteString(emptyStyle.Render("   No packs found."))
 		b.WriteString("\n")
-		b.WriteString(emptyStyle.Render("   Install a pack with: skillpack pack install <address>"))
+		b.WriteString(emptyStyle.Render("   Press n to create a pack, or register a repo containing packs (Tab → Repos → a)."))
 		b.WriteString("\n")
 	} else {
 		// Column widths
@@ -1124,9 +1164,12 @@ func (m model) viewPacks(b *strings.Builder) {
 			}
 
 			var statusStr string
-			if row.isPartial {
+			switch {
+			case !row.installed:
+				statusStr = dimStyle.Render("· available")
+			case row.isPartial:
 				statusStr = partialStyle.Render("⚠ partial")
-			} else {
+			default:
 				statusStr = checkStyle.Render("✓ complete")
 			}
 
@@ -1134,10 +1177,13 @@ func (m model) viewPacks(b *strings.Builder) {
 			if isSelected {
 				b.WriteString(selectedStyle.Render(fmt.Sprintf(" %-*s  %-*s ", addrW, addr, agentsColW, agentsStr)))
 			} else {
-				if row.isPartial {
+				switch {
+				case !row.installed:
+					b.WriteString(dimStyle.Render(line))
+				case row.isPartial:
 					b.WriteString(partialStyle.Render(fmt.Sprintf(" %-*s", addrW, addr)))
 					b.WriteString(fmt.Sprintf("  %-*s  ", agentsColW, agentsStr))
-				} else {
+				default:
 					b.WriteString(line)
 				}
 			}
@@ -1151,27 +1197,108 @@ func (m model) viewPacks(b *strings.Builder) {
 		}
 	}
 
-	// Footer
+	// Footer — contextual help for the selected row.
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render(" ↑↓ navigate  Enter detail  c complete  e edit  D remove  Tab switch  q quit"))
+	help := " ↑↓ navigate  Enter detail  n new  Tab switch  q quit"
+	if m.packCursor < len(m.packRows) {
+		row := m.packRows[m.packCursor]
+		switch {
+		case !row.installed:
+			help = " ↑↓ navigate  Enter detail  i install  n new  e edit  Tab switch  q quit"
+		case row.isPartial:
+			help = " ↑↓ navigate  Enter detail  c complete  n new  e edit  d remove  Tab switch  q quit"
+		default:
+			help = " ↑↓ navigate  Enter detail  n new  e edit  d remove  Tab switch  q quit"
+		}
+	}
+	b.WriteString(helpStyle.Render(help))
 	b.WriteString("\n")
 	if m.message != "" {
 		b.WriteString(msgStyle.Render(" " + m.message))
-	} else {
-		total := len(m.packRows)
-		partialCount := 0
-		for _, row := range m.packRows {
-			if row.isPartial {
-				partialCount++
-			}
+		return
+	}
+	// Show the selected pack's description when it has one.
+	if m.packCursor < len(m.packRows) && m.packRows[m.packCursor].desc != "" {
+		desc := " " + m.packRows[m.packCursor].desc
+		if m.width > 2 && len(desc) > m.width-2 {
+			desc = desc[:m.width-3] + "…"
 		}
-		if partialCount > 0 {
-			b.WriteString(dimStyle.Render(fmt.Sprintf(" %d pack(s) installed  •  %s", total, partialStyle.Render(fmt.Sprintf("%d partial", partialCount)))))
-		} else {
-			b.WriteString(dimStyle.Render(fmt.Sprintf(" %d pack(s) installed", total)))
+		b.WriteString(dimStyle.Render(desc))
+		return
+	}
+	installedCount, partialCount := 0, 0
+	for _, row := range m.packRows {
+		if row.installed {
+			installedCount++
 		}
+		if row.isPartial {
+			partialCount++
+		}
+	}
+	availableCount := len(m.packRows) - installedCount
+	parts := []string{fmt.Sprintf("%d installed", installedCount)}
+	if partialCount > 0 {
+		parts = append(parts, partialStyle.Render(fmt.Sprintf("%d partial", partialCount)))
+	}
+	if availableCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d available", availableCount))
+	}
+	b.WriteString(dimStyle.Render(" " + strings.Join(parts, "  •  ")))
+}
+
+// viewAvailablePackDetail renders the detail overlay for a pack that is
+// discoverable in a repo cache but not installed. The pack definition is
+// parsed once when the overlay opens (loadPackDetail) — never per frame.
+func (m model) viewAvailablePackDetail(b *strings.Builder, row packRow) {
+	if m.packDetailErr != nil {
+		b.WriteString(dimStyle.Render(fmt.Sprintf(" Cannot read pack: %v", m.packDetailErr)))
+		b.WriteString("\n")
+		return
+	}
+	pk := m.packDetailDef
+	if pk == nil {
+		b.WriteString(dimStyle.Render(" Pack definition not loaded."))
+		b.WriteString("\n")
+		return
+	}
+
+	b.WriteString(fmt.Sprintf(" Pack: %s  [%s]\n", bold(row.packAddr), dimStyle.Render("available")))
+	if pk.Description != "" {
+		b.WriteString(fmt.Sprintf(" Desc: %s\n", pk.Description))
+	}
+	b.WriteString(fmt.Sprintf(" Skills: %d\n\n", len(pk.Skills)))
+
+	maxRows := m.height - 10
+	if maxRows < 3 {
+		maxRows = 3
+	}
+	displayed := 0
+	for _, sa := range pk.Skills {
+		if displayed >= maxRows {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("  … and %d more", len(pk.Skills)-displayed)))
+			b.WriteString("\n")
+			break
+		}
+		installedMark := "  "
+		if _, ok := m.st.InstalledSkills[sa]; ok {
+			installedMark = checkStyle.Render("✓ ")
+		}
+		b.WriteString(fmt.Sprintf("  %s%s\n", installedMark, sa))
+		displayed++
+	}
+	for i := displayed; i < maxRows; i++ {
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
+	b.WriteString("\n")
+	b.WriteString(helpStyle.Render(" i install  e edit  Esc back  Tab switch  q quit"))
+	b.WriteString("\n")
+	if m.message != "" {
+		b.WriteString(msgStyle.Render(" " + m.message))
 	}
 }
 

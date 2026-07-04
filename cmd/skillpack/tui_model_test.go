@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bmaltais/skillpack/internal/config"
@@ -432,5 +433,189 @@ func TestCloneState_CopiesInstalledPacks(t *testing.T) {
 	origStatus := src.InstalledPacks["my-repo/packs/go-dev"].Skills["my-repo/skills/go"]["claude-code"]
 	if !origStatus.Installed {
 		t.Error("cloneState is not deep-copying InstalledPacks — mutation in dst affected src")
+	}
+}
+
+// makePackDir writes a pack.yaml at relPath inside a repo cache dir.
+func makePackDir(t *testing.T, cacheDir, relPath, name, desc string) {
+	t.Helper()
+	dir := filepath.Join(cacheDir, filepath.FromSlash(relPath))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yaml := "name: " + name + "\n"
+	if desc != "" {
+		yaml += "description: " + desc + "\n"
+	}
+	yaml += "repos:\n  - name: my-repo\n    url: https://example.com/r.git\nskills:\n  - my-repo/skills/go\n"
+	if err := os.WriteFile(filepath.Join(dir, "pack.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRefreshPacks_MergesAvailableAndInstalled verifies the packs panel lists
+// discoverable-but-uninstalled packs alongside installed ones.
+func TestRefreshPacks_MergesAvailableAndInstalled(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cache := t.TempDir()
+	makePackDir(t, cache, "packs/avail", "avail", "an available pack")
+	makePackDir(t, cache, "packs/inst", "inst", "an installed pack")
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	st := &state.State{
+		Repos:           map[string]state.RepoRecord{"my-repo": {URL: "https://example.com/r.git", CachePath: cache}},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+		InstalledPacks: map[string]state.InstalledPackRecord{
+			"my-repo/packs/inst": {
+				PackAddress: "my-repo/packs/inst",
+				Agents:      []string{"claude-code"},
+				Skills: map[string]map[string]state.PackSkillStatus{
+					"my-repo/skills/go": {"claude-code": {Installed: true}},
+				},
+			},
+		},
+	}
+
+	m := initialModel(cfg, st)
+	if len(m.packRows) != 2 {
+		t.Fatalf("expected 2 packRows (1 available + 1 installed), got %d", len(m.packRows))
+	}
+	avail, inst := m.packRows[0], m.packRows[1]
+	if avail.packAddr != "my-repo/packs/avail" || avail.installed {
+		t.Errorf("expected first row to be available my-repo/packs/avail, got %+v", avail)
+	}
+	if avail.desc != "an available pack" {
+		t.Errorf("expected description on available row, got %q", avail.desc)
+	}
+	if inst.packAddr != "my-repo/packs/inst" || !inst.installed {
+		t.Errorf("expected second row to be installed my-repo/packs/inst, got %+v", inst)
+	}
+	if inst.desc != "an installed pack" {
+		t.Errorf("expected discoverable installed pack to keep its description, got %q", inst.desc)
+	}
+}
+
+// TestPackWizard_OpenAndCancel verifies 'n' opens the embedded wizard and Esc
+// on the first step closes it without quitting the program.
+func TestPackWizard_OpenAndCancel(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	st := &state.State{
+		Repos:           make(map[string]state.RepoRecord),
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+		InstalledPacks:  make(map[string]state.InstalledPackRecord),
+	}
+	m := initialModel(cfg, st)
+	m.activePanel = panelPacks
+
+	next, _ := m.Update(keyRune("n"))
+	m = next.(model)
+	if m.packWizard == nil {
+		t.Fatal("expected 'n' to open the embedded pack wizard")
+	}
+	if !m.packWizard.embedded {
+		t.Error("expected wizard to be marked embedded")
+	}
+
+	next, _ = m.Update(keyEsc())
+	m = next.(model)
+	if m.packWizard != nil {
+		t.Error("expected Esc on first step to close the wizard")
+	}
+}
+
+// TestPackWizard_DoneScreenClosesAndReportsResult verifies a keypress on the
+// wizard done screen returns to the packs panel and surfaces the result.
+func TestPackWizard_DoneScreenClosesAndReportsResult(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	st := &state.State{
+		Repos:           make(map[string]state.RepoRecord),
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+		InstalledPacks:  make(map[string]state.InstalledPackRecord),
+	}
+	m := initialModel(cfg, st)
+	m.activePanel = panelPacks
+	w := initialPackCreateModel(cfg, st)
+	w.embedded = true
+	w.step = createStepDone
+	w.doneResult = "published"
+	m.packWizard = &w
+
+	next, _ := m.Update(keyRune("x"))
+	m = next.(model)
+	if m.packWizard != nil {
+		t.Fatal("expected done-screen keypress to close the wizard")
+	}
+	if m.message != "✓ published" {
+		t.Errorf("expected result message, got %q", m.message)
+	}
+}
+
+// TestStartPackInstall_PreselectsDefaultAgent verifies the install overlay
+// opens with the default agent preselected.
+func TestStartPackInstall_PreselectsDefaultAgent(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cache := t.TempDir()
+	makePackDir(t, cache, "packs/avail", "avail", "")
+
+	cfg := &config.Config{
+		DefaultAgent: "pi",
+		Agents: map[string]config.AgentConfig{
+			"claude-code": {SkillDir: t.TempDir()},
+			"pi":          {SkillDir: t.TempDir()},
+		},
+	}
+	st := &state.State{
+		Repos:           map[string]state.RepoRecord{"my-repo": {URL: "https://example.com/r.git", CachePath: cache}},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+		InstalledPacks:  make(map[string]state.InstalledPackRecord),
+	}
+	m := initialModel(cfg, st)
+	m.activePanel = panelPacks
+
+	next, _ := m.Update(keyRune("i"))
+	m = next.(model)
+	if m.inputMode != modePackInstallAgents {
+		t.Fatalf("expected modePackInstallAgents, got %v", m.inputMode)
+	}
+	if m.packInstallAddr != "my-repo/packs/avail" {
+		t.Errorf("unexpected packInstallAddr %q", m.packInstallAddr)
+	}
+	// agents are sorted: [claude-code pi]; default agent "pi" is index 1.
+	if !m.packAgentSel[1] || m.packAgentSel[0] {
+		t.Errorf("expected only default agent preselected, got %v", m.packAgentSel)
+	}
+}
+
+// TestViewPacks_RendersMergedList is a render smoke test: the packs panel
+// shows available and installed rows with their status labels.
+func TestViewPacks_RendersMergedList(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cache := t.TempDir()
+	makePackDir(t, cache, "packs/avail", "avail", "a description here")
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	st := &state.State{
+		Repos:           map[string]state.RepoRecord{"my-repo": {URL: "https://example.com/r.git", CachePath: cache}},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+		InstalledPacks: map[string]state.InstalledPackRecord{
+			"my-repo/packs/inst": {
+				PackAddress: "my-repo/packs/inst",
+				Agents:      []string{"claude-code"},
+				Skills: map[string]map[string]state.PackSkillStatus{
+					"my-repo/skills/go": {"claude-code": {Installed: true}},
+				},
+			},
+		},
+	}
+	m := initialModel(cfg, st)
+	m.activePanel = panelPacks
+	out := m.View()
+
+	for _, want := range []string{"my-repo/packs/avail", "· available", "my-repo/packs/inst", "✓ complete", "a description here"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("packs view missing %q", want)
+		}
 	}
 }

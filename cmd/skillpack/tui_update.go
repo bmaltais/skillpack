@@ -15,6 +15,16 @@ import (
 // handleInputMode (the giant mode-specific key handler) was moved to tui_handlers.go in Phase 3.
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Embedded pack wizard takes over key/window/result messages while active.
+	// Other async results (status refresh, etc.) still fall through to the
+	// main switch below.
+	if m.packWizard != nil {
+		switch msg.(type) {
+		case tea.WindowSizeMsg, tea.KeyMsg, packCreateDoneMsg:
+			return m.updateWizard(msg)
+		}
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -138,12 +148,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case packEditExitMsg:
-		m.refreshPacks()
+	case packInstallDoneMsg:
+		m.busy = ""
 		if msg.err != nil {
-			m.message = fmt.Sprintf("✗ Edit failed: %v", msg.err)
+			m.message = fmt.Sprintf("✗ Install failed: %v", msg.err)
 		} else {
-			m.message = fmt.Sprintf("✓ Pack %s updated", msg.packAddr)
+			if msg.st != nil {
+				*m.st = *msg.st
+			}
+			m.refreshPacks()
+			m.refreshSkills()
+			m.message = msg.summary
 		}
 		return m, nil
 
@@ -370,12 +385,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch ch {
 				case "q":
 					return m, tea.Quit
+				case "n":
+					// Open the create wizard embedded in the TUI
+					w := initialPackCreateModel(m.cfg, m.st)
+					w.embedded = true
+					w.width, w.height = m.width, m.height
+					m.packWizard = &w
+					m.message = ""
 				case "e":
-					// Launch edit wizard for the selected pack
+					// Open the edit wizard embedded in the TUI
 					if m.packCursor < len(m.packRows) {
 						packAddr := m.packRows[m.packCursor].packAddr
-						return m, cmdLaunchPackEdit(packAddr)
+						w, err := initialPackEditModel(packAddr, m.cfg, m.st)
+						if err != nil {
+							m.message = fmt.Sprintf("✗ Edit failed: %v", err)
+							return m, nil
+						}
+						w.embedded = true
+						w.width, w.height = m.width, m.height
+						m.packWizard = &w
+						m.message = ""
 					}
+				case "i":
+					// Install the selected available pack
+					m.startPackInstall()
 				case "c":
 					// Complete deployment for the selected partial pack
 					if m.packCursor < len(m.packRows) && m.packRows[m.packCursor].isPartial {
@@ -384,9 +417,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.message = ""
 						return m, m.cmdCompleteDeployment(packAddr)
 					} else if m.packCursor < len(m.packRows) {
-						m.message = "Pack is already fully deployed"
+						if m.packRows[m.packCursor].installed {
+							m.message = "Pack is already fully deployed"
+						} else {
+							m.message = "Pack is not installed — press i to install"
+						}
 					}
-				case "D":
+				case "d", "D":
 					// Remove pack (with confirmation)
 					m.startPackRemove()
 				}
@@ -394,4 +431,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// updateWizard routes a message to the embedded pack wizard child model.
+// It closes the wizard when the done screen is dismissed or when Esc is
+// pressed on the first step (nowhere left to go back to).
+func (m model) updateWizard(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if size, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = size.Width
+		m.height = size.Height
+	}
+	if key, ok := msg.(tea.KeyMsg); ok {
+		if m.packWizard.step == createStepDone {
+			if m.packWizard.doneErr != nil {
+				m.message = fmt.Sprintf("✗ %v", m.packWizard.doneErr)
+			} else {
+				m.message = "✓ " + m.packWizard.doneResult
+			}
+			m.packWizard = nil
+			m.refreshPacks()
+			return m, nil
+		}
+		if key.Type == tea.KeyEsc && m.packWizard.step == createStepName {
+			m.packWizard = nil
+			m.message = ""
+			return m, nil
+		}
+	}
+	wiz, cmd := m.packWizard.Update(msg)
+	if w, ok := wiz.(packCreateModel); ok {
+		m.packWizard = &w
+	}
+	return m, cmd
 }

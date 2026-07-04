@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/bmaltais/skillpack/internal/config"
+	"github.com/bmaltais/skillpack/internal/pack"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/state"
 )
@@ -27,9 +28,9 @@ const (
 type skillProblem int
 
 const (
-	problemNone          skillProblem = iota
-	problemStale                      // skill's own path no longer exists upstream (SyncStaleAddress)
-	problemBrokenUpstream             // fork with an UpstreamAddr that no longer exists
+	problemNone           skillProblem = iota
+	problemStale                       // skill's own path no longer exists upstream (SyncStaleAddress)
+	problemBrokenUpstream              // fork with an UpstreamAddr that no longer exists
 )
 
 type tuiRow struct {
@@ -70,6 +71,7 @@ const (
 	modeRelinkBrokenChoice   // broken-upstream repair: choose set-upstream (1) or clear (2)
 	modeRelinkBrokenSetInput // broken-upstream repair: user types new upstream address
 	modePackConfirmRemove    // packs panel: confirm pack removal
+	modePackInstallAgents    // packs panel: select agents to install a pack for
 )
 
 // --- Model ---
@@ -134,7 +136,19 @@ type model struct {
 	// Packs panel
 	packRows       []packRow
 	packCursor     int
-	packDetailOpen bool // true when showing per-skill detail overlay for selected pack
+	packDetailOpen bool       // true when showing per-skill detail overlay for selected pack
+	packDetailDef  *pack.Pack // parsed pack.yaml for an available pack's detail overlay, loaded once on open
+	packDetailErr  error      // load error for the detail overlay, if any
+
+	// packWizard, when non-nil, is the embedded create/edit wizard child model.
+	// It receives all key/window messages and is rendered in place of the
+	// active panel until it finishes or is cancelled.
+	packWizard *packCreateModel
+
+	// Pack install flow (agent multi-select overlay)
+	packInstallAddr string       // pack address being installed
+	packAgentCursor int          // cursor within m.agents
+	packAgentSel    map[int]bool // m.agents index → selected
 
 	// Config/state refs
 	cfg *config.Config
@@ -150,11 +164,15 @@ type repoEntry struct {
 	url  string
 }
 
-// packRow holds display data for one row in the packs panel.
+// packRow holds display data for one row in the packs panel. The panel lists
+// both installed packs (from state) and available packs discovered in
+// registered repo caches.
 type packRow struct {
 	packAddr  string
-	isPartial bool
-	agents    []string
+	installed bool
+	isPartial bool     // only meaningful when installed
+	agents    []string // only set when installed
+	desc      string   // pack.yaml description (available packs)
 }
 
 type unmanagedEntry struct {
@@ -280,14 +298,21 @@ func (m *model) refreshRepos() {
 func (m *model) refreshPacks() {
 	m.packRows = nil
 
-	addrs := make([]string, 0, len(m.st.InstalledPacks))
-	for addr := range m.st.InstalledPacks {
-		addrs = append(addrs, addr)
+	// Discover available packs from registered repo caches.
+	rows := make(map[string]packRow)
+	if available, err := repo.DiscoverAllPacks(m.st); err == nil {
+		for _, p := range available {
+			desc := ""
+			if pk, perr := pack.ParseFile(filepath.Join(p.FullPath, "pack.yaml")); perr == nil {
+				desc = pk.Description
+			}
+			rows[p.Address] = packRow{packAddr: p.Address, desc: desc}
+		}
 	}
-	sort.Strings(addrs)
 
-	for _, addr := range addrs {
-		rec := m.st.InstalledPacks[addr]
+	// Overlay installed packs (also covers packs installed from URL/local path
+	// that are not discoverable in any repo cache).
+	for addr, rec := range m.st.InstalledPacks {
 		agents := make([]string, len(rec.Agents))
 		copy(agents, rec.Agents)
 		partial := false
@@ -298,11 +323,21 @@ func (m *model) refreshPacks() {
 				}
 			}
 		}
-		m.packRows = append(m.packRows, packRow{
-			packAddr:  addr,
-			isPartial: partial,
-			agents:    agents,
-		})
+		row := rows[addr] // keeps desc when discoverable
+		row.packAddr = addr
+		row.installed = true
+		row.isPartial = partial
+		row.agents = agents
+		rows[addr] = row
+	}
+
+	addrs := make([]string, 0, len(rows))
+	for addr := range rows {
+		addrs = append(addrs, addr)
+	}
+	sort.Strings(addrs)
+	for _, addr := range addrs {
+		m.packRows = append(m.packRows, rows[addr])
 	}
 
 	if m.packCursor >= len(m.packRows) {
@@ -429,7 +464,8 @@ func computeSkillProblems(st *state.State, discoveredAddrs map[string]bool) map[
 	return problems
 }
 
-func sampleData() ([]string, map[string][]repo.SkillInfo) {	repoNames := []string{"awesome-skills", "community-skills"}
+func sampleData() ([]string, map[string][]repo.SkillInfo) {
+	repoNames := []string{"awesome-skills", "community-skills"}
 	skills := map[string][]repo.SkillInfo{
 		"awesome-skills": {
 			{Address: "awesome-skills/coding/debugger", RepoName: "awesome-skills", RelPath: "coding/debugger"},
@@ -488,9 +524,11 @@ type packCompleteDoneMsg struct {
 	err      error
 }
 
-// packEditExitMsg is sent when the pack edit wizard subprocess exits.
-type packEditExitMsg struct {
+// packInstallDoneMsg is sent when an async pack install finishes.
+type packInstallDoneMsg struct {
 	packAddr string
+	st       *state.State // updated state on success
+	summary  string
 	err      error
 }
 

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -297,18 +298,73 @@ func (m *model) cmdCompleteDeployment(packAddr string) tea.Cmd {
 	}
 }
 
-// cmdLaunchPackEdit suspends the main TUI and runs `skillpack pack edit <addr>`
-// as a child process. When the wizard exits, control returns to the main TUI
-// and packEditExitMsg is sent to Update.
-func cmdLaunchPackEdit(packAddr string) tea.Cmd {
-	self, err := os.Executable()
-	if err != nil {
-		return func() tea.Msg {
-			return packEditExitMsg{packAddr: packAddr, err: fmt.Errorf("cannot locate own executable: %w", err)}
+// cmdPackInstall installs every skill in the pack for the given agents.
+// It mirrors runPackInstall (pack.go) but stays quiet — progress is reported
+// back to the Update loop via packInstallDoneMsg instead of stdout.
+func (m *model) cmdPackInstall(packAddr string, agents []string) tea.Cmd {
+	cfg := m.cfg
+	stCopy := cloneState(m.st)
+	return func() tea.Msg {
+		pk, canonAddr, err := loadPackDefinition(packAddr, cfg, stCopy)
+		if err != nil {
+			return packInstallDoneMsg{packAddr: packAddr, err: err}
 		}
+
+		// Register any repos the pack references that aren't registered yet.
+		repoErrors := make(map[string]error)
+		for _, r := range pk.Repos {
+			if _, exists := stCopy.Repos[r.Name]; exists {
+				continue
+			}
+			if _, addErr := repo.Add(r.Name, r.URL, cfg.TokenForRepo(r.Name), stCopy); addErr != nil {
+				repoErrors[r.Name] = addErr
+			}
+		}
+
+		rec := state.InstalledPackRecord{
+			PackAddress: canonAddr,
+			InstalledAt: time.Now(),
+			Agents:      agents,
+			Skills:      make(map[string]map[string]state.PackSkillStatus),
+		}
+
+		installed, failed := 0, 0
+		for _, skillAddr := range pk.Skills {
+			rec.Skills[skillAddr] = make(map[string]state.PackSkillStatus)
+			repoName := repoNameFromAddr(skillAddr)
+			for _, ag := range agents {
+				if repoErr, bad := repoErrors[repoName]; bad {
+					rec.Skills[skillAddr][ag] = state.PackSkillStatus{
+						Installed: false,
+						Error:     fmt.Sprintf("repo unavailable: %v", repoErr),
+					}
+					failed++
+					continue
+				}
+				if installErr := skill.Install(skillAddr, ag, cfg, stCopy, false); installErr != nil {
+					rec.Skills[skillAddr][ag] = state.PackSkillStatus{Installed: false, Error: installErr.Error()}
+					failed++
+				} else {
+					rec.Skills[skillAddr][ag] = state.PackSkillStatus{Installed: true}
+					installed++
+				}
+			}
+		}
+
+		if err := stCopy.RecordPackInstall(canonAddr, rec); err != nil {
+			return packInstallDoneMsg{packAddr: canonAddr, err: err}
+		}
+		if err := state.Save(stCopy); err != nil {
+			return packInstallDoneMsg{packAddr: canonAddr, err: err}
+		}
+
+		// installed/failed count skill×agent installs, not unique skills.
+		var summary string
+		if failed > 0 {
+			summary = fmt.Sprintf("⚠ Pack %q installed partial — %d install(s) succeeded, %d failed (Enter for details)", canonAddr, installed, failed)
+		} else {
+			summary = fmt.Sprintf("✓ Pack %q installed complete — %d install(s) for %s", canonAddr, installed, strings.Join(agents, ", "))
+		}
+		return packInstallDoneMsg{packAddr: canonAddr, st: stCopy, summary: summary}
 	}
-	cmd := exec.Command(self, "pack", "edit", packAddr)
-	return tea.ExecProcess(cmd, func(err error) tea.Msg {
-		return packEditExitMsg{packAddr: packAddr, err: err}
-	})
 }

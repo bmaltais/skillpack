@@ -96,13 +96,15 @@ On first run, skillpack detects your installed AI agents and asks which should b
 skillpack tui
 ```
 
-Launch a full interactive terminal UI with three panels:
+Launch a full interactive terminal UI with five panels:
 
 | Panel | Purpose |
 |-------|---------|
 | **Skills** | Browse repos, install/remove skills per agent |
 | **Status** | View installed skill states, update, sync |
 | **Repos** | Add/remove skill repositories |
+| **Unmanaged** | Adopt skills that were not installed by skillpack |
+| **Packs** | Browse, install, create, edit, and remove skill packs |
 
 Press **Tab** to switch between panels.
 
@@ -140,6 +142,17 @@ Shows all installed skills with their state:
 ### Repos Panel
 
 - **a** add a repo (prompts for name + URL) • **d** remove selected repo
+
+### Packs Panel
+
+Lists installed packs alongside packs discovered in registered repos
+(marked `· available`), with the selected pack's description shown in the
+footer.
+
+- **Enter** show pack detail (per-skill install status, or the pack contents for available packs)
+- **i** install an available pack — pick target agents with **Space**, **a** for all, confirm with **Enter**
+- **n** create a new pack / **e** edit the selected pack — an inline wizard walks through name, description, skill selection, and publish, then returns to the panel
+- **c** complete a partially deployed pack • **d** remove the selected pack (with confirmation)
 
 ### Update Banner
 

@@ -282,6 +282,53 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 			return *m, tea.Quit
 		}
 
+	case modePackInstallAgents:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.inputMode = modeNormal
+			m.message = ""
+		case tea.KeyUp:
+			if m.packAgentCursor > 0 {
+				m.packAgentCursor--
+			}
+		case tea.KeyDown:
+			if m.packAgentCursor < len(m.agents)-1 {
+				m.packAgentCursor++
+			}
+		case tea.KeySpace:
+			m.packAgentSel[m.packAgentCursor] = !m.packAgentSel[m.packAgentCursor]
+		case tea.KeyRunes:
+			if msg.String() == "a" {
+				// Toggle all: select all unless everything is already selected.
+				all := true
+				for i := range m.agents {
+					if !m.packAgentSel[i] {
+						all = false
+						break
+					}
+				}
+				for i := range m.agents {
+					m.packAgentSel[i] = !all
+				}
+			}
+		case tea.KeyEnter:
+			var agents []string
+			for i, name := range m.agents {
+				if m.packAgentSel[i] {
+					agents = append(agents, name)
+				}
+			}
+			if len(agents) == 0 {
+				return *m, nil
+			}
+			m.inputMode = modeNormal
+			m.busy = fmt.Sprintf("Installing pack %s...", m.packInstallAddr)
+			m.message = ""
+			return *m, m.cmdPackInstall(m.packInstallAddr, agents)
+		case tea.KeyCtrlC:
+			return *m, tea.Quit
+		}
+
 	case modePackConfirmRemove:
 		switch msg.Type {
 		case tea.KeyEsc:
@@ -704,12 +751,45 @@ func (m *model) updateSelectedSkill() {
 	m.message = fmt.Sprintf("✓ Updated %s for %s", row.addr, row.agentName)
 }
 
+// startPackInstall opens the agent-selection overlay for the selected pack.
+func (m *model) startPackInstall() {
+	if len(m.packRows) == 0 || m.packCursor >= len(m.packRows) {
+		return
+	}
+	row := m.packRows[m.packCursor]
+	if row.installed && !row.isPartial {
+		m.message = "Pack is already installed"
+		return
+	}
+	if len(m.agents) == 0 {
+		m.message = "✗ No agents configured — add one to ~/.skillpack/config.yaml"
+		return
+	}
+	m.packInstallAddr = row.packAddr
+	m.packAgentCursor = 0
+	m.packAgentSel = make(map[int]bool)
+	// Preselect the default agent (or the only one).
+	for i, name := range m.agents {
+		if name == m.cfg.DefaultAgent || len(m.agents) == 1 {
+			m.packAgentSel[i] = true
+			m.packAgentCursor = i
+			break
+		}
+	}
+	m.inputMode = modePackInstallAgents
+	m.message = ""
+}
+
 func (m *model) startPackRemove() {
 	if len(m.packRows) == 0 {
 		m.message = "No packs to remove"
 		return
 	}
 	if m.packCursor >= len(m.packRows) {
+		return
+	}
+	if !m.packRows[m.packCursor].installed {
+		m.message = "Pack is not installed — press i to install"
 		return
 	}
 	packAddr := m.packRows[m.packCursor].packAddr

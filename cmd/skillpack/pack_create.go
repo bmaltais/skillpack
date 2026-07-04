@@ -81,10 +81,16 @@ const (
 type packCreateModel struct {
 	step createStep
 
+	// embedded is true when the wizard runs as a child model inside the main
+	// TUI (packs panel) rather than as a standalone tea.Program. The main TUI
+	// renders the tab header, so the wizard suppresses its own title, and quit
+	// keys close the wizard instead of the program.
+	embedded bool
+
 	// editMode is true when the wizard is editing an existing pack rather than
 	// creating a new one. editPackAddr is the canonical address of the pack
 	// being edited (e.g. "my-repo/packs/go-dev").
-	editMode    bool
+	editMode     bool
 	editPackAddr string
 
 	// --- text input state ---
@@ -93,10 +99,10 @@ type packCreateModel struct {
 	pathInput string // e.g. "packs/go-dev"
 
 	// --- skill multi-select ---
-	allSkills    []repo.SkillInfo
-	skillSel     map[int]bool // allSkills index → selected
-	skillCursor  int          // cursor within visibleSkills
-	skillFilter  string
+	allSkills     []repo.SkillInfo
+	skillSel      map[int]bool // allSkills index → selected
+	skillCursor   int          // cursor within visibleSkills
+	skillFilter   string
 	visibleSkills []int // allSkills indices that pass the current filter
 
 	// --- repo selection ---
@@ -542,16 +548,11 @@ func (m packCreateModel) cmdCommitAndPush() tea.Cmd {
 
 // ─── View ─────────────────────────────────────────────────────────────────────
 
+// The wizard reuses the main TUI styles (tui_views.go) so it renders
+// identically whether launched standalone or embedded in the packs panel.
 var (
-	createTitleStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99"))
-	createPromptStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
-	createHelpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	createInputStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
-	createSelectedStyle = lipgloss.NewStyle().Background(lipgloss.Color("237")).Bold(true)
-	createCheckStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
-	createErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
-	createOKStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("82")).Bold(true)
-	createCodeStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("117"))
+	createErrorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+	createOKStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("82")).Bold(true)
 )
 
 func (m packCreateModel) View() string {
@@ -561,8 +562,12 @@ func (m packCreateModel) View() string {
 	if m.editMode {
 		title = "Edit Pack"
 	}
-	header := createTitleStyle.Render(" SkillPack — " + title)
-	b.WriteString(header + "\n\n")
+	if m.embedded {
+		// Main TUI already renders the "SkillPack" title + tabs.
+		b.WriteString(titleStyle.Render(" "+title) + "\n\n")
+	} else {
+		b.WriteString(titleStyle.Render(" SkillPack — "+title) + "\n\n")
+	}
 
 	stepPrefix := "Step"
 	if m.editMode {
@@ -571,22 +576,26 @@ func (m packCreateModel) View() string {
 
 	switch m.step {
 	case createStepName:
-		b.WriteString(createPromptStyle.Render(stepPrefix+" 1/6 — Pack name") + "\n\n")
-		b.WriteString("  Name: " + createInputStyle.Render(m.nameInput) + "█\n\n")
-		b.WriteString(createHelpStyle.Render("  enter=next  ctrl+c=quit") + "\n")
+		b.WriteString(inputStyle.Render(stepPrefix+" 1/6 — Pack name") + "\n\n")
+		b.WriteString("  Name: " + filterStyle.Render(m.nameInput) + "█\n\n")
+		nameHelp := "  enter=next  ctrl+c=quit"
+		if m.embedded {
+			nameHelp = "  enter=next  esc=cancel  ctrl+c=quit"
+		}
+		b.WriteString(helpStyle.Render(nameHelp) + "\n")
 
 	case createStepDesc:
-		b.WriteString(createPromptStyle.Render(stepPrefix+" 2/6 — Description (optional)") + "\n\n")
-		b.WriteString("  Name: " + createInputStyle.Render(m.nameInput) + "\n")
+		b.WriteString(inputStyle.Render(stepPrefix+" 2/6 — Description (optional)") + "\n\n")
+		b.WriteString("  Name: " + filterStyle.Render(m.nameInput) + "\n")
 		cursor := "█"
 		if m.descInput == "" {
 			cursor = "█"
 		}
-		b.WriteString("  Desc: " + createInputStyle.Render(m.descInput) + cursor + "\n\n")
-		b.WriteString(createHelpStyle.Render("  enter=next  esc=back  ctrl+c=quit") + "\n")
+		b.WriteString("  Desc: " + filterStyle.Render(m.descInput) + cursor + "\n\n")
+		b.WriteString(helpStyle.Render("  enter=next  esc=back  ctrl+c=quit") + "\n")
 
 	case createStepSkills:
-		b.WriteString(createPromptStyle.Render(stepPrefix+" 3/6 — Select skills") + "\n")
+		b.WriteString(inputStyle.Render(stepPrefix+" 3/6 — Select skills") + "\n")
 		count := 0
 		for _, sel := range m.skillSel {
 			if sel {
@@ -595,10 +604,10 @@ func (m packCreateModel) View() string {
 		}
 		b.WriteString(fmt.Sprintf("  %d selected", count))
 		if len(m.allSkills) == 0 {
-			b.WriteString("\n\n  " + createHelpStyle.Render("(no skills — register a repo first)") + "\n")
+			b.WriteString("\n\n  " + helpStyle.Render("(no skills — register a repo first)") + "\n")
 			break
 		}
-		b.WriteString("  filter: " + createInputStyle.Render(m.skillFilter) + "█\n\n")
+		b.WriteString("  filter: " + filterStyle.Render(m.skillFilter) + "█\n\n")
 
 		// Show a scrollable window of visible skills.
 		listH := m.height - 10
@@ -618,43 +627,43 @@ func (m packCreateModel) View() string {
 			s := m.allSkills[idx]
 			check := "[ ]"
 			if m.skillSel[idx] {
-				check = createCheckStyle.Render("[✓]")
+				check = checkStyle.Render("[✓]")
 			}
 			line := fmt.Sprintf("  %s %s", check, s.Address)
 			if i == m.skillCursor {
-				line = createSelectedStyle.Render(line)
+				line = selectedStyle.Render(line)
 			}
 			b.WriteString(line + "\n")
 		}
 		if len(m.visibleSkills) == 0 {
-			b.WriteString("  " + createHelpStyle.Render("(no skills match filter)") + "\n")
+			b.WriteString("  " + helpStyle.Render("(no skills match filter)") + "\n")
 		}
-		b.WriteString("\n" + createHelpStyle.Render("  ↑↓=navigate  space=toggle  type=filter  backspace=delete char  enter=next  esc=back") + "\n")
+		b.WriteString("\n" + helpStyle.Render("  ↑↓=navigate  space=toggle  type=filter  backspace=delete char  enter=next  esc=back") + "\n")
 
 	case createStepPath:
-		b.WriteString(createPromptStyle.Render(stepPrefix+" 4/6 — Pack directory path in repo") + "\n\n")
-		b.WriteString("  Path: " + createInputStyle.Render(m.pathInput) + "█\n\n")
-		b.WriteString(createHelpStyle.Render("  The pack.yaml will be written at <repo>/<path>/pack.yaml") + "\n")
-		b.WriteString(createHelpStyle.Render("  enter=next  esc=back  ctrl+c=quit") + "\n")
+		b.WriteString(inputStyle.Render(stepPrefix+" 4/6 — Pack directory path in repo") + "\n\n")
+		b.WriteString("  Path: " + filterStyle.Render(m.pathInput) + "█\n\n")
+		b.WriteString(helpStyle.Render("  The pack.yaml will be written at <repo>/<path>/pack.yaml") + "\n")
+		b.WriteString(helpStyle.Render("  enter=next  esc=back  ctrl+c=quit") + "\n")
 
 	case createStepRepo:
-		b.WriteString(createPromptStyle.Render(stepPrefix+" 5/6 — Select target repo") + "\n\n")
+		b.WriteString(inputStyle.Render(stepPrefix+" 5/6 — Select target repo") + "\n\n")
 		if len(m.repoList) == 0 {
 			b.WriteString("  " + createErrorStyle.Render("No repos registered. Run: skillpack repo add <name> <url>") + "\n")
-			b.WriteString(createHelpStyle.Render("  esc=back  ctrl+c=quit") + "\n")
+			b.WriteString(helpStyle.Render("  esc=back  ctrl+c=quit") + "\n")
 			break
 		}
 		for i, r := range m.repoList {
-			line := fmt.Sprintf("  %s  %s", r.name, createHelpStyle.Render(r.url))
+			line := fmt.Sprintf("  %s  %s", r.name, helpStyle.Render(r.url))
 			if i == m.repoCursor {
-				line = createSelectedStyle.Render(fmt.Sprintf("  %s  %s", r.name, r.url))
+				line = selectedStyle.Render(fmt.Sprintf("  %s  %s", r.name, r.url))
 			}
 			b.WriteString(line + "\n")
 		}
-		b.WriteString("\n" + createHelpStyle.Render("  ↑↓=navigate  enter=select  esc=back  ctrl+c=quit") + "\n")
+		b.WriteString("\n" + helpStyle.Render("  ↑↓=navigate  enter=select  esc=back  ctrl+c=quit") + "\n")
 
 	case createStepPreview:
-		b.WriteString(createPromptStyle.Render(stepPrefix+" 6/6 — Preview") + "\n\n")
+		b.WriteString(inputStyle.Render(stepPrefix+" 6/6 — Preview") + "\n\n")
 		selectedRepo := ""
 		if m.repoCursor < len(m.repoList) {
 			selectedRepo = m.repoList[m.repoCursor].name
@@ -665,9 +674,9 @@ func (m packCreateModel) View() string {
 		}
 		b.WriteString(fmt.Sprintf("  Will write: %s/%s/pack.yaml\n\n", selectedRepo, packPath))
 		for _, line := range strings.Split(strings.TrimSuffix(m.previewYAML, "\n"), "\n") {
-			b.WriteString("  " + createCodeStyle.Render(line) + "\n")
+			b.WriteString("  " + msgStyle.Render(line) + "\n")
 		}
-		b.WriteString("\n" + createHelpStyle.Render("  enter=publish  esc=back  ctrl+c=quit") + "\n")
+		b.WriteString("\n" + helpStyle.Render("  enter=publish  esc=back  ctrl+c=quit") + "\n")
 
 	case createStepDone:
 		if m.doneErr != nil {
@@ -684,7 +693,11 @@ func (m packCreateModel) View() string {
 				b.WriteString(fmt.Sprintf("  Install with: skillpack pack install %s\n", packAddr))
 			}
 		}
-		b.WriteString("\n" + createHelpStyle.Render("  any key to exit") + "\n")
+		exitHint := "  any key to exit"
+		if m.embedded {
+			exitHint = "  any key to return to packs"
+		}
+		b.WriteString("\n" + helpStyle.Render(exitHint) + "\n")
 	}
 
 	return b.String()

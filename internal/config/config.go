@@ -44,12 +44,12 @@ type KnownAgent struct {
 	DetectDir string // if set, check this dir for presence instead of SkillDir
 }
 
-// DefaultAgents is the list of known agents the first-run wizard checks for.
 var DefaultAgents = []KnownAgent{
 	{"claude-code", "~/.claude/skills", ""},
 	{"copilot", "~/.copilot/skills", ""},
 	{"grok", "~/.grok/skills", ""},
 	{"hermes", "~/.hermes/skills", ""},
+	{"omp", "~/.omp/agent/skills", ""},
 	{"opencode", "~/.config/opencode/skills", ""},
 	{"openclaw", "~/.openclaw/skills", ""},
 	{"pi", "~/.pi/agent/skills", "~/.pi/agent"},

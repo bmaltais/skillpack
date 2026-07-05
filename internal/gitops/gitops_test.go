@@ -3,6 +3,7 @@ package gitops
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -121,5 +122,75 @@ func TestCommitAndPush_PushFailure_NoHeadAdvance(t *testing.T) {
 	}
 	if headSHA != initialHash.String() {
 		t.Errorf("HEAD advanced after failed push: got %s, want %s", headSHA[:8], initialHash.String()[:8])
+	}
+}
+
+func TestIsGHOToken(t *testing.T) {
+	tests := []struct {
+		token string
+		want  bool
+	}{
+		{"gho_abc123", true},
+		{"ghp_abc123", false},
+		{"", false},
+		{"gho_", true},
+		{"random", false},
+	}
+	for _, tt := range tests {
+		if got := isGHOToken(tt.token); got != tt.want {
+			t.Errorf("isGHOToken(%q) = %v, want %v", tt.token, got, tt.want)
+		}
+	}
+}
+
+// TestCommitAndPush_GhoTokenHint verifies that when CommitAndPush fails with a
+// gho_ token, the error message includes a hint about refreshing the token.
+// This is a behavioural test: it checks the error string contains the expected
+// hint text rather than just the raw git error.
+func TestCommitAndPush_GhoTokenHint(t *testing.T) {
+	sig := &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()}
+
+	repoDir := t.TempDir()
+	repo, err := gogit.PlainInit(repoDir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	initFile := filepath.Join(repoDir, "README.md")
+	if err := os.WriteFile(initFile, []byte("init"), 0o644); err != nil {
+		t.Fatalf("write init file: %v", err)
+	}
+	if _, err := wt.Add("README.md"); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	if _, err := wt.Commit("initial commit", &gogit.CommitOptions{Author: sig, Committer: sig}); err != nil {
+		t.Fatalf("initial commit: %v", err)
+	}
+
+	skillRelPath := "skills/my-skill"
+	skillDir := filepath.Join(repoDir, skillRelPath)
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# My Skill"), 0o644); err != nil {
+		t.Fatalf("write skill file: %v", err)
+	}
+
+	// Use an unreachable remote with a gho_ token — push will fail with a
+	// transport error. The error message should contain our hint.
+	_, err = CommitAndPush(repoDir, skillRelPath, "test: add skill", "http://localhost:19999/no-such-repo.git", "gho_test123")
+	if err == nil {
+		t.Fatal("expected push to fail but got nil error")
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "hint:") {
+		t.Errorf("expected hint in error message, got: %s", errMsg)
+	}
+	if !strings.Contains(errMsg, "gh auth token") {
+		t.Errorf("expected 'gh auth token' in hint, got: %s", errMsg)
 	}
 }

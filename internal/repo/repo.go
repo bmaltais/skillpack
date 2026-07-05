@@ -1,7 +1,6 @@
 package repo
 
 import (
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -11,7 +10,6 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/transport"
 
 	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/gitops"
@@ -79,6 +77,9 @@ func Add(name, url, token string, st *state.State) (recovered bool, err error) {
 		cloneOpts.Auth = auth
 
 		if _, err := gogit.PlainClone(cachePath, false, cloneOpts); err != nil {
+			if hint := FormatAuthHint(name, token, err, false); hint != "" {
+				return false, fmt.Errorf("%s", hint)
+			}
 			return false, fmt.Errorf("cloning %s: %w", url, err)
 		}
 	}
@@ -165,7 +166,7 @@ func Update(name, token string, st *state.State) (string, error) {
 	switch {
 	case fetchErr == nil || fetchErr == gogit.NoErrAlreadyUpToDate:
 		// success
-	case isAuthError(fetchErr) && !gitops.IsSSHURL(rec.URL) && token != "":
+	case isTransportAuthError(fetchErr) && !gitops.IsSSHURL(rec.URL) && token != "":
 		// Credential failed for an HTTPS repo. Retry anonymously — if the repo
 		// is public, anonymous fetch succeeds and we surface a stale-credential
 		// notice rather than a hard error.
@@ -176,6 +177,9 @@ func Update(name, token string, st *state.State) (string, error) {
 			warning = fmt.Sprintf("stale credential for %q ignored; repo is public and was fetched anonymously", name)
 		} else {
 			// Both authenticated and anonymous fetches failed: genuine private-repo auth failure.
+			if hint := FormatAuthHint(name, token, fetchErr, false); hint != "" {
+				return "", fmt.Errorf("%s", hint)
+			}
 			return "", fmt.Errorf("private repo auth failed for %q (check your token): %w", name, fetchErr)
 		}
 	default:
@@ -197,11 +201,10 @@ func Update(name, token string, st *state.State) (string, error) {
 	return warning, state.Save(st)
 }
 
-// isAuthError reports whether err indicates an authentication or authorisation
-// failure from the remote git transport.
-func isAuthError(err error) bool {
-	return errors.Is(err, transport.ErrAuthenticationRequired) ||
-		errors.Is(err, transport.ErrAuthorizationFailed)
+// isTransportAuthError reports whether err is an authentication/authorisation
+// failure from the go-git transport layer.
+func isTransportAuthError(err error) bool {
+	return IsTransportAuthError(err)
 }
 
 // resolveRemoteHEAD returns the hash the remote tip the local worktree tracks.

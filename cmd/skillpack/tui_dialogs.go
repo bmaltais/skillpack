@@ -205,6 +205,9 @@ func dialogContent(m model) (title string, lines []string, ok bool) {
 			dimStyle.Render("y/Enter to confirm • n/Esc to cancel"),
 		}, true
 
+	case modeHelp:
+		return "Keys", helpLines(m), true
+
 	default:
 		return "", nil, false
 	}
@@ -252,4 +255,45 @@ func overlayDialog(m model, body string) string {
 		lines[row] = prefix + boxLine
 	}
 	return strings.Join(lines, "\n")
+}
+
+// helpLines renders every appMenus binding, grouped by menu, as the F1 help
+// dialog's body — generated from the same table that dispatches menu
+// actions, so it can't drift from what the menus actually do. Scrolls via
+// m.helpScroll when the terminal is too short to show everything at once.
+func helpLines(m model) []string {
+	var all []string
+	for i, menu := range appMenus {
+		if i > 0 {
+			all = append(all, "")
+		}
+		all = append(all, inputStyle.Render(menu.label))
+		for _, item := range menu.items {
+			shortcut := item.shortcut
+			if shortcut == "" {
+				shortcut = "-"
+			}
+			all = append(all, fmt.Sprintf("  %-20s %s", item.label, dimStyle.Render(shortcut)))
+		}
+	}
+
+	visible := m.height - 9 // title+menu bar, box border x2, footer hint, margin
+	if visible < 6 {
+		visible = 6
+	}
+	if len(all) <= visible {
+		return all
+	}
+
+	maxScroll := len(all) - visible
+	scroll := m.helpScroll
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+	if scroll < 0 {
+		scroll = 0
+	}
+	page := append([]string{}, all[scroll:scroll+visible-1]...)
+	page = append(page, dimStyle.Render(fmt.Sprintf("↑↓ scroll (%d/%d)", scroll+visible-1, len(all))))
+	return page
 }

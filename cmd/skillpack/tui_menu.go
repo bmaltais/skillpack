@@ -105,7 +105,8 @@ var appMenus = []menuDef{
 		label: "Help",
 		items: []menuItem{
 			{"Keys", "F1", alwaysEnabled, func(m *model) tea.Cmd {
-				m.message = "Keys: see the status bar for the active panel's bindings"
+				m.inputMode = modeHelp
+				m.helpScroll = 0
 				return nil
 			}},
 			{"About", "", alwaysEnabled, func(m *model) tea.Cmd {
@@ -150,7 +151,8 @@ func (m *model) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	case "alt+h":
 		return openMenu("Help")
 	case "f1":
-		m.message = "Keys: see the status bar for the active panel's bindings"
+		m.inputMode = modeHelp
+		m.helpScroll = 0
 		return nil, true
 	case "f2":
 		return m.switchPanel(panelSkills), true

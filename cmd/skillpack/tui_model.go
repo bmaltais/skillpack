@@ -72,6 +72,7 @@ const (
 	modeRelinkBrokenSetInput // broken-upstream repair: user types new upstream address
 	modePackConfirmRemove    // packs panel: confirm pack removal
 	modePackInstallAgents    // packs panel: select agents to install a pack for
+	modeHelp                 // Help→Keys / F1: scrollable key-binding reference
 )
 
 // --- Model ---
@@ -99,6 +100,7 @@ type model struct {
 	menuOpen      bool
 	menuIndex     int // which top-level menu in appMenus is open
 	menuItemIndex int // cursor within the open menu's items
+	helpScroll    int // scroll offset for the F1 help dialog
 
 	// Input mode for repo add / fork
 	inputMode      inputMode

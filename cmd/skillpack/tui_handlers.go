@@ -352,6 +352,19 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 			m.inputMode = modeNormal
 			m.message = ""
 		}
+
+	case modeHelp:
+		switch msg.String() {
+		case "esc", "f1", "enter", "q":
+			m.inputMode = modeNormal
+			m.helpScroll = 0
+		case "up":
+			if m.helpScroll > 0 {
+				m.helpScroll--
+			}
+		case "down":
+			m.helpScroll++
+		}
 	}
 	return *m, nil
 }

@@ -95,6 +95,11 @@ type model struct {
 	height      int
 	message     string
 
+	// DOS Shell menu bar state (F10 / Alt+letter to open, wired in Move 4)
+	menuOpen      bool
+	menuIndex     int // which top-level menu in appMenus is open
+	menuItemIndex int // cursor within the open menu's items
+
 	// Input mode for repo add / fork
 	inputMode      inputMode
 	inputBuffer    string

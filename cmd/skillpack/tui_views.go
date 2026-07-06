@@ -207,7 +207,7 @@ func (m model) View() string {
 	if m.packWizard != nil {
 		b.WriteString("\n")
 		b.WriteString(m.packWizard.View())
-		return m.render(b.String())
+		return m.render(overlayDropdown(m, b.String()))
 	}
 
 	switch m.activePanel {
@@ -223,7 +223,7 @@ func (m model) View() string {
 		m.viewPacks(&b)
 	}
 
-	return m.render(b.String())
+	return m.render(overlayDropdown(m, b.String()))
 }
 
 func (m model) viewSkills(b *strings.Builder) {

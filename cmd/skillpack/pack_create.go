@@ -562,11 +562,10 @@ func (m packCreateModel) View() string {
 	if m.editMode {
 		title = "Edit Pack"
 	}
-	if m.embedded {
-		// Main TUI already renders the "SkillPack" title + tabs.
-		b.WriteString(titleStyle.Render(" "+title) + "\n\n")
-	} else {
-		b.WriteString(titleStyle.Render(" SkillPack — "+title) + "\n\n")
+	if !m.embedded {
+		// Standalone mode has no chrome title bar of its own — carry the
+		// app name in the dialog title instead.
+		title = "SkillPack — " + title
 	}
 
 	stepPrefix := "Step"
@@ -577,7 +576,7 @@ func (m packCreateModel) View() string {
 	switch m.step {
 	case createStepName:
 		b.WriteString(inputStyle.Render(stepPrefix+" 1/6 — Pack name") + "\n\n")
-		b.WriteString("  Name: " + filterStyle.Render(m.nameInput) + "█\n\n")
+		b.WriteString("  Name: " + filterStyle.Render(m.nameInput) + "▌\n\n")
 		nameHelp := "  enter=next  ctrl+c=quit"
 		if m.embedded {
 			nameHelp = "  enter=next  esc=cancel  ctrl+c=quit"
@@ -587,9 +586,9 @@ func (m packCreateModel) View() string {
 	case createStepDesc:
 		b.WriteString(inputStyle.Render(stepPrefix+" 2/6 — Description (optional)") + "\n\n")
 		b.WriteString("  Name: " + filterStyle.Render(m.nameInput) + "\n")
-		cursor := "█"
+		cursor := "▌"
 		if m.descInput == "" {
-			cursor = "█"
+			cursor = "▌"
 		}
 		b.WriteString("  Desc: " + filterStyle.Render(m.descInput) + cursor + "\n\n")
 		b.WriteString(helpStyle.Render("  enter=next  esc=back  ctrl+c=quit") + "\n")
@@ -607,7 +606,7 @@ func (m packCreateModel) View() string {
 			b.WriteString("\n\n  " + helpStyle.Render("(no skills — register a repo first)") + "\n")
 			break
 		}
-		b.WriteString("  filter: " + filterStyle.Render(m.skillFilter) + "█\n\n")
+		b.WriteString("  filter: " + filterStyle.Render(m.skillFilter) + "▌\n\n")
 
 		// Show a scrollable window of visible skills.
 		listH := m.height - 10
@@ -642,7 +641,7 @@ func (m packCreateModel) View() string {
 
 	case createStepPath:
 		b.WriteString(inputStyle.Render(stepPrefix+" 4/6 — Pack directory path in repo") + "\n\n")
-		b.WriteString("  Path: " + filterStyle.Render(m.pathInput) + "█\n\n")
+		b.WriteString("  Path: " + filterStyle.Render(m.pathInput) + "▌\n\n")
 		b.WriteString(helpStyle.Render("  The pack.yaml will be written at <repo>/<path>/pack.yaml") + "\n")
 		b.WriteString(helpStyle.Render("  enter=next  esc=back  ctrl+c=quit") + "\n")
 
@@ -700,7 +699,16 @@ func (m packCreateModel) View() string {
 		b.WriteString("\n" + helpStyle.Render(exitHint) + "\n")
 	}
 
-	return b.String()
+	box := renderDialog(m.width, title, strings.Split(strings.TrimRight(b.String(), "\n"), "\n"))
+	pad := (m.width - lipgloss.Width(box[0])) / 2
+	if pad < 0 {
+		pad = 0
+	}
+	prefix := strings.Repeat(" ", pad)
+	for i, l := range box {
+		box[i] = prefix + l
+	}
+	return strings.Join(box, "\n")
 }
 
 // ─── entry point ──────────────────────────────────────────────────────────────

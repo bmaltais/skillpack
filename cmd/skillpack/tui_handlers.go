@@ -352,6 +352,19 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 			m.inputMode = modeNormal
 			m.message = ""
 		}
+
+	case modeHelp:
+		switch msg.String() {
+		case "esc", "f1", "enter", "q":
+			m.inputMode = modeNormal
+			m.helpScroll = 0
+		case "up":
+			if m.helpScroll > 0 {
+				m.helpScroll--
+			}
+		case "down":
+			m.helpScroll++
+		}
 	}
 	return *m, nil
 }
@@ -489,6 +502,93 @@ func (m *model) handleSkillToggle() {
 		m.installed[addr][agent] = true
 		m.message = fmt.Sprintf("➕ Installed %s for %s", addr, agent)
 	}
+}
+
+// startAddRepo begins the add-repo input flow. Shared by the 'a' key in the
+// Repos panel and the File→Add Repo menu item.
+func (m *model) startAddRepo() {
+	m.inputMode = modeAddRepoName
+	m.inputBuffer = ""
+	m.message = ""
+}
+
+// startSelfUpdate kicks off a self-update check+download. Shared by the 'U'
+// key in the Status panel and the File→Self-Update menu item.
+func (m *model) startSelfUpdate() tea.Cmd {
+	m.busy = "Checking for skillpack updates..."
+	m.message = ""
+	return cmdSelfUpdate()
+}
+
+// switchPanel activates panel p, applying the same per-panel refresh Tab
+// applies when cycling onto it. Shared by F2-F6 and the View menu.
+func (m *model) switchPanel(p panel) tea.Cmd {
+	m.activePanel = p
+	m.message = ""
+	switch p {
+	case panelUnmanaged:
+		m.refreshUnmanaged()
+	case panelPacks:
+		m.refreshPacks()
+	case panelStatus:
+		if len(m.statusRows) == 0 && len(m.st.InstalledSkills) > 0 {
+			m.busy = "Checking status..."
+			return m.cmdCheckStatus()
+		}
+	}
+	return nil
+}
+
+// startViewSkillMd opens the SKILL.md viewer for the row under the cursor in
+// the Skills or Unmanaged panel. Shared by the 'v' key and the Actions→View
+// SKILL.md menu item.
+func (m *model) startViewSkillMd() tea.Cmd {
+	switch m.activePanel {
+	case panelSkills:
+		if m.cursorRow >= 0 && m.cursorRow < len(m.rows) {
+			row := m.rows[m.cursorRow]
+			if row.kind == skillRow {
+				cachePath := m.st.Repos[row.repoName].CachePath
+				skillMd := filepath.Join(cachePath, row.relPath, "SKILL.md")
+				return m.viewSkillMdAt(skillMd)
+			}
+		}
+	case panelUnmanaged:
+		if m.unmanagedCursor >= 0 && m.unmanagedCursor < len(m.unmanagedEntries) {
+			entry := m.unmanagedEntries[m.unmanagedCursor]
+			skillMd := filepath.Join(entry.localPath, "SKILL.md")
+			return m.viewSkillMdAt(skillMd)
+		}
+	}
+	return nil
+}
+
+// startPackCreate opens the embedded pack-creation wizard. Shared by the 'n'
+// key and the Packs→Create Pack menu item.
+func (m *model) startPackCreate() {
+	w := initialPackCreateModel(m.cfg, m.st)
+	w.embedded = true
+	w.width, w.height = m.width, m.height
+	m.packWizard = &w
+	m.message = ""
+}
+
+// startPackEdit opens the embedded pack-edit wizard for the selected pack.
+// Shared by the 'e' key and the Packs→Edit Pack menu item.
+func (m *model) startPackEdit() {
+	if m.packCursor >= len(m.packRows) {
+		return
+	}
+	packAddr := m.packRows[m.packCursor].packAddr
+	w, err := initialPackEditModel(packAddr, m.cfg, m.st)
+	if err != nil {
+		m.message = fmt.Sprintf("✗ Edit failed: %v", err)
+		return
+	}
+	w.embedded = true
+	w.width, w.height = m.width, m.height
+	m.packWizard = &w
+	m.message = ""
 }
 
 func (m *model) startRemoveRepo() {

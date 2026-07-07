@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -221,6 +220,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleInputMode(msg)
 		}
 
+		// Dropdown menu, when open, consumes all keys.
+		if m.menuOpen {
+			return m.handleMenuKey(msg)
+		}
+
+		// Global menu-activation and F-key shortcuts, available from any panel.
+		// Bare letters are deliberately excluded so type-to-filter (Skills,
+		// Unmanaged) and existing single-letter shortcuts keep working.
+		if cmd, handled := m.handleGlobalKey(msg); handled {
+			return m, cmd
+		}
+
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
@@ -307,15 +318,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if ch == "v" && m.filter == "" {
-					if m.cursorRow >= 0 && m.cursorRow < len(m.rows) {
-						row := m.rows[m.cursorRow]
-						if row.kind == skillRow {
-							cachePath := m.st.Repos[row.repoName].CachePath
-							skillMd := filepath.Join(cachePath, row.relPath, "SKILL.md")
-							return m, m.viewSkillMdAt(skillMd)
-						}
-					}
-					return m, nil
+					return m, m.startViewSkillMd()
 				}
 				// On Windows (ConPTY), space can arrive as a rune instead of
 				// KeySpace. Treat it as the toggle action to match Linux/macOS.
@@ -352,18 +355,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Update the selected skill
 					m.updateSelectedSkill()
 				case "U":
-					m.busy = "Checking for skillpack updates..."
-					m.message = ""
-					return m, cmdSelfUpdate()
+					return m, m.startSelfUpdate()
 				}
 			case panelRepos:
 				switch ch {
 				case "q":
 					return m, tea.Quit
 				case "a":
-					m.inputMode = modeAddRepoName
-					m.inputBuffer = ""
-					m.message = ""
+					m.startAddRepo()
 				case "d":
 					m.startRemoveRepo()
 				}
@@ -372,12 +371,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Quit
 				}
 				if ch == "v" && m.unmanagedFilter == "" {
-					if m.unmanagedCursor >= 0 && m.unmanagedCursor < len(m.unmanagedEntries) {
-						entry := m.unmanagedEntries[m.unmanagedCursor]
-						skillMd := filepath.Join(entry.localPath, "SKILL.md")
-						return m, m.viewSkillMdAt(skillMd)
-					}
-					return m, nil
+					return m, m.startViewSkillMd()
 				}
 				m.unmanagedFilter += ch
 				m.refreshUnmanaged()
@@ -386,26 +380,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "q":
 					return m, tea.Quit
 				case "n":
-					// Open the create wizard embedded in the TUI
-					w := initialPackCreateModel(m.cfg, m.st)
-					w.embedded = true
-					w.width, w.height = m.width, m.height
-					m.packWizard = &w
-					m.message = ""
+					m.startPackCreate()
 				case "e":
-					// Open the edit wizard embedded in the TUI
-					if m.packCursor < len(m.packRows) {
-						packAddr := m.packRows[m.packCursor].packAddr
-						w, err := initialPackEditModel(packAddr, m.cfg, m.st)
-						if err != nil {
-							m.message = fmt.Sprintf("✗ Edit failed: %v", err)
-							return m, nil
-						}
-						w.embedded = true
-						w.width, w.height = m.width, m.height
-						m.packWizard = &w
-						m.message = ""
-					}
+					m.startPackEdit()
 				case "i":
 					// Install the selected available pack
 					m.startPackInstall()

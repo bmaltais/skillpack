@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -13,8 +12,6 @@ import (
 
 var (
 	titleStyle          = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99"))
-	tabActive           = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99")).Underline(true)
-	tabInactive         = lipgloss.NewStyle().Foreground(lipgloss.Color("242"))
 	selectedStyle       = lipgloss.NewStyle().Background(lipgloss.Color("237")).Bold(true)
 	cellSelStyle        = lipgloss.NewStyle().Background(lipgloss.Color("62")).Bold(true)
 	repoStyle           = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214"))
@@ -37,65 +34,149 @@ var (
 	partialStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true) // yellow - partial pack
 )
 
+// panelName returns the display name used in the title bar for p.
+func panelName(p panel) string {
+	switch p {
+	case panelSkills:
+		return "Skills"
+	case panelStatus:
+		return "Status"
+	case panelRepos:
+		return "Repos"
+	case panelUnmanaged:
+		return "Unmanaged"
+	case panelPacks:
+		return "Packs"
+	default:
+		return ""
+	}
+}
+
+// renderTitleBar renders the full-width reverse-video title bar: app name,
+// version, and the active panel's name, roughly centered.
+func renderTitleBar(m model) string {
+	text := fmt.Sprintf("SkillPack %s ── %s", Version, panelName(m.activePanel))
+	pad := (m.width - lipgloss.Width(text)) / 2
+	if pad < 0 {
+		pad = 0
+	}
+	return chromeBarStyle.Render(padLine(strings.Repeat(" ", pad)+text, m.width))
+}
+
+// renderMenuBar renders the DOS Shell-style menu bar. Visual only in this
+// phase — F10/Alt+letter interaction is wired in a later move.
+func renderMenuBar(m model) string {
+	plainLen := 1
+	var sb strings.Builder
+	sb.WriteString(chromeBarStyle.Render(" "))
+	for i, menu := range appMenus {
+		it := menu.label
+		if i > 0 {
+			sb.WriteString(chromeBarStyle.Render("  "))
+			plainLen += 2
+		}
+		sb.WriteString(chromeAccentStyle.Render(it[:1]))
+		sb.WriteString(chromeBarStyle.Render(it[1:]))
+		plainLen += lipgloss.Width(it)
+	}
+	if pad := m.width - plainLen; pad > 0 {
+		sb.WriteString(chromeBarStyle.Render(strings.Repeat(" ", pad)))
+	}
+	return sb.String()
+}
+
+// hintForPanel returns the left-hand key hint shown in the bottom status
+// bar for the active panel, mirroring what each panel used to render
+// inline as its own footer help line.
+func hintForPanel(m model) string {
+	switch m.activePanel {
+	case panelSkills:
+		return "↑↓ navigate  ←→ agents  Space/Enter toggle  f fork  R repair  v view  Tab switch  q quit"
+	case panelStatus:
+		rHelp := "r refresh"
+		if m.statusCursor < len(m.statusRows) {
+			row := m.statusRows[m.statusCursor]
+			if _, ok := m.forkCandidates[row.addr]; ok {
+				rHelp = "r register fork"
+			}
+		}
+		return fmt.Sprintf("↑↓ navigate  u update selected  S sync all  %s  U self-update  Tab switch  q quit", rHelp)
+	case panelRepos:
+		return "↑↓ navigate  a add  d remove  Tab skills  q quit"
+	case panelUnmanaged:
+		return "↑↓ navigate  Type to filter  Enter adopt into repo  v view  Tab switch  q quit"
+	case panelPacks:
+		if m.packDetailOpen && m.packCursor < len(m.packRows) {
+			row := m.packRows[m.packCursor]
+			if !row.installed {
+				return "i install  e edit  Esc back  Tab switch  q quit"
+			}
+			if row.isPartial {
+				return "c complete deployment  e edit  d remove  Esc back  Tab switch  q quit"
+			}
+			return "e edit  d remove  Esc back  Tab switch  q quit"
+		}
+		help := "↑↓ navigate  Enter detail  n new  Tab switch  q quit"
+		if m.packCursor < len(m.packRows) {
+			row := m.packRows[m.packCursor]
+			switch {
+			case !row.installed:
+				help = "↑↓ navigate  Enter detail  i install  n new  e edit  Tab switch  q quit"
+			case row.isPartial:
+				help = "↑↓ navigate  Enter detail  c complete  n new  e edit  d remove  Tab switch  q quit"
+			default:
+				help = "↑↓ navigate  Enter detail  n new  e edit  d remove  Tab switch  q quit"
+			}
+		}
+		return help
+	default:
+		return ""
+	}
+}
+
+// renderStatusBar renders the full-width reverse-video bottom bar: the
+// active panel's key hints on the left, the menu-activation hint on the
+// right.
+func renderStatusBar(m model) string {
+	left := " " + hintForPanel(m)
+	right := "F10=Menu "
+	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+		maxLeft := m.width - lipgloss.Width(right) - gap
+		if maxLeft < 0 {
+			maxLeft = 0
+		}
+		if lipgloss.Width(left) > maxLeft {
+			runes := []rune(left)
+			if maxLeft < len(runes) {
+				runes = runes[:maxLeft]
+			}
+			left = string(runes)
+		}
+	}
+	line := left + strings.Repeat(" ", gap) + right
+	return chromeBarStyle.Render(padLine(line, m.width))
+}
+
+// render pads body to fill the terminal height and pins the status bar to
+// the last row, regardless of how much of the height the body used.
+func (m model) render(body string) string {
+	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+	for len(lines) < m.height-1 {
+		lines = append(lines, "")
+	}
+	lines = append(lines, renderStatusBar(m))
+	return strings.Join(lines, "\n")
+}
+
 // View renders the entire TUI (delegates to the four panel-specific view* methods).
 func (m model) View() string {
 	var b strings.Builder
 
-	// Title + tabs
-	b.WriteString(titleStyle.Render(" SkillPack"))
-	b.WriteString("  ")
-	switch m.activePanel {
-	case panelSkills:
-		b.WriteString(tabActive.Render("[Skills]"))
-		b.WriteString("  ")
-		b.WriteString(tabInactive.Render(" Status "))
-		b.WriteString("  ")
-		b.WriteString(tabInactive.Render(" Repos "))
-		b.WriteString("  ")
-		b.WriteString(tabInactive.Render(" Unmanaged "))
-		b.WriteString("  ")
-		b.WriteString(tabInactive.Render(" Packs "))
-	case panelStatus:
-		b.WriteString(tabInactive.Render(" Skills "))
-		b.WriteString("  ")
-		b.WriteString(tabActive.Render("[Status]"))
-		b.WriteString("  ")
-		b.WriteString(tabInactive.Render(" Repos "))
-		b.WriteString("  ")
-		b.WriteString(tabInactive.Render(" Unmanaged "))
-		b.WriteString("  ")
-		b.WriteString(tabInactive.Render(" Packs "))
-	case panelRepos:
-		b.WriteString(tabInactive.Render(" Skills "))
-		b.WriteString("  ")
-		b.WriteString(tabInactive.Render(" Status "))
-		b.WriteString("  ")
-		b.WriteString(tabActive.Render("[Repos]"))
-		b.WriteString("  ")
-		b.WriteString(tabInactive.Render(" Unmanaged "))
-		b.WriteString("  ")
-		b.WriteString(tabInactive.Render(" Packs "))
-	case panelUnmanaged:
-		b.WriteString(tabInactive.Render(" Skills "))
-		b.WriteString("  ")
-		b.WriteString(tabInactive.Render(" Status "))
-		b.WriteString("  ")
-		b.WriteString(tabInactive.Render(" Repos "))
-		b.WriteString("  ")
-		b.WriteString(tabActive.Render("[Unmanaged]"))
-		b.WriteString("  ")
-		b.WriteString(tabInactive.Render(" Packs "))
-	case panelPacks:
-		b.WriteString(tabInactive.Render(" Skills "))
-		b.WriteString("  ")
-		b.WriteString(tabInactive.Render(" Status "))
-		b.WriteString("  ")
-		b.WriteString(tabInactive.Render(" Repos "))
-		b.WriteString("  ")
-		b.WriteString(tabInactive.Render(" Unmanaged "))
-		b.WriteString("  ")
-		b.WriteString(tabActive.Render("[Packs]"))
-	}
+	b.WriteString(renderTitleBar(m))
+	b.WriteString("\n")
+	b.WriteString(renderMenuBar(m))
 	b.WriteString("\n")
 
 	// Update banner
@@ -129,7 +210,7 @@ func (m model) View() string {
 	if m.packWizard != nil {
 		b.WriteString("\n")
 		b.WriteString(m.packWizard.View())
-		return b.String()
+		return m.render(overlayDropdown(m, overlayDialog(m, b.String())))
 	}
 
 	switch m.activePanel {
@@ -145,120 +226,12 @@ func (m model) View() string {
 		m.viewPacks(&b)
 	}
 
-	return b.String()
+	return m.render(overlayDropdown(m, overlayDialog(m, b.String())))
 }
 
 func (m model) viewSkills(b *strings.Builder) {
-	// Fork unknown-provenance resolution overlay
-	if m.inputMode == modeForkResolveChoice {
-		skillName := filepath.Base(m.forkAddr)
-		b.WriteString(inputStyle.Render(fmt.Sprintf(" %q already exists in %q with unknown provenance", skillName, m.forkTargetRepo)))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render(" This skill was not installed by skillpack. How should we proceed?"))
-		b.WriteString("\n\n")
-		b.WriteString(fmt.Sprintf(" %s  Override — replace existing with a fresh fork\n", inputStyle.Render(" 1 ")))
-		b.WriteString(fmt.Sprintf(" %s  Register — keep existing, record it as a fork of %s\n", inputStyle.Render(" 2 "), m.forkAddr))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render(" Press 1 or 2 to choose • Esc to cancel"))
-		b.WriteString("\n")
-		if m.message != "" {
-			b.WriteString(msgStyle.Render(" " + m.message))
-		}
-		return
-	}
-
-	// Fork repo selection overlay
-	if m.inputMode == modeForkSelectRepo {
-		b.WriteString(inputStyle.Render(fmt.Sprintf(" Fork %q into which repo?", m.forkAddr)))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render(" (↑↓ to select, Enter to confirm, Esc to cancel)"))
-		b.WriteString("\n\n")
-		for i, entry := range m.repoList {
-			line := fmt.Sprintf("   %s  %s", entry.name, dimStyle.Render(entry.url))
-			if i == m.forkCursor {
-				b.WriteString(selectedStyle.Render(fmt.Sprintf(" ▶ %-*s", m.width-4, fmt.Sprintf("%s  %s", entry.name, entry.url))))
-			} else {
-				b.WriteString(line)
-			}
-			b.WriteString("\n")
-		}
-		b.WriteString("\n")
-		if m.message != "" {
-			b.WriteString(msgStyle.Render(" " + m.message))
-		}
-		return
-	}
-
-	// Stale skill repair overlay
-	if m.inputMode == modeRelinkStaleInput {
-		b.WriteString(staleStyle.Render(fmt.Sprintf(" Relink stale skill: %q", m.relinkAddr)))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render(fmt.Sprintf(" Agent: %s", m.relinkAgentName)))
-		b.WriteString("\n\n")
-		if m.relinkCandidateMode && len(m.relinkCandidates) > 0 {
-			b.WriteString(dimStyle.Render(" Suggested replacements (↑↓ to select, Tab to type manually, Enter to confirm):"))
-			b.WriteString("\n\n")
-			for i, c := range m.relinkCandidates {
-				if i == m.relinkCandidateCursor {
-					b.WriteString(selectedStyle.Render(fmt.Sprintf(" ▶ %-*s", m.width-4, c)))
-				} else {
-					b.WriteString(fmt.Sprintf("   %s", c))
-				}
-				b.WriteString("\n")
-			}
-		} else {
-			if len(m.relinkCandidates) > 0 {
-				b.WriteString(dimStyle.Render(" Enter replacement address (Tab to use candidates list):"))
-			} else {
-				b.WriteString(dimStyle.Render(" Enter replacement address:"))
-			}
-			b.WriteString("\n")
-			b.WriteString(inputStyle.Render(fmt.Sprintf("   %s▌", m.relinkInput)))
-			b.WriteString("\n")
-		}
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render(" Enter to confirm • Esc to cancel"))
-		b.WriteString("\n")
-		if m.message != "" {
-			b.WriteString(msgStyle.Render(" " + m.message))
-		}
-		return
-	}
-
-	// Broken-upstream repair overlay: choose repair action
-	if m.inputMode == modeRelinkBrokenChoice {
-		b.WriteString(brokenUpstreamStyle.Render(fmt.Sprintf(" Repair broken upstream pointer: %q", m.relinkAddr)))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render(fmt.Sprintf(" Agent: %s", m.relinkAgentName)))
-		b.WriteString("\n\n")
-		b.WriteString(fmt.Sprintf(" %s  Set new upstream address (--set-upstream)\n", inputStyle.Render(" 1 ")))
-		b.WriteString(fmt.Sprintf(" %s  Clear upstream pointer (--clear-upstream)\n", inputStyle.Render(" 2 ")))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render(" Press 1 or 2 to choose • Esc to cancel"))
-		b.WriteString("\n")
-		if m.message != "" {
-			b.WriteString(msgStyle.Render(" " + m.message))
-		}
-		return
-	}
-
-	// Broken-upstream repair overlay: set upstream address input
-	if m.inputMode == modeRelinkBrokenSetInput {
-		b.WriteString(brokenUpstreamStyle.Render(fmt.Sprintf(" Set upstream for: %q", m.relinkAddr)))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render(fmt.Sprintf(" Agent: %s", m.relinkAgentName)))
-		b.WriteString("\n\n")
-		b.WriteString(dimStyle.Render(" New upstream skill address:"))
-		b.WriteString("\n")
-		b.WriteString(inputStyle.Render(fmt.Sprintf("   %s▌", m.relinkInput)))
-		b.WriteString("\n\n")
-		b.WriteString(dimStyle.Render(" Enter to confirm • Esc to cancel"))
-		b.WriteString("\n")
-		if m.message != "" {
-			b.WriteString(msgStyle.Render(" " + m.message))
-		}
-		return
-	}
+	// Fork/repair overlays render as centered dialogs (tui_dialogs.go); the
+	// panel keeps rendering its normal content underneath.
 
 	// Filter
 	if m.filter != "" {
@@ -333,7 +306,7 @@ func (m model) viewSkills(b *strings.Builder) {
 	b.WriteString("\n")
 
 	// Scrolling
-	maxRows := m.height - 9 // header(4) + footer(5)
+	maxRows := m.height - 10 // header(4) + footer(5) + chrome(1)
 	if maxRows < 5 {
 		maxRows = 5
 	}
@@ -508,8 +481,6 @@ func (m model) viewSkills(b *strings.Builder) {
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render(" ↑↓ navigate  ←→ agents  Space/Enter toggle  f fork  R repair  v view  Tab switch  q quit"))
-	b.WriteString("\n")
 	if m.message != "" {
 		b.WriteString(msgStyle.Render(" " + m.message))
 	} else {
@@ -560,23 +531,7 @@ func (m model) upstreamAddr(addr string) string {
 }
 
 func (m model) viewStatus(b *strings.Builder) {
-	// Register fork provenance input overlay
-	if m.inputMode == modeRegisterForkInput {
-		b.WriteString("\n")
-		b.WriteString(inputStyle.Render(fmt.Sprintf(" Register fork provenance for %q", m.registerForkAddr)))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render(" Upstream skill address:"))
-		b.WriteString("\n")
-		b.WriteString(inputStyle.Render(fmt.Sprintf("   %s▌", m.registerForkInput)))
-		b.WriteString("\n\n")
-		b.WriteString(dimStyle.Render(" Enter to confirm • Esc to cancel"))
-		b.WriteString("\n")
-		if m.message != "" {
-			b.WriteString(msgStyle.Render(" " + m.message))
-		}
-		return
-	}
-
+	// Register-fork-provenance renders as a centered dialog (tui_dialogs.go).
 	b.WriteString("\n")
 
 	if len(m.statusRows) == 0 {
@@ -625,7 +580,7 @@ func (m model) viewStatus(b *strings.Builder) {
 		b.WriteString("\n")
 
 		// Scrolling
-		maxRows := m.height - 10
+		maxRows := m.height - 11
 		if maxRows < 5 {
 			maxRows = 5
 		}
@@ -711,16 +666,6 @@ func (m model) viewStatus(b *strings.Builder) {
 	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
 
-	// Show context-sensitive help for r key depending on selected row.
-	rHelp := "r refresh"
-	if m.statusCursor < len(m.statusRows) {
-		row := m.statusRows[m.statusCursor]
-		if _, ok := m.forkCandidates[row.addr]; ok {
-			rHelp = "r register fork"
-		}
-	}
-	b.WriteString(helpStyle.Render(fmt.Sprintf(" ↑↓ navigate  u update selected  S sync all  %s  U self-update  Tab switch  q quit", rHelp)))
-	b.WriteString("\n")
 	if m.message != "" {
 		b.WriteString(msgStyle.Render(" " + m.message))
 	} else if len(m.statusRows) > 0 {
@@ -742,22 +687,10 @@ func (m model) viewStatus(b *strings.Builder) {
 }
 
 func (m model) viewRepos(b *strings.Builder) {
+	// Add-repo name/URL prompts and remove confirmation render as centered
+	// dialogs (tui_dialogs.go).
 	b.WriteString("\n")
-
-	// Input prompts
-	if m.inputMode == modeAddRepoName {
-		b.WriteString(inputStyle.Render(fmt.Sprintf(" Repo name: %s▌", m.inputBuffer)))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render(" (Enter to confirm, Esc to cancel)"))
-		b.WriteString("\n\n")
-	} else if m.inputMode == modeAddRepoURL {
-		b.WriteString(inputStyle.Render(fmt.Sprintf(" Repo URL for %q: %s▌", m.newRepoName, m.inputBuffer)))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render(" (Enter to confirm, Esc to cancel)"))
-		b.WriteString("\n\n")
-	} else {
-		b.WriteString("\n")
-	}
+	b.WriteString("\n")
 
 	// Compute dynamic NAME column width from longest repo name
 	repoNameColW := 10
@@ -796,7 +729,7 @@ func (m model) viewRepos(b *strings.Builder) {
 	b.WriteString("\n")
 
 	// Repo list
-	maxRows := m.height - 12
+	maxRows := m.height - 13
 	if maxRows < 3 {
 		maxRows = 3
 	}
@@ -842,8 +775,6 @@ func (m model) viewRepos(b *strings.Builder) {
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render(" ↑↓ navigate  a add  d remove  Tab skills  q quit"))
-	b.WriteString("\n")
 	if m.message != "" {
 		b.WriteString(msgStyle.Render(" " + m.message))
 	} else {
@@ -852,29 +783,8 @@ func (m model) viewRepos(b *strings.Builder) {
 }
 
 func (m model) viewUnmanaged(b *strings.Builder) {
+	// Adopt repo-selection renders as a centered dialog (tui_dialogs.go).
 	b.WriteString("\n")
-
-	// Adopt repo-selection overlay
-	if m.inputMode == modeAdoptSelectRepo && m.unmanagedCursor < len(m.unmanagedEntries) {
-		entry := m.unmanagedEntries[m.unmanagedCursor]
-		b.WriteString(inputStyle.Render(fmt.Sprintf(" Adopt %q (%s) into which repo?", entry.skillName, entry.agentName)))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render(" (↑↓ to select, Enter to confirm, Esc to cancel)"))
-		b.WriteString("\n\n")
-		for i, re := range m.repoList {
-			if i == m.adoptCursor {
-				b.WriteString(selectedStyle.Render(fmt.Sprintf(" ▶ %-*s", m.width-4, fmt.Sprintf("%s  %s", re.name, re.url))))
-			} else {
-				b.WriteString(fmt.Sprintf("   %s  %s", re.name, dimStyle.Render(re.url)))
-			}
-			b.WriteString("\n")
-		}
-		b.WriteString("\n")
-		if m.message != "" {
-			b.WriteString(msgStyle.Render(" " + m.message))
-		}
-		return
-	}
 
 	// Filter indicator
 	if m.unmanagedFilter != "" {
@@ -913,7 +823,7 @@ func (m model) viewUnmanaged(b *strings.Builder) {
 		b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 		b.WriteString("\n")
 
-		maxRows := m.height - 10
+		maxRows := m.height - 11
 		if maxRows < 3 {
 			maxRows = 3
 		}
@@ -962,8 +872,6 @@ func (m model) viewUnmanaged(b *strings.Builder) {
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render(" ↑↓ navigate  Type to filter  Enter adopt into repo  v view  Tab switch  q quit"))
-	b.WriteString("\n")
 	if m.message != "" {
 		b.WriteString(msgStyle.Render(" " + m.message))
 	} else {
@@ -972,34 +880,9 @@ func (m model) viewUnmanaged(b *strings.Builder) {
 }
 
 func (m model) viewPacks(b *strings.Builder) {
+	// Pack agent-install select and remove confirmation render as centered
+	// dialogs (tui_dialogs.go).
 	b.WriteString("\n")
-
-	// Agent-selection overlay for pack install.
-	if m.inputMode == modePackInstallAgents {
-		b.WriteString(inputStyle.Render(fmt.Sprintf(" Install pack %q for which agents?", m.packInstallAddr)))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render(" (↑↓ move, Space toggle, a all, Enter install, Esc cancel)"))
-		b.WriteString("\n\n")
-		for i, name := range m.agents {
-			check := "[ ]"
-			if m.packAgentSel[i] {
-				check = "[✓]"
-			}
-			if i == m.packAgentCursor {
-				b.WriteString(selectedStyle.Render(fmt.Sprintf(" ▶ %s %-*s", check, m.width-10, name)))
-			} else if m.packAgentSel[i] {
-				b.WriteString(fmt.Sprintf("   %s %s", checkStyle.Render(check), name))
-			} else {
-				b.WriteString(fmt.Sprintf("   %s %s", check, name))
-			}
-			b.WriteString("\n")
-		}
-		b.WriteString("\n")
-		if m.message != "" {
-			b.WriteString(msgStyle.Render(" " + m.message))
-		}
-		return
-	}
 
 	// Detail overlay for a pack that is not installed: show its definition.
 	if m.packDetailOpen && m.packCursor < len(m.packRows) && !m.packRows[m.packCursor].installed {
@@ -1052,7 +935,7 @@ func (m model) viewPacks(b *strings.Builder) {
 		b.WriteString(dimStyle.Render("  " + safeRepeat("─", m.width-4)))
 		b.WriteString("\n")
 
-		maxRows := m.height - 12
+		maxRows := m.height - 13
 		if maxRows < 3 {
 			maxRows = 3
 		}
@@ -1097,12 +980,6 @@ func (m model) viewPacks(b *strings.Builder) {
 		b.WriteString("\n")
 		b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 		b.WriteString("\n")
-		if row.isPartial {
-			b.WriteString(helpStyle.Render(" c complete deployment  e edit  d remove  Esc back  Tab switch  q quit"))
-		} else {
-			b.WriteString(helpStyle.Render(" e edit  d remove  Esc back  Tab switch  q quit"))
-		}
-		b.WriteString("\n")
 		if m.message != "" {
 			b.WriteString(msgStyle.Render(" " + m.message))
 		}
@@ -1138,7 +1015,7 @@ func (m model) viewPacks(b *strings.Builder) {
 		b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 		b.WriteString("\n")
 
-		maxRows := m.height - 10
+		maxRows := m.height - 11
 		if maxRows < 3 {
 			maxRows = 3
 		}
@@ -1197,23 +1074,9 @@ func (m model) viewPacks(b *strings.Builder) {
 		}
 	}
 
-	// Footer — contextual help for the selected row.
+	// Footer — contextual help for the selected row now lives in the status bar.
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
-	b.WriteString("\n")
-	help := " ↑↓ navigate  Enter detail  n new  Tab switch  q quit"
-	if m.packCursor < len(m.packRows) {
-		row := m.packRows[m.packCursor]
-		switch {
-		case !row.installed:
-			help = " ↑↓ navigate  Enter detail  i install  n new  e edit  Tab switch  q quit"
-		case row.isPartial:
-			help = " ↑↓ navigate  Enter detail  c complete  n new  e edit  d remove  Tab switch  q quit"
-		default:
-			help = " ↑↓ navigate  Enter detail  n new  e edit  d remove  Tab switch  q quit"
-		}
-	}
-	b.WriteString(helpStyle.Render(help))
 	b.WriteString("\n")
 	if m.message != "" {
 		b.WriteString(msgStyle.Render(" " + m.message))
@@ -1270,7 +1133,7 @@ func (m model) viewAvailablePackDetail(b *strings.Builder, row packRow) {
 	}
 	b.WriteString(fmt.Sprintf(" Skills: %d\n\n", len(pk.Skills)))
 
-	maxRows := m.height - 10
+	maxRows := m.height - 11
 	if maxRows < 3 {
 		maxRows = 3
 	}
@@ -1294,8 +1157,6 @@ func (m model) viewAvailablePackDetail(b *strings.Builder, row packRow) {
 
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
-	b.WriteString("\n")
-	b.WriteString(helpStyle.Render(" i install  e edit  Esc back  Tab switch  q quit"))
 	b.WriteString("\n")
 	if m.message != "" {
 		b.WriteString(msgStyle.Render(" " + m.message))

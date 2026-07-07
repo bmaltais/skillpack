@@ -40,11 +40,12 @@ func renderDialog(maxWidth int, title string, bodyLines []string) []string {
 // width, e.g. "══ Add Repo ══".
 func centerInBorder(title string, width int) string {
 	label := " " + title + " "
-	if len(label) >= width {
+	labelWidth := lipgloss.Width(label)
+	if labelWidth >= width {
 		return strings.Repeat("═", width)
 	}
-	left := (width - len(label)) / 2
-	right := width - len(label) - left
+	left := (width - labelWidth) / 2
+	right := width - labelWidth - left
 	return strings.Repeat("═", left) + label + strings.Repeat("═", right)
 }
 

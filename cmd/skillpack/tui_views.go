@@ -56,7 +56,7 @@ func panelName(p panel) string {
 // version, and the active panel's name, roughly centered.
 func renderTitleBar(m model) string {
 	text := fmt.Sprintf("SkillPack %s ── %s", Version, panelName(m.activePanel))
-	pad := (m.width - len(text)) / 2
+	pad := (m.width - lipgloss.Width(text)) / 2
 	if pad < 0 {
 		pad = 0
 	}
@@ -66,18 +66,18 @@ func renderTitleBar(m model) string {
 // renderMenuBar renders the DOS Shell-style menu bar. Visual only in this
 // phase — F10/Alt+letter interaction is wired in a later move.
 func renderMenuBar(m model) string {
-	items := []string{"File", "View", "Actions", "Packs", "Help"}
 	plainLen := 1
 	var sb strings.Builder
 	sb.WriteString(chromeBarStyle.Render(" "))
-	for i, it := range items {
+	for i, menu := range appMenus {
+		it := menu.label
 		if i > 0 {
 			sb.WriteString(chromeBarStyle.Render("  "))
 			plainLen += 2
 		}
 		sb.WriteString(chromeAccentStyle.Render(it[:1]))
 		sb.WriteString(chromeBarStyle.Render(it[1:]))
-		plainLen += len(it)
+		plainLen += lipgloss.Width(it)
 	}
 	if pad := m.width - plainLen; pad > 0 {
 		sb.WriteString(chromeBarStyle.Render(strings.Repeat(" ", pad)))
@@ -140,15 +140,19 @@ func hintForPanel(m model) string {
 func renderStatusBar(m model) string {
 	left := " " + hintForPanel(m)
 	right := "F10=Menu "
-	gap := m.width - len(left) - len(right)
+	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1
-		maxLeft := m.width - len(right) - gap
+		maxLeft := m.width - lipgloss.Width(right) - gap
 		if maxLeft < 0 {
 			maxLeft = 0
 		}
-		if len(left) > maxLeft {
-			left = left[:maxLeft]
+		if lipgloss.Width(left) > maxLeft {
+			runes := []rune(left)
+			if maxLeft < len(runes) {
+				runes = runes[:maxLeft]
+			}
+			left = string(runes)
 		}
 	}
 	line := left + strings.Repeat(" ", gap) + right

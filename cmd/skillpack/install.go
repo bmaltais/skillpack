@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bmaltais/skillpack/internal/audit"
 	"github.com/bmaltais/skillpack/internal/skill"
 )
 
@@ -34,9 +35,12 @@ var installCmd = &cobra.Command{
 
 		for _, target := range targets {
 			fmt.Printf("Installing %s for %s...\n", addr, target)
+			detail := addr + " → " + target
 			if err := skill.Install(addr, target, app.Cfg, app.St, skipExisting); err != nil {
+				audit.Failure(audit.EventSkillInstall, detail, err)
 				return err
 			}
+			audit.Success(audit.EventSkillInstall, detail)
 			fmt.Printf("  installed\n")
 		}
 		return nil

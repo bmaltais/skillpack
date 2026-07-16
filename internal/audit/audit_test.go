@@ -45,9 +45,10 @@ func TestSuccess_emitsValidJSON(t *testing.T) {
 		t.Fatalf("log line is not valid JSON: %v\nraw: %q", err, out)
 	}
 
-	for _, field := range []string{"timestamp", "event", "detail", "outcome"} {
+	// AU-3 required fields: date/time, event type, subject identity, object, outcome.
+	for _, field := range []string{"timestamp", "event", "actor", "detail", "outcome"} {
 		if _, ok := rec[field]; !ok {
-			t.Errorf("missing required field %q in audit record", field)
+			t.Errorf("missing required AU-3 field %q in audit record", field)
 		}
 	}
 	if got := rec["event"]; got != audit.EventSkillInstall {
@@ -101,8 +102,29 @@ func TestLog_timestampIsRFC3339(t *testing.T) {
 	}
 }
 
-func TestEventConstants(t *testing.T) {
-	for _, name := range []string{
+// TestAU3_actorFieldPresent verifies the AU-3 "subject identity" requirement:
+// every record must carry a non-empty actor in USER@hostname form.
+func TestAU3_actorFieldPresent(t *testing.T) {
+	out := captureStderr(t, func() {
+		audit.Success(audit.EventSkillInstall, "my-repo/tools/debugger → claude-code")
+	})
+
+	out = strings.TrimSpace(out)
+	var rec map[string]any
+	if err := json.Unmarshal([]byte(out), &rec); err != nil {
+		t.Fatalf("log line is not valid JSON: %v\nraw: %q", err, out)
+	}
+
+	actor, ok := rec["actor"].(string)
+	if !ok || actor == "" {
+		t.Fatal("actor field missing or empty — AU-3 requires subject identity in every record")
+	}
+	if !strings.Contains(actor, "@") {
+		t.Errorf("actor %q should be in USER@hostname form", actor)
+	}
+}
+
+func TestEventConstants(t *testing.T) {	for _, name := range []string{
 		audit.EventSkillInstall,
 		audit.EventSkillRemove,
 		audit.EventSkillPublish,

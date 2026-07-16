@@ -1,20 +1,21 @@
 # Auditable Events — skillpack CLI
 
-**Control:** AU-2 (Auditable Events) — ITSG-33 PBMM
+**Controls:** AU-2 (Auditable Events) + AU-3 (Content of Audit Records) — ITSG-33 PBMM
 **Status:** Implemented (`internal/audit`)
 
 ## Overview
 
 skillpack emits structured audit events to **stderr** as newline-delimited JSON.
-Each record contains:
+Each record satisfies ITSG-33 AU-3 required content fields:
 
-| Field       | Type   | Description                                      |
-|-------------|--------|--------------------------------------------------|
-| `timestamp` | string | RFC 3339 UTC timestamp of the event              |
-| `event`     | string | Dotted event name (see table below)              |
-| `detail`    | string | Human-readable target / description              |
-| `outcome`   | string | `"success"` or `"failure"`                       |
-| `error`     | string | Error message — present only when outcome=failure |
+| Field       | AU-3 Requirement          | Type   | Description                                        |
+|-------------|--------------------------|--------|----------------------------------------------------|
+| `timestamp` | Date and time of event    | string | RFC 3339 UTC timestamp                             |
+| `event`     | Type of event             | string | Dotted event name (see table below)                |
+| `actor`     | Subject identity          | string | `USER@hostname` of the process invoking the CLI    |
+| `detail`    | Object / source-dest      | string | Human-readable target (skill address, agent name)  |
+| `outcome`   | Outcome (success/failure) | string | `"success"` or `"failure"`                        |
+| `error`     | Additional detail         | string | Error message — present only when outcome=failure  |
 
 ## Defined Auditable Events
 
@@ -33,12 +34,10 @@ system (e.g. `2>> /var/log/skillpack/audit.log`).
 ## Example Record
 
 ```json
-{"timestamp":"2026-07-15T14:22:01Z","event":"skill.install","detail":"my-repo/tools/debugger → claude-code","outcome":"success"}
+{"timestamp":"2026-07-15T14:22:01Z","event":"skill.install","actor":"alice@build-host","detail":"my-repo/tools/debugger → claude-code","outcome":"success"}
 ```
 
 ## Relationship to Other AU Controls
 
-- **AU-3** (Content of Audit Records): the JSON schema above satisfies the required fields
-  (time, event type, identity-proxy via detail, outcome).
 - **AU-12** (Audit Generation): events are generated at the key lifecycle points listed
   above; no additional configuration is required for the audit mechanism to activate.

@@ -7,10 +7,11 @@
 //   - skill.remove    – a skill was removed from an agent's skill directory
 //   - skill.publish   – local skill edits were pushed to a remote repo
 //
-// Each record contains:
+// Each record contains (AU-3 required fields):
 //   - timestamp  (RFC 3339 UTC)
-//   - event      (dotted name string)
-//   - detail     (human-readable target / description)
+//   - event      (dotted name string — type of auditable event)
+//   - actor      (USER@hostname — identity of the subject performing the action)
+//   - detail     (human-readable target / object of the action)
 //   - outcome    ("success" | "failure")
 //   - error      (error message, omitted on success)
 package audit
@@ -30,12 +31,33 @@ const (
 )
 
 // record is the JSON structure written to stderr for each audit event.
+// Fields satisfy ITSG-33 AU-3 required content: date/time (Timestamp),
+// event type (Event), subject identity (Actor), object (Detail), and
+// outcome (Outcome).
 type record struct {
 	Timestamp string `json:"timestamp"`
 	Event     string `json:"event"`
+	Actor     string `json:"actor"`
 	Detail    string `json:"detail"`
 	Outcome   string `json:"outcome"`
 	Error     string `json:"error,omitempty"`
+}
+
+// actor returns a best-effort "USER@hostname" string for the current process.
+// Falls back gracefully if either lookup fails.
+func actor() string {
+	user := os.Getenv("USER")
+	if user == "" {
+		user = os.Getenv("USERNAME") // Windows fallback
+	}
+	if user == "" {
+		user = "unknown"
+	}
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "unknown"
+	}
+	return user + "@" + host
 }
 
 // Log writes a structured audit event to stderr.
@@ -46,6 +68,7 @@ func Log(event, detail, outcome, errMsg string) {
 	r := record{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Event:     event,
+		Actor:     actor(),
 		Detail:    detail,
 		Outcome:   outcome,
 		Error:     errMsg,

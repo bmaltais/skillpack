@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/bmaltais/skillpack/internal/audit"
 )
 
 const (
@@ -60,12 +62,14 @@ var selfUpdateCmd = &cobra.Command{
 			fmt.Println()
 			fmt.Println("To upgrade manually, run:")
 			fmt.Printf("\n    %s\n\n", bold(installOneLiner))
+			audit.Failure(audit.EventSkillUpdate, "v"+current+" → "+latest, err)
 			return nil
 		}
 		fmt.Println("done.")
 		fmt.Println()
 		fmt.Printf("%s skillpack updated to %s\n", green("✓"), bold(latest))
 		fmt.Println()
+		audit.Success(audit.EventSkillUpdate, "v"+current+" → "+latest)
 		return nil
 	},
 }

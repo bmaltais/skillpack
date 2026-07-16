@@ -124,10 +124,13 @@ func TestAU3_actorFieldPresent(t *testing.T) {
 	}
 }
 
-func TestEventConstants(t *testing.T) {	for _, name := range []string{
+func TestEventConstants(t *testing.T) {
+	for _, name := range []string{
 		audit.EventSkillInstall,
 		audit.EventSkillRemove,
 		audit.EventSkillPublish,
+		audit.EventSkillUpdate,
+		audit.EventConfigCredentialSet,
 	} {
 		if name == "" {
 			t.Errorf("event constant must not be empty")
@@ -135,5 +138,38 @@ func TestEventConstants(t *testing.T) {	for _, name := range []string{
 		if !strings.Contains(name, ".") {
 			t.Errorf("event constant %q should use dotted namespace", name)
 		}
+	}
+}
+
+// TestAU12_generationAtLifecyclePoints verifies that Log() actually writes a
+// record (i.e. audit generation fires) for each defined lifecycle event name.
+// This is the AU-12 "configured generation" check — if the mechanism silently
+// drops records the test fails.
+func TestAU12_generationAtLifecyclePoints(t *testing.T) {
+	events := []string{
+		audit.EventSkillInstall,
+		audit.EventSkillRemove,
+		audit.EventSkillPublish,
+		audit.EventSkillUpdate,
+		audit.EventConfigCredentialSet,
+	}
+	for _, evt := range events {
+		evt := evt
+		t.Run(evt, func(t *testing.T) {
+			out := captureStderr(t, func() {
+				audit.Success(evt, "test-detail")
+			})
+			out = strings.TrimSpace(out)
+			if out == "" {
+				t.Fatalf("AU-12: no audit record emitted for event %q", evt)
+			}
+			var rec map[string]any
+			if err := json.Unmarshal([]byte(out), &rec); err != nil {
+				t.Fatalf("AU-12: record for %q is not valid JSON: %v", evt, err)
+			}
+			if rec["event"] != evt {
+				t.Errorf("AU-12: event field got %q, want %q", rec["event"], evt)
+			}
+		})
 	}
 }

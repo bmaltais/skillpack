@@ -25,9 +25,11 @@ import (
 
 // Event names for key skillpack lifecycle operations.
 const (
-	EventSkillInstall = "skill.install"
-	EventSkillRemove  = "skill.remove"
-	EventSkillPublish = "skill.publish"
+	EventSkillInstall        = "skill.install"
+	EventSkillRemove         = "skill.remove"
+	EventSkillPublish        = "skill.publish"
+	EventSkillUpdate         = "skill.update"
+	EventConfigCredentialSet = "config.credential.set"
 )
 
 // record is the JSON structure written to stderr for each audit event.

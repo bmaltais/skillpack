@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bmaltais/skillpack/internal/audit"
 	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
 )
@@ -39,13 +40,17 @@ var removeCmd = &cobra.Command{
 		packMarked := false
 		for _, target := range targets {
 			fmt.Printf("Removing %s from %s...\n", addr, target)
+			detail := addr + " from " + target
 			is, err := skill.Open(addr, target, app.Cfg, app.St)
 			if err != nil {
+				audit.Failure(audit.EventSkillRemove, detail, err)
 				return err
 			}
 			if err := is.Remove(force); err != nil {
+				audit.Failure(audit.EventSkillRemove, detail, err)
 				return err
 			}
+			audit.Success(audit.EventSkillRemove, detail)
 			fmt.Printf("  removed\n")
 
 			// Mark owning packs as partial.

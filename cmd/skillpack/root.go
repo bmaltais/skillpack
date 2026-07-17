@@ -67,6 +67,7 @@ func init() {
 	rootCmd.AddCommand(forkCmd)
 	rootCmd.AddCommand(selfUpdateCmd)
 	rootCmd.AddCommand(packCmd)
+	rootCmd.AddCommand(agentCmd)
 }
 
 // ensureConfig runs the first-run wizard if no config file exists yet.

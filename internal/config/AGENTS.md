@@ -10,6 +10,7 @@ Manages `~/.skillpack/config.yaml`: agent definitions, credential storage, and f
 |---------|-------|
 | Config struct & YAML load/save | `internal/config/config.go` |
 | Agent detection from `DefaultAgents` list | `internal/config/config.go` (`DetectAgents`) |
+| Manual agent registration & known-agent suggestions | `internal/config/config.go` (`AddAgent`, `UnconfiguredAgents`) |
 | Path expansion (`~/` → absolute) | `internal/config/config.go` (`ExpandPath`) |
 | Token resolution (config → env → env) | `internal/config/config.go` (`TokenForRepo`) |
 
@@ -26,6 +27,8 @@ Manages `~/.skillpack/config.yaml`: agent definitions, credential storage, and f
 - Adding a new known agent: extend `DefaultAgents` slice. The detection loop handles the rest.
 - Adding a new credential source: update `TokenForRepo` and document the priority.
 - Config schema changes require a migration note in `plan.md`.
+- `AddAgent` is the only writer for manually-registered agents (CLI `agent add`, TUI Add Agent dialog) — validates non-empty name/dir and rejects duplicates before saving.
+- `UnconfiguredAgents` reuses the same on-disk detection as `DetectAgents` (via the shared `agentDetected` helper) to offer known agents whose directory exists but weren't auto-added yet (e.g. created after last `Load()`).
 
 ## Verification
 

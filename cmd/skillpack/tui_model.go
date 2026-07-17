@@ -62,6 +62,9 @@ const (
 	modeNormal inputMode = iota
 	modeAddRepoName
 	modeAddRepoURL
+	modeAddAgentPick // pick a bundled known agent (or "Custom...") to add
+	modeAddAgentName // custom agent: type the name
+	modeAddAgentDir  // type/confirm the skill directory (prefilled for known agents)
 	modeConfirmRemove
 	modeForkSelectRepo
 	modeForkResolveChoice
@@ -103,12 +106,15 @@ type model struct {
 	helpScroll    int // scroll offset for the F1 help dialog
 
 	// Input mode for repo add / fork
-	inputMode      inputMode
-	inputBuffer    string
-	newRepoName    string
-	forkAddr       string // skill address being forked
-	forkCursor     int    // cursor for fork repo selection
-	forkTargetRepo string // repo chosen in modeForkSelectRepo, kept for modeForkResolveChoice
+	inputMode       inputMode
+	inputBuffer     string
+	newRepoName     string
+	newAgentName    string                  // agent name chosen in modeAddAgentPick/Name, used by modeAddAgentDir
+	agentCandidates []config.AgentCandidate // known agents not yet configured, offered in modeAddAgentPick
+	agentPickCursor int                     // cursor within agentCandidates (len(agentCandidates) == "Custom..." row)
+	forkAddr        string                  // skill address being forked
+	forkCursor      int                     // cursor for fork repo selection
+	forkTargetRepo  string                  // repo chosen in modeForkSelectRepo, kept for modeForkResolveChoice
 
 	// Status info per skill+agent
 	statusInfo   map[string]map[string]string // addr → agent → status text
@@ -204,12 +210,7 @@ func initialModel(cfg *config.Config, st *state.State) model {
 		st:          st,
 	}
 
-	// Build sorted agent list
-	for name := range cfg.Agents {
-		m.agents = append(m.agents, name)
-	}
-	sort.Strings(m.agents)
-
+	m.refreshAgents()
 	m.refreshSkills()
 	m.refreshRepos()
 	m.refreshUnmanaged()
@@ -292,6 +293,16 @@ func (m *model) refreshSkills() {
 			m.installed[addr][agentName] = true
 		}
 	}
+}
+
+// refreshAgents rebuilds the sorted agent-name list used for skill/pack
+// columns. Called at init and after Add Agent registers a new one.
+func (m *model) refreshAgents() {
+	m.agents = nil
+	for name := range m.cfg.Agents {
+		m.agents = append(m.agents, name)
+	}
+	sort.Strings(m.agents)
 }
 
 func (m *model) refreshRepos() {

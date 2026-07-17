@@ -42,6 +42,7 @@ var appMenus = []menuDef{
 		items: []menuItem{
 			{"Add Repo", "a", func(m *model) bool { return m.activePanel == panelRepos }, func(m *model) tea.Cmd { m.startAddRepo(); return nil }},
 			{"Remove Repo", "d", func(m *model) bool { return m.activePanel == panelRepos && len(m.repoList) > 0 }, func(m *model) tea.Cmd { m.startRemoveRepo(); return nil }},
+			{"Add Agent", "", alwaysEnabled, func(m *model) tea.Cmd { m.startAddAgent(); return nil }},
 			{"Self-Update", "U", alwaysEnabled, func(m *model) tea.Cmd { return m.startSelfUpdate() }},
 			{"Exit", "q", alwaysEnabled, func(m *model) tea.Cmd { return tea.Quit }},
 		},

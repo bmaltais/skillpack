@@ -63,7 +63,7 @@ func TestIsGHOToken(t *testing.T) {
 }
 
 func TestFormatAuthHint_GhoTokenPush(t *testing.T) {
-	err := fmt.Errorf("authentication required: Invalid username or token")
+	err := fmt.Errorf("Invalid username or token: %w", transport.ErrAuthenticationRequired)
 	hint := FormatAuthHint("my-repo", "gho_abc123", err, true)
 	if hint == "" {
 		t.Fatal("expected non-empty hint for gho_ token push failure")
@@ -83,7 +83,7 @@ func TestFormatAuthHint_GhoTokenPush(t *testing.T) {
 }
 
 func TestFormatAuthHint_GhoTokenPull(t *testing.T) {
-	err := fmt.Errorf("authentication required")
+	err := transport.ErrAuthenticationRequired
 	hint := FormatAuthHint("my-repo", "gho_abc123", err, false)
 	if hint == "" {
 		t.Fatal("expected non-empty hint for gho_ token pull failure")
@@ -94,10 +94,18 @@ func TestFormatAuthHint_GhoTokenPull(t *testing.T) {
 }
 
 func TestFormatAuthHint_NonGhoToken(t *testing.T) {
-	err := fmt.Errorf("authentication required: bad password")
+	err := fmt.Errorf("bad password: %w", transport.ErrAuthenticationRequired)
 	hint := FormatAuthHint("my-repo", "ghp_abc123", err, true)
 	if hint != "" {
 		t.Errorf("expected empty hint for non-gho_ token, got: %s", hint)
+	}
+}
+
+func TestFormatAuthHint_NonAuthError(t *testing.T) {
+	err := errors.New("connection refused")
+	hint := FormatAuthHint("my-repo", "gho_abc123", err, true)
+	if hint != "" {
+		t.Errorf("expected empty hint for non-auth error, got: %s", hint)
 	}
 }
 

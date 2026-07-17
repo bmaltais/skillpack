@@ -143,11 +143,12 @@ func TestIsGHOToken(t *testing.T) {
 	}
 }
 
-// TestCommitAndPush_GhoTokenHint verifies that when CommitAndPush fails with a
-// gho_ token, the error message includes a hint about refreshing the token.
-// This is a behavioural test: it checks the error string contains the expected
-// hint text rather than just the raw git error.
-func TestCommitAndPush_GhoTokenHint(t *testing.T) {
+// TestCommitAndPush_ConnectionFailureNoAuthHint verifies that when CommitAndPush
+// fails due to an unreachable remote (a connection failure, not an auth
+// failure), the error message does NOT include the gho_ token hint — that
+// hint is reserved for actual authentication/authorization errors and would
+// be misleading here.
+func TestCommitAndPush_ConnectionFailureNoAuthHint(t *testing.T) {
 	sig := &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()}
 
 	repoDir := t.TempDir()
@@ -187,10 +188,7 @@ func TestCommitAndPush_GhoTokenHint(t *testing.T) {
 	}
 
 	errMsg := err.Error()
-	if !strings.Contains(errMsg, "hint:") {
-		t.Errorf("expected hint in error message, got: %s", errMsg)
-	}
-	if !strings.Contains(errMsg, "gh auth token") {
-		t.Errorf("expected 'gh auth token' in hint, got: %s", errMsg)
+	if strings.Contains(errMsg, "hint:") {
+		t.Errorf("expected no auth hint for a connection failure, got: %s", errMsg)
 	}
 }

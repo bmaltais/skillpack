@@ -23,7 +23,7 @@ func IsGHOToken(token string) bool {
 // isPush controls whether we say "push" or "pull/fetch" — matches the verb the
 // user saw in their sync output.
 func FormatAuthHint(repoName, token string, err error, isPush bool) string {
-	if !IsGHOToken(token) || err == nil {
+	if !IsGHOToken(token) || err == nil || !IsTransportAuthError(err) {
 		return ""
 	}
 
@@ -32,21 +32,12 @@ func FormatAuthHint(repoName, token string, err error, isPush bool) string {
 		action = "push"
 	}
 
-	// Strip the raw git transport error for cleaner output.
-	msg := strings.TrimSpace(err.Error())
-	// Some go-git errors embed the verb already ("authentication required: ...").
-	// Normalise to a consistent pattern.
-	if !strings.Contains(strings.ToLower(msg), "authentication") && !strings.Contains(strings.ToLower(msg), "authorization") {
-		msg = "authentication required" + msg
-	}
-
 	return fmt.Sprintf(
 		"%s failed for %q: %s\n"+
 			"hint: your token appears to be an expired GitHub OAuth token\n"+
 			"hint: run: gh auth token -h github.com -u <user>\n"+
 			"hint: then update credentials.%s in ~/.skillpack/config.yaml",
-		action, repoName, strings.TrimPrefix(msg, action+" failed for"),
-		repoName,
+		action, repoName, strings.TrimSpace(err.Error()), repoName,
 	)
 }
 

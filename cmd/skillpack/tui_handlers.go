@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -116,13 +117,9 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 			m.inputMode = modeNormal
 			m.message = ""
 		case tea.KeyEnter:
-			name := strings.TrimSpace(m.inputBuffer)
-			if name == "" {
-				m.message = "✗ Agent name cannot be empty"
-				m.inputMode = modeNormal
-				m.inputBuffer = ""
-			} else if _, exists := m.cfg.Agents[name]; exists {
-				m.message = fmt.Sprintf("✗ Agent %q is already configured", name)
+			name, err := config.ValidateAgentName(m.cfg, m.inputBuffer)
+			if err != nil {
+				m.message = fmt.Sprintf("✗ %v", err)
 				m.inputMode = modeNormal
 				m.inputBuffer = ""
 			} else {
@@ -130,16 +127,10 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 				m.inputMode = modeAddAgentDir
 				m.inputBuffer = ""
 			}
-		case tea.KeyBackspace:
-			if len(m.inputBuffer) > 0 {
-				m.inputBuffer = m.inputBuffer[:len(m.inputBuffer)-1]
-			}
-		case tea.KeyRunes:
-			m.inputBuffer += msg.String()
-		case tea.KeySpace:
-			m.inputBuffer += " "
 		case tea.KeyCtrlC:
 			return *m, tea.Quit
+		default:
+			editTextInput(&m.inputBuffer, msg)
 		}
 
 	case modeAddAgentDir:
@@ -158,16 +149,10 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 				m.inputMode = modeNormal
 				m.inputBuffer = ""
 			}
-		case tea.KeyBackspace:
-			if len(m.inputBuffer) > 0 {
-				m.inputBuffer = m.inputBuffer[:len(m.inputBuffer)-1]
-			}
-		case tea.KeyRunes:
-			m.inputBuffer += msg.String()
-		case tea.KeySpace:
-			m.inputBuffer += " "
 		case tea.KeyCtrlC:
 			return *m, tea.Quit
+		default:
+			editTextInput(&m.inputBuffer, msg)
 		}
 
 	case modeConfirmRemove:
@@ -749,17 +734,17 @@ func (m *model) doRemoveRepo() {
 	m.inputMode = modeNormal
 }
 
-// doAddAgent registers name→skillDir in config, refreshes the agent column
-// list, and reports the result. Shared by the known-agent pick and custom
-// entry paths of the Add Agent flow.
-func (m *model) doAddAgent(name, skillDir string) {
-	if err := config.AddAgent(m.cfg, name, skillDir); err != nil {
-		m.message = fmt.Sprintf("✗ Add agent failed: %v", err)
-		return
+func editTextInput(input *string, msg tea.KeyMsg) {
+	switch msg.Type {
+	case tea.KeyBackspace:
+		if _, size := utf8.DecodeLastRuneInString(*input); size > 0 {
+			*input = (*input)[:len(*input)-size]
+		}
+	case tea.KeyRunes:
+		*input += msg.String()
+	case tea.KeySpace:
+		*input += " "
 	}
-	m.refreshAgents()
-	m.refreshSkills()
-	m.message = fmt.Sprintf("➕ Added agent %s → %s", name, skillDir)
 }
 
 func (m *model) startAdopt() {

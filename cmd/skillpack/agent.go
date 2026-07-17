@@ -33,15 +33,11 @@ var agentAddCmd = &cobra.Command{
 		if len(args) == 2 {
 			skillDir = args[1]
 		} else {
-			for _, ka := range config.DefaultAgents {
-				if ka.Name == name {
-					skillDir = ka.SkillDir
-					break
-				}
-			}
-			if skillDir == "" {
+			agent, ok := config.KnownAgentByName(name)
+			if !ok {
 				return fmt.Errorf("%q is not a known agent — specify a skill directory: skillpack agent add %s <skill-dir>", name, name)
 			}
+			skillDir = agent.SkillDir
 		}
 
 		if err := config.AddAgent(app.Cfg, name, skillDir); err != nil {

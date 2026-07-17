@@ -215,6 +215,24 @@ func TestAddAgent_EmptyNameOrDirRejected(t *testing.T) {
 	}
 }
 
+func TestAddAgent_SaveFailureDoesNotMutateConfig(t *testing.T) {
+	homeFile := filepath.Join(t.TempDir(), "home")
+	if err := os.WriteFile(homeFile, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", homeFile)
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"existing": {SkillDir: "~/.existing/skills"},
+	}}
+	if err := config.AddAgent(cfg, "custom", "~/.custom/skills"); err == nil {
+		t.Fatal("expected save error")
+	}
+	if _, exists := cfg.Agents["custom"]; exists {
+		t.Error("failed save mutated config")
+	}
+}
+
 func TestUnconfiguredAgents_ExcludesConfigured(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
@@ -253,4 +271,3 @@ func TestUnconfiguredAgents_FlagsDetected(t *testing.T) {
 		t.Error("expected claude-code to be flagged as detected on disk")
 	}
 }
-

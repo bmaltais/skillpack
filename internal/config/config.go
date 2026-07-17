@@ -55,6 +55,16 @@ var DefaultAgents = []KnownAgent{
 	{"pi", "~/.pi/agent/skills", "~/.pi/agent"},
 }
 
+// KnownAgentByName returns the bundled agent with name.
+func KnownAgentByName(name string) (KnownAgent, bool) {
+	for _, agent := range DefaultAgents {
+		if agent.Name == name {
+			return agent, true
+		}
+	}
+	return KnownAgent{}, false
+}
+
 // Dir returns the path to the ~/.skillpack directory.
 func Dir() (string, error) {
 	home, err := os.UserHomeDir()
@@ -194,26 +204,43 @@ func UnconfiguredAgents(cfg *Config) []AgentCandidate {
 	return out
 }
 
+// ValidateAgentName normalizes and validates a new agent name.
+func ValidateAgentName(cfg *Config, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("agent name cannot be empty")
+	}
+	if _, exists := cfg.Agents[name]; exists {
+		return "", fmt.Errorf("agent %q is already configured", name)
+	}
+	return name, nil
+}
+
 // AddAgent registers a new agent in cfg.Agents and persists the config.
 // Returns an error if name or skillDir is empty, or if name is already
 // configured.
 func AddAgent(cfg *Config, name, skillDir string) error {
-	name = strings.TrimSpace(name)
-	skillDir = strings.TrimSpace(skillDir)
-	if name == "" {
-		return fmt.Errorf("agent name cannot be empty")
+	name, err := ValidateAgentName(cfg, name)
+	if err != nil {
+		return err
 	}
+	skillDir = strings.TrimSpace(skillDir)
 	if skillDir == "" {
 		return fmt.Errorf("skill directory cannot be empty")
 	}
-	if cfg.Agents == nil {
-		cfg.Agents = make(map[string]AgentConfig)
+
+	agents := make(map[string]AgentConfig, len(cfg.Agents)+1)
+	for name, agent := range cfg.Agents {
+		agents[name] = agent
 	}
-	if _, exists := cfg.Agents[name]; exists {
-		return fmt.Errorf("agent %q is already configured", name)
+	agents[name] = AgentConfig{SkillDir: skillDir}
+	next := *cfg
+	next.Agents = agents
+	if err := Save(&next); err != nil {
+		return err
 	}
-	cfg.Agents[name] = AgentConfig{SkillDir: skillDir}
-	return Save(cfg)
+	cfg.Agents = agents
+	return nil
 }
 
 // ExpandPath expands a path starting with ~/ using os.UserHomeDir.

@@ -55,6 +55,16 @@ var DefaultAgents = []KnownAgent{
 	{"pi", "~/.pi/agent/skills", "~/.pi/agent"},
 }
 
+// KnownAgentByName returns the bundled agent with name.
+func KnownAgentByName(name string) (KnownAgent, bool) {
+	for _, agent := range DefaultAgents {
+		if agent.Name == name {
+			return agent, true
+		}
+	}
+	return KnownAgent{}, false
+}
+
 // Dir returns the path to the ~/.skillpack directory.
 func Dir() (string, error) {
 	home, err := os.UserHomeDir()
@@ -146,22 +156,91 @@ func DetectAgents(cfg *Config) bool {
 		if _, exists := cfg.Agents[agent.Name]; exists {
 			continue
 		}
-		checkDir := agent.SkillDir
-		if agent.DetectDir != "" {
-			checkDir = agent.DetectDir
-		}
-		expanded, err := ExpandPath(checkDir)
-		if err != nil {
-			continue
-		}
-		info, err := os.Stat(expanded)
-		if err == nil && info.IsDir() {
+		if agentDetected(agent) {
 			cfg.Agents[agent.Name] = AgentConfig{SkillDir: agent.SkillDir}
 			modified = true
 		}
 	}
 
 	return modified
+}
+
+// agentDetected reports whether ka's skill directory (or DetectDir, if set)
+// exists on disk.
+func agentDetected(ka KnownAgent) bool {
+	checkDir := ka.SkillDir
+	if ka.DetectDir != "" {
+		checkDir = ka.DetectDir
+	}
+	expanded, err := ExpandPath(checkDir)
+	if err != nil {
+		return false
+	}
+	info, err := os.Stat(expanded)
+	return err == nil && info.IsDir()
+}
+
+// AgentCandidate is a bundled known agent (see DefaultAgents) not yet present
+// in Config.Agents, annotated with whether it was found installed on disk.
+type AgentCandidate struct {
+	KnownAgent
+	Detected bool
+}
+
+// UnconfiguredAgents returns bundled known agents that aren't yet registered
+// in cfg.Agents, each flagged with whether it was detected on disk. Used to
+// offer known agents the user hasn't added yet — via the CLI (`agent add`
+// with no arguments, `agent list`) and the TUI's Add Agent dialog — for
+// agents auto-detection missed (e.g. the skill directory didn't exist yet
+// when config was last loaded).
+func UnconfiguredAgents(cfg *Config) []AgentCandidate {
+	var out []AgentCandidate
+	for _, ka := range DefaultAgents {
+		if _, exists := cfg.Agents[ka.Name]; exists {
+			continue
+		}
+		out = append(out, AgentCandidate{KnownAgent: ka, Detected: agentDetected(ka)})
+	}
+	return out
+}
+
+// ValidateAgentName normalizes and validates a new agent name.
+func ValidateAgentName(cfg *Config, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("agent name cannot be empty")
+	}
+	if _, exists := cfg.Agents[name]; exists {
+		return "", fmt.Errorf("agent %q is already configured", name)
+	}
+	return name, nil
+}
+
+// AddAgent registers a new agent in cfg.Agents and persists the config.
+// Returns an error if name or skillDir is empty, or if name is already
+// configured.
+func AddAgent(cfg *Config, name, skillDir string) error {
+	name, err := ValidateAgentName(cfg, name)
+	if err != nil {
+		return err
+	}
+	skillDir = strings.TrimSpace(skillDir)
+	if skillDir == "" {
+		return fmt.Errorf("skill directory cannot be empty")
+	}
+
+	agents := make(map[string]AgentConfig, len(cfg.Agents)+1)
+	for name, agent := range cfg.Agents {
+		agents[name] = agent
+	}
+	agents[name] = AgentConfig{SkillDir: skillDir}
+	next := *cfg
+	next.Agents = agents
+	if err := Save(&next); err != nil {
+		return err
+	}
+	cfg.Agents = agents
+	return nil
 }
 
 // ExpandPath expands a path starting with ~/ using os.UserHomeDir.

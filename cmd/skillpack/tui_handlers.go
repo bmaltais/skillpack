@@ -5,9 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/pack"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/skill"
@@ -78,6 +80,79 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 			m.inputBuffer += " "
 		case tea.KeyCtrlC:
 			return *m, tea.Quit
+		}
+
+	case modeAddAgentPick:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.inputMode = modeNormal
+			m.message = ""
+		case tea.KeyUp:
+			if m.agentPickCursor > 0 {
+				m.agentPickCursor--
+			}
+		case tea.KeyDown:
+			if m.agentPickCursor < len(m.agentCandidates) {
+				m.agentPickCursor++
+			}
+		case tea.KeyEnter:
+			if m.agentPickCursor == len(m.agentCandidates) {
+				// "Custom..." row: collect a name first.
+				m.newAgentName = ""
+				m.inputBuffer = ""
+				m.inputMode = modeAddAgentName
+			} else {
+				chosen := m.agentCandidates[m.agentPickCursor]
+				m.newAgentName = chosen.Name
+				m.inputBuffer = chosen.SkillDir
+				m.inputMode = modeAddAgentDir
+			}
+		case tea.KeyCtrlC:
+			return *m, tea.Quit
+		}
+
+	case modeAddAgentName:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.inputMode = modeNormal
+			m.message = ""
+		case tea.KeyEnter:
+			name, err := config.ValidateAgentName(m.cfg, m.inputBuffer)
+			if err != nil {
+				m.message = fmt.Sprintf("✗ %v", err)
+				m.inputMode = modeNormal
+				m.inputBuffer = ""
+			} else {
+				m.newAgentName = name
+				m.inputMode = modeAddAgentDir
+				m.inputBuffer = ""
+			}
+		case tea.KeyCtrlC:
+			return *m, tea.Quit
+		default:
+			editTextInput(&m.inputBuffer, msg)
+		}
+
+	case modeAddAgentDir:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.inputMode = modeNormal
+			m.message = ""
+		case tea.KeyEnter:
+			dir := strings.TrimSpace(m.inputBuffer)
+			if dir == "" {
+				m.message = "✗ Skill directory cannot be empty"
+				m.inputMode = modeNormal
+				m.inputBuffer = ""
+			} else {
+				m.doAddAgent(m.newAgentName, dir)
+				m.inputMode = modeNormal
+				m.inputBuffer = ""
+			}
+		case tea.KeyCtrlC:
+			return *m, tea.Quit
+		default:
+			editTextInput(&m.inputBuffer, msg)
 		}
 
 	case modeConfirmRemove:
@@ -512,6 +587,16 @@ func (m *model) startAddRepo() {
 	m.message = ""
 }
 
+// startAddAgent begins the add-agent flow: a picker of bundled known agents
+// not yet configured (flagged if detected on disk) plus a "Custom..." entry.
+// Shared by the File→Add Agent menu item.
+func (m *model) startAddAgent() {
+	m.agentCandidates = config.UnconfiguredAgents(m.cfg)
+	m.agentPickCursor = 0
+	m.inputMode = modeAddAgentPick
+	m.message = ""
+}
+
 // startSelfUpdate kicks off a self-update check+download. Shared by the 'U'
 // key in the Status panel and the File→Self-Update menu item.
 func (m *model) startSelfUpdate() tea.Cmd {
@@ -647,6 +732,19 @@ func (m *model) doRemoveRepo() {
 	}
 	m.message = fmt.Sprintf("➖ Removed repo %s", name)
 	m.inputMode = modeNormal
+}
+
+func editTextInput(input *string, msg tea.KeyMsg) {
+	switch msg.Type {
+	case tea.KeyBackspace:
+		if _, size := utf8.DecodeLastRuneInString(*input); size > 0 {
+			*input = (*input)[:len(*input)-size]
+		}
+	case tea.KeyRunes:
+		*input += msg.String()
+	case tea.KeySpace:
+		*input += " "
+	}
 }
 
 func (m *model) startAdopt() {

@@ -6,9 +6,19 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/state"
 )
+
+func TestEditTextInputBackspaceRemovesRune(t *testing.T) {
+	input := "agenté"
+	editTextInput(&input, tea.KeyMsg{Type: tea.KeyBackspace})
+	if input != "agent" {
+		t.Fatalf("got %q, want %q", input, "agent")
+	}
+}
 
 // makeGitClone creates a minimal directory that passes the .git sentinel check.
 func makeGitClone(t *testing.T, base string) string {

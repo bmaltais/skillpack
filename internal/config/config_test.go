@@ -172,3 +172,102 @@ func TestDetectAgents_FirstRunWithDetectDir(t *testing.T) {
 		t.Error("expected pi to be auto-detected on first-run Load")
 	}
 }
+
+func TestAddAgent_Success(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	cfg := &config.Config{Agents: make(map[string]config.AgentConfig)}
+	if err := config.AddAgent(cfg, "custom-agent", "~/.custom/skills"); err != nil {
+		t.Fatalf("AddAgent: %v", err)
+	}
+	if got := cfg.Agents["custom-agent"].SkillDir; got != "~/.custom/skills" {
+		t.Errorf("SkillDir: got %q, want %q", got, "~/.custom/skills")
+	}
+
+	// Persisted to disk.
+	reloaded, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := reloaded.Agents["custom-agent"]; !ok {
+		t.Error("expected custom-agent to persist across Load")
+	}
+}
+
+func TestAddAgent_DuplicateRejected(t *testing.T) {
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"claude-code": {SkillDir: "~/.claude/skills"},
+	}}
+	err := config.AddAgent(cfg, "claude-code", "~/other/path")
+	if err == nil {
+		t.Fatal("expected error adding a duplicate agent name")
+	}
+}
+
+func TestAddAgent_EmptyNameOrDirRejected(t *testing.T) {
+	cfg := &config.Config{Agents: make(map[string]config.AgentConfig)}
+	if err := config.AddAgent(cfg, "", "~/.skills"); err == nil {
+		t.Error("expected error for empty agent name")
+	}
+	if err := config.AddAgent(cfg, "name", ""); err == nil {
+		t.Error("expected error for empty skill dir")
+	}
+}
+
+func TestAddAgent_SaveFailureDoesNotMutateConfig(t *testing.T) {
+	homeFile := filepath.Join(t.TempDir(), "home")
+	if err := os.WriteFile(homeFile, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", homeFile)
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"existing": {SkillDir: "~/.existing/skills"},
+	}}
+	if err := config.AddAgent(cfg, "custom", "~/.custom/skills"); err == nil {
+		t.Fatal("expected save error")
+	}
+	if _, exists := cfg.Agents["custom"]; exists {
+		t.Error("failed save mutated config")
+	}
+}
+
+func TestUnconfiguredAgents_ExcludesConfigured(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"claude-code": {SkillDir: "~/.claude/skills"},
+	}}
+	for _, c := range config.UnconfiguredAgents(cfg) {
+		if c.Name == "claude-code" {
+			t.Error("expected claude-code to be excluded once configured")
+		}
+	}
+}
+
+func TestUnconfiguredAgents_FlagsDetected(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	claudeDir := filepath.Join(tmp, ".claude", "skills")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{Agents: make(map[string]config.AgentConfig)}
+	var found *config.AgentCandidate
+	for _, c := range config.UnconfiguredAgents(cfg) {
+		if c.Name == "claude-code" {
+			c := c
+			found = &c
+		}
+	}
+	if found == nil {
+		t.Fatal("expected claude-code to be listed as a candidate")
+	}
+	if !found.Detected {
+		t.Error("expected claude-code to be flagged as detected on disk")
+	}
+}

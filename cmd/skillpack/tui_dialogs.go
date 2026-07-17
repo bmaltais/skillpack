@@ -83,6 +83,34 @@ func dialogContent(m model) (title string, lines []string, ok bool) {
 			dimStyle.Render("Enter to confirm • Esc to cancel"),
 		}, true
 
+	case modeAddAgentPick:
+		lines := []string{"Add which agent?", ""}
+		for i, c := range m.agentCandidates {
+			label := fmt.Sprintf("%-16s %s", c.Name, c.SkillDir)
+			if c.Detected {
+				label += "  (detected)"
+			}
+			lines = append(lines, listLine(m, label, i == m.agentPickCursor))
+		}
+		lines = append(lines, listLine(m, "Custom agent...", m.agentPickCursor == len(m.agentCandidates)))
+		lines = append(lines, "", dimStyle.Render("↑↓ select • Enter confirm • Esc cancel"))
+		return "Add Agent", lines, true
+
+	case modeAddAgentName:
+		return "Add Agent", []string{
+			fmt.Sprintf("Agent name: %s▌", m.inputBuffer),
+			"",
+			dimStyle.Render("Enter to confirm • Esc to cancel"),
+		}, true
+
+	case modeAddAgentDir:
+		return "Add Agent", []string{
+			fmt.Sprintf("Skill directory for %q:", m.newAgentName),
+			fmt.Sprintf("%s▌", m.inputBuffer),
+			"",
+			dimStyle.Render("Enter to confirm • Esc to cancel"),
+		}, true
+
 	case modeConfirmRemove:
 		name := ""
 		if m.repoCursor < len(m.repoList) {

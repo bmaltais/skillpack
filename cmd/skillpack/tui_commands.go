@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
@@ -21,6 +22,15 @@ import (
 // (git operations, status checks, sync, self-update, LLM fork registration, etc.)
 // in background goroutines and send *Msg results back to the Update loop.
 // They deliberately take deep copies of state (via cloneState) to avoid races.
+
+func (m *model) doAddAgent(name, skillDir string) {
+	if err := config.AddAgent(m.cfg, name, skillDir); err != nil {
+		m.message = fmt.Sprintf("✗ Add agent failed: %v", err)
+		return
+	}
+	m.refreshAgents()
+	m.message = fmt.Sprintf("➕ Added agent %s → %s", name, skillDir)
+}
 
 func cmdCheckForUpdate() tea.Cmd {
 	return func() tea.Msg {

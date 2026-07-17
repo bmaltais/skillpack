@@ -4,6 +4,7 @@
 package gitops
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -248,9 +249,29 @@ func push(r *gogit.Repository, remoteURL, token string) error {
 	pushOpts.Auth = auth
 
 	if err := r.Push(pushOpts); err != nil && err != gogit.NoErrAlreadyUpToDate {
+		if isGHOToken(token) && isTransportAuthError(err) {
+			return fmt.Errorf("push failed: %v\nhint: your gho_ token appears to be expired or revoked\nhint: run: gh auth token -h github.com -u <user>\nhint: then update credentials in ~/.skillpack/config.yaml", err)
+		}
 		return fmt.Errorf("git push: %w", err)
 	}
 	return nil
+}
+
+// isTransportAuthError reports whether err is an authentication/authorisation
+// failure from the go-git transport layer, as opposed to a network, DNS, or
+// repository-not-found failure that would make a token-refresh hint misleading.
+func isTransportAuthError(err error) bool {
+	return errors.Is(err, transport.ErrAuthenticationRequired) ||
+		errors.Is(err, transport.ErrAuthorizationFailed)
+}
+
+// isGHOToken reports whether token is a GitHub OAuth token (gho_ prefix).
+// These tokens can expire or be revoked after inactivity, producing
+// "Invalid username or token" errors that are hard to diagnose.
+//
+// Defined here in gitops to avoid importing from the higher-level repo package.
+func isGHOToken(token string) bool {
+	return strings.HasPrefix(token, "gho_")
 }
 
 // pathUnderPrefix reports whether filePath equals prefix or starts with prefix+"/".

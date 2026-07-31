@@ -45,6 +45,15 @@ credentials:
   skillpack: ghp_yourtoken      # needed if you publish edits back to the tool repo
 ```
 
+> **Never `cat` the raw config.yaml to inspect or redact it.** Every value under
+> `credentials` is a long-lived token — a long token wraps across multiple terminal
+> lines, so a line-anchored `sed`/`grep` redaction (e.g. matching only the
+> `credentials:` header) leaves the wrapped token lines exposed in full. To list
+> which repos have a credential configured, without ever printing a token value:
+> ```bash
+> python3 -c "import yaml; print(list(yaml.safe_load(open('$HOME/.skillpack/config.yaml'))['credentials'].keys()))"
+> ```
+
 > **Credential check before pushing:** If `skillpack publish`, `skillpack sync --force-local`,
 > or `skillpack sync` fails with *"authentication required"*, the repo name is missing from
 > `credentials` in `~/.skillpack/config.yaml`. Add it with the same token used for your

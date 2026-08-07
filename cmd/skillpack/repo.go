@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bmaltais/skillpack/internal/audit"
 	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/state"
@@ -42,8 +43,10 @@ var repoAddCmd = &cobra.Command{
 			if token != "" {
 				app.Cfg.Credentials[name] = token
 				if err := config.Save(app.Cfg); err != nil {
+					audit.Failure(audit.EventConfigCredentialSet, name, err)
 					return err
 				}
+				audit.Success(audit.EventConfigCredentialSet, name)
 			}
 			skills, _ := repo.DiscoverSkills(name, app.St)
 			fmt.Printf("Repo %q already registered — token updated. %d skill(s) available.\n", name, len(skills))
@@ -54,8 +57,10 @@ var repoAddCmd = &cobra.Command{
 		if token != "" {
 			app.Cfg.Credentials[name] = token
 			if err := config.Save(app.Cfg); err != nil {
+				audit.Failure(audit.EventConfigCredentialSet, name, err)
 				return err
 			}
+			audit.Success(audit.EventConfigCredentialSet, name)
 		}
 
 		fmt.Printf("Adding %s as %q...\n", url, name)
@@ -221,8 +226,10 @@ var repoRenameCmd = &cobra.Command{
 			app.Cfg.Credentials[newName] = token
 			delete(app.Cfg.Credentials, oldName)
 			if err := config.Save(app.Cfg); err != nil {
+				audit.Failure(audit.EventConfigCredentialSet, oldName+" → "+newName, err)
 				return err
 			}
+			audit.Success(audit.EventConfigCredentialSet, oldName+" → "+newName)
 		}
 
 		// Rename the cache directory last. If this fails, report the manual

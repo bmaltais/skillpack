@@ -1,0 +1,4 @@
+# CODEOWNERS — require review from the repo owner on all changes.
+# CM-3: every PR to main must be approved before merge.
+# CM-5: restricts who may approve changes that reach production.
+*   @bmaltais

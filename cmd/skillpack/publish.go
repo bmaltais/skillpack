@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bmaltais/skillpack/internal/audit"
 	"github.com/bmaltais/skillpack/internal/skill"
 )
 
@@ -43,8 +44,10 @@ Two modes:
 			}
 			addr, err := skill.PublishNew(localDir, repoFlag, app.Cfg.TokenForRepo(repoFlag), app.St)
 			if err != nil {
+				audit.Failure(audit.EventSkillPublish, localDir+" → "+repoFlag, err)
 				return err
 			}
+			audit.Success(audit.EventSkillPublish, addr)
 			fmt.Printf("  Published: %s\n", addr)
 			fmt.Printf("  Install with: skillpack install %s\n", addr)
 			return nil
@@ -76,8 +79,10 @@ repoName := repoNameFromAddr(addr)
 		}
 
 		if err := is.Publish(app.Cfg.TokenForRepo(repoName)); err != nil {
+			audit.Failure(audit.EventSkillPublish, addr+" ("+agentName+")", err)
 			return err
 		}
+		audit.Success(audit.EventSkillPublish, addr+" ("+agentName+")")
 		fmt.Printf("  Published: %s (%s)\n", addr, agentName)
 		return nil
 	},

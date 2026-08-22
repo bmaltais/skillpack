@@ -165,6 +165,51 @@ func TestComputeHash_SymlinkRoot(t *testing.T) {
 	}
 }
 
+func TestComputeHash_IgnoresArtifactDirs(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "SKILL.md"), "content")
+
+	h1, err := ComputeHash(dir)
+	if err != nil {
+		t.Fatalf("initial hash: %v", err)
+	}
+
+	// Drop artifact dirs with files inside — hash must not change.
+	for _, artifactDir := range []string{".venv", "__pycache__", ".pytest_cache", ".git", "node_modules"} {
+		writeFile(t, filepath.Join(dir, artifactDir, "some-file"), "artifact content")
+	}
+
+	h2, err := ComputeHash(dir)
+	if err != nil {
+		t.Fatalf("hash after adding artifact dirs: %v", err)
+	}
+	if h1 != h2 {
+		t.Error("hash should not change when only artifact dirs are added")
+	}
+}
+
+func TestIsModified_IgnoresArtifactDirs(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "SKILL.md"), "content")
+
+	hash, _ := ComputeHash(dir)
+	rec := state.InstalledSkillRecord{InstalledHash: hash, LocalPath: dir}
+
+	// Creating a .venv inside the installed dir should not mark it as modified.
+	writeFile(t, filepath.Join(dir, ".venv", "lib", "python3.11", "site.py"), "# venv")
+	if err := os.MkdirAll(filepath.Join(dir, ".venv", "lib64"), 0700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	modified, err := isModified(rec)
+	if err != nil {
+		t.Fatalf("isModified: %v", err)
+	}
+	if modified {
+		t.Error("skill should not appear modified when only artifact dirs were added")
+	}
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {

@@ -425,16 +425,39 @@ func hasUpstreamOriginChange(rec state.InstalledSkillRecord, st *state.State) (b
 	return changed, err
 }
 
-// listFilesOnDisk returns a map of relPath→content for all files in dir.
+// listFilesOnDisk returns a map of relPath→content for all regular files in dir.
+// It skips well-known artifact directories (e.g. .venv, __pycache__) and
+// symlinks that resolve to directories, so stray build artefacts never cause
+// a "is a directory" error or a spurious conflict.
 func listFilesOnDisk(dir string) map[string]string {
 	files := make(map[string]string)
 	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error { //nolint:errcheck
-		if err != nil || info.IsDir() {
+		if err != nil {
 			return nil
+		}
+		if info.IsDir() {
+			if isArtifactDir(filepath.Base(path)) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		// Skip symlinks-to-directories to avoid "is a directory" read errors.
+		if info.Mode()&os.ModeSymlink != 0 {
+			resolved, resolveErr := filepath.EvalSymlinks(path)
+			if resolveErr != nil {
+				return nil
+			}
+			resolvedInfo, statErr := os.Stat(resolved)
+			if statErr != nil || resolvedInfo.IsDir() {
+				return nil
+			}
 		}
 		rel, _ := filepath.Rel(dir, path)
 		rel = filepath.ToSlash(rel)
-		data, _ := os.ReadFile(path)
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
 		files[rel] = string(data)
 		return nil
 	})

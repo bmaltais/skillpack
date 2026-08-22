@@ -124,6 +124,23 @@ func isModifiedWithHash(rec state.InstalledSkillRecord) (modified bool, currentH
 	return currentHash != rec.InstalledHash, currentHash, nil
 }
 
+// artifactDirNames is the set of well-known build/runtime artifact directories
+// that should never be treated as part of a skill's content.
+var artifactDirNames = map[string]bool{
+	".venv":         true,
+	"__pycache__":   true,
+	".pytest_cache": true,
+	".git":          true,
+	"node_modules":  true,
+	".tox":          true,
+	".mypy_cache":   true,
+}
+
+// isArtifactDir reports whether name is a well-known build/runtime artifact directory.
+func isArtifactDir(name string) bool {
+	return artifactDirNames[name]
+}
+
 // ComputeHash returns a deterministic SHA-256 digest of all file contents in dir,
 // sorted by relative path to ensure stability across platforms.
 func ComputeHash(dir string) (string, error) {
@@ -139,6 +156,9 @@ func ComputeHash(dir string) (string, error) {
 			return err
 		}
 		if info.IsDir() {
+			if isArtifactDir(filepath.Base(path)) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if filepath.Base(path) == forkMetadataFilename {

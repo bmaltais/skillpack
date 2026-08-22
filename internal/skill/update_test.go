@@ -146,6 +146,58 @@ func TestUpdateResult_ConflictFlag(t *testing.T) {
 	}
 }
 
+// TestListFilesOnDisk_SkipsArtifactDirs verifies that well-known build artifact
+// directories are excluded from the merge's file set.
+func TestListFilesOnDisk_SkipsArtifactDirs(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "SKILL.md"), "content")
+	writeFile(t, filepath.Join(dir, ".venv", "lib", "python3.11", "site.py"), "# venv file")
+	writeFile(t, filepath.Join(dir, "__pycache__", "mod.cpython-311.pyc"), "bytecode")
+	writeFile(t, filepath.Join(dir, ".pytest_cache", "README.md"), "# pytest cache")
+	writeFile(t, filepath.Join(dir, "node_modules", "lodash", "index.js"), "module.exports={}") //nolint:misspell
+
+	files := listFilesOnDisk(dir)
+
+	if _, ok := files["SKILL.md"]; !ok {
+		t.Error("expected SKILL.md in result")
+	}
+	for _, bad := range []string{
+		".venv/lib/python3.11/site.py",
+		"__pycache__/mod.cpython-311.pyc",
+		".pytest_cache/README.md",
+		"node_modules/lodash/index.js",
+	} {
+		if _, ok := files[bad]; ok {
+			t.Errorf("artifact path %q should not appear in listFilesOnDisk result", bad)
+		}
+	}
+}
+
+// TestListFilesOnDisk_SkipsSymlinkToDir verifies that a symlink pointing to a
+// directory is skipped rather than causing an "is a directory" read error.
+func TestListFilesOnDisk_SkipsSymlinkToDir(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "SKILL.md"), "content")
+
+	realSubDir := filepath.Join(dir, "real-subdir")
+	if err := os.MkdirAll(realSubDir, 0700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	linkPath := filepath.Join(dir, "lib64")
+	if err := os.Symlink(realSubDir, linkPath); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+
+	files := listFilesOnDisk(dir)
+
+	if _, ok := files["SKILL.md"]; !ok {
+		t.Error("expected SKILL.md in result")
+	}
+	if _, ok := files["lib64"]; ok {
+		t.Error("symlink-to-directory lib64 should not appear in listFilesOnDisk result")
+	}
+}
+
 func emptyState() *state.State {
 	return &state.State{
 		Repos:           make(map[string]state.RepoRecord),

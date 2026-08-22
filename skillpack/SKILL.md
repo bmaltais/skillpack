@@ -79,6 +79,14 @@ credentials:
 
 Token lookup order: `credentials` in config → `SKILLPACK_GIT_TOKEN` env var → `GITHUB_TOKEN` env var.
 
+> **Scope of this skill: use skillpack, don't patch it.** Requests like "fix the
+> sync issue" or "fix skillpack" mean *resolve it via the CLI* (conflict
+> resolution flags, credential fixes, cleaning stray local artifacts) — not
+> edit skillpack's own source code. If the CLI itself is behaving incorrectly
+> (crashing, a missing flag, a wrong exit code), don't patch the tool's
+> source — file a GitHub issue against the skillpack repo and keep resolving
+> the local issue through the CLI.
+
 ## Commands
 
 ### Repo Management
@@ -138,6 +146,11 @@ skillpack sync --force-remote <addr>          # upstream wins — overwrites loc
 skillpack sync --force-local  <addr>          # local wins — pushes to remote
 skillpack sync --merge        <addr>          # file-level 3-way merge
 ```
+
+> **`--agent` only applies to install/remove/publish.** `sync` and its conflict
+> flags (`--force-remote`/`--force-local`/`--merge`) take no `--agent` flag —
+> they act on every agent's installed copy of `<addr>` at once. Passing
+> `--agent` to `sync` fails with `unknown flag: --agent`.
 
 ### Publishing Skills
 
@@ -305,6 +318,15 @@ skillpack sync --merge --llm <agent> <addr>   # use a specific LLM agent to reso
 
 After `--merge` with conflicts, resolve `<<<<<<< ours` / `>>>>>>> theirs` blocks
 in the installed files, then run `skillpack publish <addr>` to push the result.
+
+> **Merge fails with `open .../.venv/lib64: is a directory` (or similar
+> `__pycache__`/`.pytest_cache` paths):** a tool installed inside the skill
+> left build artifacts in the skill directory, and merge chokes on the
+> non-file entries. Remove them first, then retry:
+> ```bash
+> find <installed-skill-dir> -maxdepth 6 \( -name ".venv" -o -name "__pycache__" -o -name ".pytest_cache" \) -exec rm -rf {} +
+> skillpack sync --merge <addr>
+> ```
 
 ## Common Workflows
 

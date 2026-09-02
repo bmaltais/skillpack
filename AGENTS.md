@@ -31,7 +31,7 @@ The binary entry point is `cmd/skillpack/`. There is no other binary in this rep
 
 - **Never commit directly to `main`.** Always create a branch first, even for small or docs-only changes.
 - Branch naming follows the existing convention: `feat/issue-<N>-<slug>` for features, `fix/issue-<N>-<slug>` for bug fixes (see `git branch -a` for examples). Use the GitHub issue number when one exists.
-- After committing to the branch, open a PR with `gh pr create --base main --head <branch> --title "..." --body "Closes #<N>..."` and push with `git push -u origin <branch>`.
+- After committing to the branch, push it with `git push -u origin <branch>`, then open a PR with `gh pr create --base main --head <branch> --title "..." --body "Closes #<N>..."`.
 - If a change is accidentally committed to `main` before pushing, fix it before pushing: create a branch at that commit (`git branch <name> <sha>`), reset `main` back to `origin/main` (`git reset --hard origin/main`), then check out the new branch and push it.
 - Do not merge your own PR unless the user explicitly asks you to.
 

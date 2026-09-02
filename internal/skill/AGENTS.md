@@ -30,10 +30,10 @@ Installs, removes, updates, forks, syncs, publishes, and reconciles skills. The 
 
 - Install is a verbatim directory copy. No format conversion.
 - Installed skill name = `filepath.Base(skillInfo.FullPath)`. Category structure is NOT preserved in the agent dir.
-- `ComputeHash` sorts files by relative path, skips `.fork.json`, handles symlinks-to-directories gracefully.
+- `ComputeHash` sorts files by relative path, skips `.skillpack-fork`, handles symlinks-to-directories gracefully.
 - `remove` checks for local modifications unless `--force`. Modified skills refuse removal.
 - Conflict resolution flags (`--force-remote`, `--force-local`, `--merge`) apply to `update` and `sync`.
-- Fork metadata lives in `.fork.json` at the skill root. Skipped during hash.
+- Fork metadata lives in `.skillpack-fork` at the skill root. Skipped during hash.
 - `DetectDuplicateSets` is pure (no `state.State`, no writes): it takes an already-discovered `[]repo.SkillInfo` and groups same-basename skills across ≥2 repos, cross-checked against SKILL.md frontmatter `name:`. See ADR-0003 and the "Duplicate Set" entry in CONTEXT.md.
 
 ## Work Guidance

@@ -80,59 +80,53 @@ func DetectDuplicateSets(skills []repo.SkillInfo) ([]DuplicateSet, error) {
 }
 
 // detectSetsInGroup splits a basename-matched group of skills into one or
-// more Duplicate Sets, using frontmatter name compatibility (connected
-// components) to keep disagreeing members apart.
+// more Duplicate Sets, using each member's declared frontmatter name to keep
+// disagreeing identities apart.
 func detectSetsInGroup(basename string, group []repo.SkillInfo) ([]DuplicateSet, error) {
 	names := make([]string, len(group))
+	distinctNames := make(map[string]bool)
 	for i, s := range group {
 		n, err := parseSkillName(filepath.Join(s.FullPath, "SKILL.md"))
 		if err != nil {
 			return nil, fmt.Errorf("parsing SKILL.md frontmatter for %s: %w", s.Address, err)
 		}
 		names[i] = n
+		if n != "" {
+			distinctNames[n] = true
+		}
 	}
 
-	parent := make([]int, len(group))
-	for i := range parent {
-		parent[i] = i
-	}
-	var find func(int) int
-	find = func(i int) int {
-		if parent[i] != i {
-			parent[i] = find(parent[i])
+	var clusters [][]int
+	if len(distinctNames) <= 1 {
+		// At most one declared name in the whole group: no conflict is
+		// possible, so unnamed members can safely join it too.
+		all := make([]int, len(group))
+		for i := range group {
+			all[i] = i
 		}
-		return parent[i]
-	}
-	union := func(i, j int) {
-		ri, rj := find(i), find(j)
-		if ri != rj {
-			parent[ri] = rj
-		}
-	}
-	// Union-find groups members into connected components so a chain of
-	// name-compatible members stays together even if not every pair agrees
-	// directly (compatibility is transitive via a shared/missing name).
-	for i := 0; i < len(group); i++ {
-		for j := i + 1; j < len(group); j++ {
-			if namesCompatible(names[i], names[j]) {
-				union(i, j)
+		clusters = [][]int{all}
+	} else {
+		// Two or more distinct declared names: each name is its own cluster.
+		// Members with no declared name are ambiguous between the conflicting
+		// identities, so they're excluded rather than bridging clusters together.
+		byName := make(map[string][]int)
+		for i, n := range names {
+			if n != "" {
+				byName[n] = append(byName[n], i)
 			}
 		}
+		clusterNames := make([]string, 0, len(byName))
+		for n := range byName {
+			clusterNames = append(clusterNames, n)
+		}
+		sort.Strings(clusterNames)
+		for _, n := range clusterNames {
+			clusters = append(clusters, byName[n])
+		}
 	}
-
-	components := make(map[int][]int)
-	for i := range group {
-		components[find(i)] = append(components[find(i)], i)
-	}
-	roots := make([]int, 0, len(components))
-	for r := range components {
-		roots = append(roots, r)
-	}
-	sort.Ints(roots)
 
 	var sets []DuplicateSet
-	for _, r := range roots {
-		idxs := components[r]
+	for _, idxs := range clusters {
 		if len(idxs) < 2 {
 			continue
 		}
@@ -152,17 +146,6 @@ func detectSetsInGroup(basename string, group []repo.SkillInfo) ([]DuplicateSet,
 	return sets, nil
 }
 
-// namesCompatible reports whether two SKILL.md frontmatter `name:` values are
-// consistent with the skills sharing an identity. A missing name (empty
-// string) does not constrain matching, so directories without frontmatter
-// still match on basename alone.
-func namesCompatible(a, b string) bool {
-	if a == "" || b == "" {
-		return true
-	}
-	return a == b
-}
-
 func buildDuplicateSet(basename string, group []repo.SkillInfo, idxs []int) (DuplicateSet, error) {
 	byAddr := make(map[string]repo.SkillInfo, len(idxs))
 	members := make([]string, 0, len(idxs))
@@ -172,41 +155,44 @@ func buildDuplicateSet(basename string, group []repo.SkillInfo, idxs []int) (Dup
 	}
 	sort.Strings(members)
 
+	// Compute each member's hash and fork upstream once, not once per pair
+	// (ComputeHash walks the whole directory tree).
+	hashes := make(map[string]string, len(members))
+	forkUpstreams := make(map[string]string, len(members))
+	for _, addr := range members {
+		info := byAddr[addr]
+		hash, err := hashSkill(addr, info.FullPath)
+		if err != nil {
+			return DuplicateSet{}, err
+		}
+		hashes[addr] = hash
+		if meta, err := readForkMetadata(info.FullPath); err == nil && meta != nil {
+			forkUpstreams[addr] = meta.UpstreamAddr
+		}
+	}
+
 	var pairs []DuplicatePair
 	for i := 0; i < len(members); i++ {
 		for j := i + 1; j < len(members); j++ {
-			pair, err := buildDuplicatePair(members[i], byAddr[members[i]], members[j], byAddr[members[j]])
-			if err != nil {
-				return DuplicateSet{}, err
-			}
-			pairs = append(pairs, pair)
+			pairs = append(pairs, buildDuplicatePair(members[i], members[j], hashes, forkUpstreams))
 		}
 	}
 
 	return DuplicateSet{Basename: basename, Members: members, Pairs: pairs}, nil
 }
 
-func buildDuplicatePair(addrA string, a repo.SkillInfo, addrB string, b repo.SkillInfo) (DuplicatePair, error) {
-	hashA, err := hashSkill(addrA, a.FullPath)
-	if err != nil {
-		return DuplicatePair{}, err
-	}
-	hashB, err := hashSkill(addrB, b.FullPath)
-	if err != nil {
-		return DuplicatePair{}, err
-	}
-
+func buildDuplicatePair(addrA, addrB string, hashes, forkUpstreams map[string]string) DuplicatePair {
 	confidence := ConfidenceDiverged
-	if hashA == hashB {
+	if hashes[addrA] == hashes[addrB] {
 		confidence = ConfidenceIdentical
 	}
 
 	linkStatus := LinkStatusUnlinked
-	if forkLinksTo(a.FullPath, addrB) || forkLinksTo(b.FullPath, addrA) {
+	if forkUpstreams[addrA] == addrB || forkUpstreams[addrB] == addrA {
 		linkStatus = LinkStatusLinked
 	}
 
-	return DuplicatePair{A: addrA, B: addrB, Confidence: confidence, LinkStatus: linkStatus}, nil
+	return DuplicatePair{A: addrA, B: addrB, Confidence: confidence, LinkStatus: linkStatus}
 }
 
 // hashSkill wraps ComputeHash with error context naming the skill address.
@@ -216,16 +202,6 @@ func hashSkill(addr, fullPath string) (string, error) {
 		return "", fmt.Errorf("computing hash for %s: %w", addr, err)
 	}
 	return hash, nil
-}
-
-// forkLinksTo reports whether the .skillpack-fork metadata at skillDir
-// records upstreamAddr as its upstream origin.
-func forkLinksTo(skillDir, upstreamAddr string) bool {
-	meta, err := readForkMetadata(skillDir)
-	if err != nil || meta == nil {
-		return false
-	}
-	return meta.UpstreamAddr == upstreamAddr
 }
 
 // parseSkillName extracts the `name:` field from a SKILL.md file's YAML
@@ -243,7 +219,9 @@ func parseSkillName(path string) (string, error) {
 		return "", err
 	}
 
-	content := string(data)
+	// Normalise CRLF so the "\n---" closing-delimiter search also matches
+	// SKILL.md files with Windows line endings.
+	content := strings.ReplaceAll(string(data), "\r\n", "\n")
 	const delim = "---"
 	if !strings.HasPrefix(content, delim) {
 		return "", nil

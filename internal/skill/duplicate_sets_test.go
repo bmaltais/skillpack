@@ -320,3 +320,57 @@ func TestDetectDuplicateSets_DirWithoutSKILLmd_NotDiscovered(t *testing.T) {
 		t.Errorf("expected no duplicate sets with only one real skill, got %v", sets)
 	}
 }
+
+// An unnamed member must never bridge two conflicting explicit names together
+// via transitive matching (basename "utils": A=string-utils, B=<no name>,
+// C=date-utils must NOT all end up in one set just because B is compatible
+// with both individually).
+func TestDetectDuplicateSets_UnnamedMemberDoesNotBridgeConflictingNames(t *testing.T) {
+	repoCacheA := t.TempDir()
+	repoCacheB := t.TempDir()
+	repoCacheC := t.TempDir()
+	skills := []repo.SkillInfo{
+		skillMD(t, repoCacheA, "repo-a", "utils", "string-utils", "# String utils"),
+		skillMD(t, repoCacheB, "repo-b", "utils", "", "# Utils, no frontmatter"),
+		skillMD(t, repoCacheC, "repo-c", "utils", "date-utils", "# Date utils"),
+	}
+
+	sets, err := skill.DetectDuplicateSets(skills)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, set := range sets {
+		if len(set.Members) > 2 {
+			t.Fatalf("expected no set to bridge string-utils and date-utils via the unnamed member, got %v", set)
+		}
+		for _, m := range set.Members {
+			if m == "repo-a/utils" {
+				for _, other := range set.Members {
+					if other == "repo-c/utils" {
+						t.Fatalf("string-utils and date-utils must not share a set, got %v", set.Members)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestDetectDuplicateSets_CRLFFrontmatter(t *testing.T) {
+	repoCacheA := t.TempDir()
+	repoCacheB := t.TempDir()
+	full := filepath.Join(repoCacheA, "triage")
+	writeFile(t, filepath.Join(full, "SKILL.md"), "---\r\nname: triage\r\n---\r\n# Triage")
+	a := repo.SkillInfo{Address: "repo-a/triage", RepoName: "repo-a", RelPath: "triage", FullPath: full}
+	b := skillMD(t, repoCacheB, "repo-b", "triage", "triage", "# Triage")
+
+	skills := []repo.SkillInfo{a, b}
+
+	sets, err := skill.DetectDuplicateSets(skills)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sets) != 1 {
+		t.Fatalf("expected CRLF frontmatter to still be parsed and matched, got %d sets", len(sets))
+	}
+}
+

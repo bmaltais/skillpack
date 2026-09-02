@@ -227,6 +227,30 @@ func TestSlashFilter_UnmanagedPanel(t *testing.T) {
 	}
 }
 
+// TestSlashFilter_SpaceFeedsFilterInsteadOfToggling confirms that once filter
+// mode is active on the Skills panel, Space appends to the filter text
+// rather than toggling the selected row's install state — both via the
+// KeySpace message and the ConPTY rune-space fallback.
+func TestSlashFilter_SpaceFeedsFilterInsteadOfToggling(t *testing.T) {
+	m := emptyTestModel()
+	m.activePanel = panelSkills
+
+	next, _ := m.Update(keyRune("/"))
+	m = next.(model)
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = next.(model)
+	if m.filter != " " {
+		t.Fatalf("KeySpace while filtering: filter = %q, want %q", m.filter, " ")
+	}
+
+	next, _ = m.Update(keyRune(" "))
+	m = next.(model)
+	if m.filter != "  " {
+		t.Fatalf("rune space while filtering: filter = %q, want %q", m.filter, "  ")
+	}
+}
+
 // TestMenu_InputModeBeatsMenu confirms a key that would otherwise open a
 // menu (F10) is not swallowed by an active input mode's own key handling —
 // dialogs take precedence over menu activation, per the precedence chain.

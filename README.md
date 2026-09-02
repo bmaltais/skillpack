@@ -116,7 +116,7 @@ Press **Tab** to switch between panels.
 ```
  SkillPack  [Skills]   Status    Repos
 
- Type to filter…
+ / to filter…
 
  SKILL                          claude-code  copilot   pi
  ─────────────────────────────  ───────────  ────────  ───────
@@ -127,7 +127,7 @@ Press **Tab** to switch between panels.
 ```
 
 - **↑/↓** navigate • **←/→** switch agents • **Space/Enter** toggle install/remove or expand/collapse
-- **f** fork a skill • **Type** to filter • **Esc** clear filter • **q** quit
+- **f** fork a skill • **/** filter • **Esc** exit filter mode and clear filter • **q** quit
 
 ### Status Panel
 

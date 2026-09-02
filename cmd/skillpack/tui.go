@@ -47,11 +47,11 @@ Repos panel:
 
 Unmanaged panel:
   ↑/↓         Move between items
-  /          Enter filter mode (incremental search)
-  Backspace  Delete filter character (while filtering)
-  Esc        Exit filter mode and clear the filter
-  Enter      Adopt selected skill into a registered repo
-  v          View SKILL.md of the selected skill
+  /           Enter filter mode (incremental search)
+  Backspace   Delete filter character (while filtering)
+  Esc         Exit filter mode and clear the filter
+  Enter       Adopt selected skill into a registered repo
+  v           View SKILL.md of the selected skill
 
 Packs panel:
   ↑/↓         Move between packs

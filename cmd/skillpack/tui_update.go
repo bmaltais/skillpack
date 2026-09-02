@@ -295,7 +295,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.handleAction()
 		case tea.KeySpace:
 			if m.activePanel == panelSkills {
-				m.handleEnter()
+				if m.filterActive {
+					m.filter += " "
+				} else {
+					m.handleEnter()
+				}
 			}
 			if m.activePanel == panelUnmanaged && m.filterActive {
 				m.unmanagedFilter += " "
@@ -324,14 +328,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.filterActive = true
 					return m, nil
 				}
+				if m.filterActive {
+					m.filter += ch
+					return m, nil
+				}
 				// On Windows (ConPTY), space can arrive as a rune instead of
 				// KeySpace. Treat it as the toggle action to match Linux/macOS.
 				if ch == " " {
 					m.handleEnter()
-					return m, nil
-				}
-				if m.filterActive {
-					m.filter += ch
 					return m, nil
 				}
 				switch ch {

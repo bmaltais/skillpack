@@ -651,7 +651,9 @@ func TestRefreshDoctor_NoDuplicates(t *testing.T) {
 	}
 
 	m := initialModel(cfg, st)
-	m.refreshDoctor()
+	if err := m.refreshDoctor(); err != nil {
+		t.Fatalf("refreshDoctor: %v", err)
+	}
 	if len(m.doctorSets) != 0 {
 		t.Errorf("expected no duplicate sets, got %v", m.doctorSets)
 	}
@@ -676,7 +678,9 @@ func TestRefreshDoctor_FindsDuplicateAcrossRepos(t *testing.T) {
 	}
 
 	m := initialModel(cfg, st)
-	m.refreshDoctor()
+	if err := m.refreshDoctor(); err != nil {
+		t.Fatalf("refreshDoctor: %v", err)
+	}
 	if len(m.doctorSets) != 1 {
 		t.Fatalf("expected 1 duplicate set, got %d", len(m.doctorSets))
 	}
@@ -741,7 +745,9 @@ func TestViewDoctor_RendersDuplicateSet(t *testing.T) {
 
 	m := initialModel(cfg, st)
 	m.activePanel = panelDoctor
-	m.refreshDoctor()
+	if err := m.refreshDoctor(); err != nil {
+		t.Fatalf("refreshDoctor: %v", err)
+	}
 	out := m.View()
 
 	for _, want := range []string{"triage (2 members)", "repo-a/triage", "repo-b/triage", "identical", "unlinked"} {
@@ -764,10 +770,51 @@ func TestViewDoctor_NoDuplicatesMessage(t *testing.T) {
 
 	m := initialModel(cfg, st)
 	m.activePanel = panelDoctor
-	m.refreshDoctor()
+	if err := m.refreshDoctor(); err != nil {
+		t.Fatalf("refreshDoctor: %v", err)
+	}
 	out := m.View()
 
 	if !strings.Contains(out, "No duplicates found.") {
 		t.Error("expected empty-state message when no duplicate sets exist")
+	}
+}
+
+// TestRefreshDoctor_SurfacesScanError verifies a broken repo cache path
+// produces an error instead of silently reporting zero duplicate sets.
+func TestRefreshDoctor_SurfacesScanError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"broken-repo": {URL: "https://example.com/broken.git", CachePath: filepath.Join(t.TempDir(), "does-not-exist")},
+		},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+
+	m := initialModel(cfg, st)
+	if err := m.refreshDoctor(); err == nil {
+		t.Fatal("expected refreshDoctor to return an error for an unreadable repo cache")
+	}
+}
+
+// TestSwitchPanel_Doctor_SurfacesScanError verifies a scan failure sets
+// m.message instead of leaving the panel looking like an empty clean scan.
+func TestSwitchPanel_Doctor_SurfacesScanError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"broken-repo": {URL: "https://example.com/broken.git", CachePath: filepath.Join(t.TempDir(), "does-not-exist")},
+		},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+
+	m := initialModel(cfg, st)
+	m.switchPanel(panelDoctor)
+	if m.message == "" {
+		t.Error("expected switchPanel to surface the scan error in m.message")
 	}
 }

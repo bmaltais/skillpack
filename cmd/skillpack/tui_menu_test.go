@@ -84,7 +84,7 @@ func TestMenu_AltLetterOpensCorrectMenu(t *testing.T) {
 	}
 }
 
-// TestMenu_F2ThroughF6SwitchPanels checks direct panel-jump keys work from
+// TestMenu_F2ThroughF7SwitchPanels checks direct panel-jump keys work from
 // any starting panel without opening a menu.
 func TestMenu_F2ThroughF7SwitchPanels(t *testing.T) {
 	cases := []struct {

@@ -622,7 +622,9 @@ func (m *model) switchPanel(p panel) tea.Cmd {
 	case panelPacks:
 		m.refreshPacks()
 	case panelDoctor:
-		m.refreshDoctor()
+		if err := m.refreshDoctor(); err != nil {
+			m.message = fmt.Sprintf("✗ %v", err)
+		}
 		m.doctorScroll = 0
 	case panelStatus:
 		if len(m.statusRows) == 0 && len(m.st.InstalledSkills) > 0 {

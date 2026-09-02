@@ -321,9 +321,17 @@ func (m *model) refreshSkills() {
 // cmdCheckStatus, so it runs directly on panel switch rather than as an
 // async tea.Cmd. Converts skill.DuplicateSet into plain doctorSetRow values
 // so the model/view layers never hold internal/skill types directly.
-func (m *model) refreshDoctor() {
-	allSkills, _ := repo.DiscoverAllSkills(m.st)
-	sets, _ := skill.DetectDuplicateSets(allSkills)
+// Returns an error rather than swallowing one, so a failed scan surfaces to
+// the user instead of silently rendering as "No duplicates found."
+func (m *model) refreshDoctor() error {
+	allSkills, err := repo.DiscoverAllSkills(m.st)
+	if err != nil {
+		return fmt.Errorf("scanning repos: %w", err)
+	}
+	sets, err := skill.DetectDuplicateSets(allSkills)
+	if err != nil {
+		return fmt.Errorf("detecting duplicate sets: %w", err)
+	}
 
 	m.doctorSets = make([]doctorSetRow, len(sets))
 	for i, set := range sets {
@@ -333,6 +341,7 @@ func (m *model) refreshDoctor() {
 		}
 		m.doctorSets[i] = doctorSetRow{basename: set.Basename, members: set.Members, pairs: pairs}
 	}
+	return nil
 }
 
 // refreshAgents rebuilds the sorted agent-name list used for skill/pack

@@ -255,12 +255,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.refreshPacks()
 			case panelPacks:
 				m.activePanel = panelDoctor
-				m.refreshDoctor()
 				m.doctorScroll = 0
 			case panelDoctor:
 				m.activePanel = panelSkills
 			}
 			m.message = ""
+			if m.activePanel == panelDoctor {
+				if err := m.refreshDoctor(); err != nil {
+					m.message = fmt.Sprintf("✗ %v", err)
+				}
+			}
 		case tea.KeyEsc:
 			if m.activePanel == panelUnmanaged {
 				m.unmanagedFilter = ""
@@ -413,9 +417,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "q":
 					return m, tea.Quit
 				case "r":
-					m.refreshDoctor()
 					m.doctorScroll = 0
-					m.message = "Rescanned"
+					if err := m.refreshDoctor(); err != nil {
+						m.message = fmt.Sprintf("✗ %v", err)
+					} else {
+						m.message = "Rescanned"
+					}
 				}
 			}
 		}

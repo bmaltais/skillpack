@@ -467,6 +467,10 @@ func (m *model) handleUp() {
 				m.packDetailOpen = false // close detail on navigation
 			}
 		}
+	case panelDoctor:
+		if m.doctorScroll > 0 {
+			m.doctorScroll--
+		}
 	}
 }
 
@@ -493,6 +497,8 @@ func (m *model) handleDown() {
 				m.packDetailOpen = false // close detail on navigation
 			}
 		}
+	case panelDoctor:
+		m.doctorScroll++
 	}
 }
 
@@ -615,6 +621,11 @@ func (m *model) switchPanel(p panel) tea.Cmd {
 		m.refreshUnmanaged()
 	case panelPacks:
 		m.refreshPacks()
+	case panelDoctor:
+		if err := m.refreshDoctor(); err != nil {
+			m.message = fmt.Sprintf("✗ %v", err)
+		}
+		m.doctorScroll = 0
 	case panelStatus:
 		if len(m.statusRows) == 0 && len(m.st.InstalledSkills) > 0 {
 			m.busy = "Checking status..."

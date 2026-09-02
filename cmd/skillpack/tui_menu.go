@@ -55,6 +55,7 @@ var appMenus = []menuDef{
 			{"Repos", "F4", alwaysEnabled, func(m *model) tea.Cmd { return m.switchPanel(panelRepos) }},
 			{"Unmanaged", "F5", alwaysEnabled, func(m *model) tea.Cmd { return m.switchPanel(panelUnmanaged) }},
 			{"Packs", "F6", alwaysEnabled, func(m *model) tea.Cmd { return m.switchPanel(panelPacks) }},
+			{"Doctor", "F7", alwaysEnabled, func(m *model) tea.Cmd { return m.switchPanel(panelDoctor) }},
 			{"Refresh Status", "r", alwaysEnabled, func(m *model) tea.Cmd {
 				m.busy = "Refreshing status..."
 				m.message = ""
@@ -165,6 +166,8 @@ func (m *model) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return m.switchPanel(panelUnmanaged), true
 	case "f6":
 		return m.switchPanel(panelPacks), true
+	case "f7":
+		return m.switchPanel(panelDoctor), true
 	}
 	return nil, false
 }

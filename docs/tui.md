@@ -42,6 +42,7 @@ Cycle with **Tab**, or jump directly:
 | F4 | **Repos** | Add/remove skill repositories |
 | F5 | **Unmanaged** | Adopt skills found in agent dirs but not tracked by skillpack |
 | F6 | **Packs** | Browse, install, create, and edit packs |
+| F7 | **Doctor** | Read-only report of Duplicate Sets across registered repos |
 
 ## Menu Bar
 
@@ -63,6 +64,7 @@ type-to-filter and existing single-letter shortcuts.
 | View | Repos | F4 |
 | View | Unmanaged | F5 |
 | View | Packs | F6 |
+| View | Doctor | F7 |
 | View | Refresh Status | r |
 | Actions | Toggle Install | Space |
 | Actions | Fork | f |

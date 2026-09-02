@@ -629,3 +629,192 @@ func TestViewPacks_RendersMergedList(t *testing.T) {
 		}
 	}
 }
+
+// --- refreshDoctor / Doctor panel tests ---
+
+// TestRefreshDoctor_NoDuplicates verifies refreshDoctor produces no sets when
+// no basename repeats across repos.
+func TestRefreshDoctor_NoDuplicates(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cacheA := t.TempDir()
+	cacheB := t.TempDir()
+	makeSkillDir(t, cacheA, "triage")
+	makeSkillDir(t, cacheB, "debugger")
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"repo-a": {URL: "https://example.com/a.git", CachePath: cacheA},
+			"repo-b": {URL: "https://example.com/b.git", CachePath: cacheB},
+		},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+
+	m := initialModel(cfg, st)
+	if err := m.refreshDoctor(); err != nil {
+		t.Fatalf("refreshDoctor: %v", err)
+	}
+	if len(m.doctorSets) != 0 {
+		t.Errorf("expected no duplicate sets, got %v", m.doctorSets)
+	}
+}
+
+// TestRefreshDoctor_FindsDuplicateAcrossRepos verifies refreshDoctor wires
+// repo.DiscoverAllSkills into skill.DetectDuplicateSets end-to-end.
+func TestRefreshDoctor_FindsDuplicateAcrossRepos(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cacheA := t.TempDir()
+	cacheB := t.TempDir()
+	makeSkillDir(t, cacheA, "coding/debugger")
+	makeSkillDir(t, cacheB, "coding/debugger") // same relPath, same content → identical
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"repo-a": {URL: "https://example.com/a.git", CachePath: cacheA},
+			"repo-b": {URL: "https://example.com/b.git", CachePath: cacheB},
+		},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+
+	m := initialModel(cfg, st)
+	if err := m.refreshDoctor(); err != nil {
+		t.Fatalf("refreshDoctor: %v", err)
+	}
+	if len(m.doctorSets) != 1 {
+		t.Fatalf("expected 1 duplicate set, got %d", len(m.doctorSets))
+	}
+	set := m.doctorSets[0]
+	if set.basename != "debugger" {
+		t.Errorf("basename = %q, want debugger", set.basename)
+	}
+	if len(set.pairs) != 1 || set.pairs[0].confidence != "identical" {
+		t.Errorf("expected 1 identical pair, got %v", set.pairs)
+	}
+}
+
+// TestSwitchPanel_Doctor_RefreshesAndResetsScroll verifies F7/switchPanel
+// populates doctorSets and starts the scroll offset at 0.
+func TestSwitchPanel_Doctor_RefreshesAndResetsScroll(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cacheA := t.TempDir()
+	cacheB := t.TempDir()
+	makeSkillDir(t, cacheA, "triage")
+	makeSkillDir(t, cacheB, "triage")
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"repo-a": {URL: "https://example.com/a.git", CachePath: cacheA},
+			"repo-b": {URL: "https://example.com/b.git", CachePath: cacheB},
+		},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+
+	m := initialModel(cfg, st)
+	m.doctorScroll = 5
+	m.switchPanel(panelDoctor)
+	if m.activePanel != panelDoctor {
+		t.Fatalf("activePanel = %v, want panelDoctor", m.activePanel)
+	}
+	if len(m.doctorSets) != 1 {
+		t.Fatalf("expected switchPanel to populate 1 duplicate set, got %d", len(m.doctorSets))
+	}
+	if m.doctorScroll != 0 {
+		t.Errorf("doctorScroll = %d, want 0 (reset on switch)", m.doctorScroll)
+	}
+}
+
+// TestViewDoctor_RendersDuplicateSet is a render smoke test: the Doctor
+// panel shows the basename, members, and confidence/link-status labels.
+func TestViewDoctor_RendersDuplicateSet(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cacheA := t.TempDir()
+	cacheB := t.TempDir()
+	makeSkillDir(t, cacheA, "triage")
+	makeSkillDir(t, cacheB, "triage")
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"repo-a": {URL: "https://example.com/a.git", CachePath: cacheA},
+			"repo-b": {URL: "https://example.com/b.git", CachePath: cacheB},
+		},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+
+	m := initialModel(cfg, st)
+	m.activePanel = panelDoctor
+	if err := m.refreshDoctor(); err != nil {
+		t.Fatalf("refreshDoctor: %v", err)
+	}
+	out := m.View()
+
+	for _, want := range []string{"triage (2 members)", "repo-a/triage", "repo-b/triage", "identical", "unlinked"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("doctor view missing %q", want)
+		}
+	}
+}
+
+// TestViewDoctor_NoDuplicatesMessage verifies the empty-state message shows
+// when no Duplicate Sets are found.
+func TestViewDoctor_NoDuplicatesMessage(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	st := &state.State{
+		Repos:           make(map[string]state.RepoRecord),
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+
+	m := initialModel(cfg, st)
+	m.activePanel = panelDoctor
+	if err := m.refreshDoctor(); err != nil {
+		t.Fatalf("refreshDoctor: %v", err)
+	}
+	out := m.View()
+
+	if !strings.Contains(out, "No duplicates found.") {
+		t.Error("expected empty-state message when no duplicate sets exist")
+	}
+}
+
+// TestRefreshDoctor_SurfacesScanError verifies a broken repo cache path
+// produces an error instead of silently reporting zero duplicate sets.
+func TestRefreshDoctor_SurfacesScanError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"broken-repo": {URL: "https://example.com/broken.git", CachePath: filepath.Join(t.TempDir(), "does-not-exist")},
+		},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+
+	m := initialModel(cfg, st)
+	if err := m.refreshDoctor(); err == nil {
+		t.Fatal("expected refreshDoctor to return an error for an unreadable repo cache")
+	}
+}
+
+// TestSwitchPanel_Doctor_SurfacesScanError verifies a scan failure sets
+// m.message instead of leaving the panel looking like an empty clean scan.
+func TestSwitchPanel_Doctor_SurfacesScanError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	st := &state.State{
+		Repos: map[string]state.RepoRecord{
+			"broken-repo": {URL: "https://example.com/broken.git", CachePath: filepath.Join(t.TempDir(), "does-not-exist")},
+		},
+		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
+	}
+
+	m := initialModel(cfg, st)
+	m.switchPanel(panelDoctor)
+	if m.message == "" {
+		t.Error("expected switchPanel to surface the scan error in m.message")
+	}
+}

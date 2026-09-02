@@ -314,7 +314,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.repoFilter += " "
 				m.refreshRepos()
 			}
-			if m.activePanel == panelPacks && m.filterActive {
+			if m.activePanel == panelPacks && m.filterActive && !m.packDetailOpen {
 				m.packFilter += " "
 				m.refreshPacks()
 			}
@@ -345,7 +345,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.repoFilter = m.repoFilter[:len(m.repoFilter)-1]
 				m.refreshRepos()
 			}
-			if m.activePanel == panelPacks && len(m.packFilter) > 0 {
+			if m.activePanel == panelPacks && len(m.packFilter) > 0 && !m.packDetailOpen {
 				m.packFilter = m.packFilter[:len(m.packFilter)-1]
 				m.refreshPacks()
 			}
@@ -455,11 +455,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.startViewSkillMd()
 				}
 			case panelPacks:
-				if ch == "/" && !m.filterActive {
+				// Filter UI isn't shown while the detail overlay is open, so '/'
+				// and typed runes fall through to the overlay's own shortcuts
+				// instead of silently mutating packFilter behind it.
+				if ch == "/" && !m.filterActive && !m.packDetailOpen {
 					m.filterActive = true
 					return m, nil
 				}
-				if m.filterActive {
+				if m.filterActive && !m.packDetailOpen {
 					m.packFilter += ch
 					m.refreshPacks()
 					return m, nil

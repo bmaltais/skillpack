@@ -104,7 +104,7 @@ func hintForPanel(m model) string {
 		}
 		return fmt.Sprintf("↑↓ navigate  u update selected  S sync all  %s  U self-update  / filter  Tab switch  q quit", rHelp)
 	case panelRepos:
-		return "↑↓ navigate  a add  d remove  / filter  Tab skills  q quit"
+		return "↑↓ navigate  a add  d remove  / filter  Tab switch  q quit"
 	case panelUnmanaged:
 		return "↑↓ navigate  / filter  Enter adopt into repo  v view  Tab switch  q quit"
 	case panelPacks:
@@ -753,7 +753,7 @@ func doctorLines(m model) []string {
 		}
 	}
 
-	visible := m.height - 9 // title+menu bar, panel header, footer, margin
+	visible := m.height - 10 // title+menu bar, filter indicator, panel header, footer, margin
 	if visible < 6 {
 		visible = 6
 	}

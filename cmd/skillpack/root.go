@@ -64,6 +64,7 @@ func init() {
 	rootCmd.AddCommand(publishCmd)
 	rootCmd.AddCommand(syncCmd)
 	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(forkCmd)
 	rootCmd.AddCommand(selfUpdateCmd)
 	rootCmd.AddCommand(packCmd)

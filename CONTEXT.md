@@ -56,6 +56,17 @@ The act of copying a locally-modified skill from an agent's `skill_dir` back int
 
 A two-way reconciliation command. Pulls all registered repos, applies upstream changes to unmodified installed skills, publishes locally-modified skills to their remotes, and warns on conflicts.
 
+## Duplicate Set
+
+A set of skill addresses across two or more registered repos that appear to be the same skill, with no persisted identity — the directory basename (cross-checked against each `SKILL.md`'s frontmatter `name:` field to cut noise) *is* the identity, recomputed on every `skillpack doctor` run. Detection scans all registered repos' caches, independent of local install state. See [ADR-0003](docs/adr/0003-duplicate-skill-detection.md).
+
+Each pair within a Duplicate Set carries two independent labels:
+
+- **Confidence:** `identical` (content hash matches) or `diverged` (same identity, different content) — informational, never a filter.
+- **Link status:** `linked (fork)` (already carries `.skillpack-fork` provenance) or `unlinked` — both are reported, since a `linked` pair can still have diverged.
+
+`skillpack doctor` reports Duplicate Sets; it never propagates changes between them. Keeping duplicates in sync automatically is explicitly deferred (see ADR-0003).
+
 ---
 
 ## Pack

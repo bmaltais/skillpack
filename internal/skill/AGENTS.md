@@ -15,6 +15,7 @@ Installs, removes, updates, forks, syncs, publishes, and reconciles skills. The 
 | Update plan generation | `internal/skill/update_plan.go` |
 | Update execution | `internal/skill/update.go` |
 | Fork candidate discovery | `internal/skill/fork_candidates.go` |
+| Duplicate Set detection (`skillpack doctor`) | `internal/skill/duplicate_sets.go` |
 | Fork creation & install | `internal/skill/fork.go`, `internal/skill/fork_install.go` |
 | Fork metadata (provenance) | `internal/skill/fork_metadata.go` |
 | Fork missing upstream detection | `internal/skill/fork_missing_upstream_test.go` |
@@ -33,6 +34,7 @@ Installs, removes, updates, forks, syncs, publishes, and reconciles skills. The 
 - `remove` checks for local modifications unless `--force`. Modified skills refuse removal.
 - Conflict resolution flags (`--force-remote`, `--force-local`, `--merge`) apply to `update` and `sync`.
 - Fork metadata lives in `.fork.json` at the skill root. Skipped during hash.
+- `DetectDuplicateSets` is pure (no `state.State`, no writes): it takes an already-discovered `[]repo.SkillInfo` and groups same-basename skills across ≥2 repos, cross-checked against SKILL.md frontmatter `name:`. See ADR-0003 and the "Duplicate Set" entry in CONTEXT.md.
 
 ## Work Guidance
 

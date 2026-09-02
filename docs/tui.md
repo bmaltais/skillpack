@@ -149,6 +149,9 @@ Shows every installed skill with its current state. Auto-refreshes on first visi
 | S | Sync all skills (pull updates + push local edits) |
 | r | Refresh status (re-fetch repos, re-check all) |
 | U | Self-update the skillpack binary |
+| / | Enter filter mode (incremental search on skill address / agent) |
+| Backspace | Delete filter character (while filtering) |
+| Esc | Exit filter mode and clear the filter |
 | Tab | Switch panel |
 | q / Ctrl+C | Quit |
 
@@ -161,6 +164,9 @@ Manage registered skill repositories without leaving the TUI.
 | ↑/↓ | Navigate between repos |
 | a | Add a repo (dialog prompts for name, then URL) |
 | d / Delete | Remove selected repo (with confirmation dialog) |
+| / | Enter filter mode (incremental search on repo name / URL) |
+| Backspace | Delete filter character (while filtering) |
+| Esc | Exit filter mode and clear the filter |
 | Tab | Switch panel |
 | q / Ctrl+C | Quit |
 
@@ -192,6 +198,23 @@ Browse, install, create, and edit packs (bundles of skills published together).
 | i | Install the selected available pack (agent multi-select dialog) |
 | c | Complete a partially-deployed pack |
 | d | Remove the selected installed pack (confirmation dialog) |
+| / | Enter filter mode (incremental search on pack address / description) |
+| Backspace | Delete filter character (while filtering) |
+| Esc | Exit filter mode and clear the filter (or close the detail overlay first) |
+| Tab | Switch panel |
+| q / Ctrl+C | Quit |
+
+## Doctor Panel
+
+Read-only report of Duplicate Sets (same-basename skills across repos) — mirrors `skillpack doctor`'s CLI output. Never mutates state, so there's no per-row selection, only a scroll offset.
+
+| Key | Action |
+|-----|--------|
+| ↑/↓ | Scroll the report |
+| r | Rescan registered repos for duplicate sets |
+| / | Enter filter mode (incremental search on duplicate-set skill addresses) |
+| Backspace | Delete filter character (while filtering) |
+| Esc | Exit filter mode and clear the filter |
 | Tab | Switch panel |
 | q / Ctrl+C | Quit |
 

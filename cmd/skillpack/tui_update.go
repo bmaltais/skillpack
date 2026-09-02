@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"sort"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -40,22 +39,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.message = "Status refreshed"
 		}
-		// Build status rows
-		m.statusRows = nil
-		for addr, agents := range msg.info {
-			for agentName, status := range agents {
-				m.statusRows = append(m.statusRows, statusRow{addr: addr, agentName: agentName, status: status})
-			}
-		}
-		sort.Slice(m.statusRows, func(i, j int) bool {
-			if m.statusRows[i].addr != m.statusRows[j].addr {
-				return m.statusRows[i].addr < m.statusRows[j].addr
-			}
-			return m.statusRows[i].agentName < m.statusRows[j].agentName
-		})
-		if m.statusCursor >= len(m.statusRows) {
-			m.statusCursor = 0
-		}
+		m.rebuildStatusRows()
 		return m, nil
 
 	case syncDoneMsg:
@@ -267,16 +251,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case tea.KeyEsc:
-			if m.activePanel == panelUnmanaged {
+			switch {
+			case m.activePanel == panelUnmanaged:
 				m.unmanagedFilter = ""
 				m.filterActive = false
-			} else if m.activePanel == panelPacks && m.packDetailOpen {
+			case m.activePanel == panelPacks && m.packDetailOpen:
 				m.packDetailOpen = false
 				m.message = ""
-			} else if m.filter != "" || m.filterActive {
+			case m.activePanel == panelPacks && (m.packFilter != "" || m.filterActive):
+				m.packFilter = ""
+				m.filterActive = false
+				m.refreshPacks()
+			case m.activePanel == panelStatus && (m.statusFilter != "" || m.filterActive):
+				m.statusFilter = ""
+				m.filterActive = false
+				m.rebuildStatusRows()
+			case m.activePanel == panelRepos && (m.repoFilter != "" || m.filterActive):
+				m.repoFilter = ""
+				m.filterActive = false
+				m.refreshRepos()
+			case m.activePanel == panelDoctor && (m.doctorFilter != "" || m.filterActive):
+				m.doctorFilter = ""
+				m.filterActive = false
+				m.doctorScroll = 0
+			case m.filter != "" || m.filterActive:
 				m.filter = ""
 				m.filterActive = false
-			} else {
+			default:
 				return m, tea.Quit
 			}
 		case tea.KeyUp:
@@ -305,6 +306,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.unmanagedFilter += " "
 				m.refreshUnmanaged()
 			}
+			if m.activePanel == panelStatus && m.filterActive {
+				m.statusFilter += " "
+				m.rebuildStatusRows()
+			}
+			if m.activePanel == panelRepos && m.filterActive {
+				m.repoFilter += " "
+				m.refreshRepos()
+			}
+			if m.activePanel == panelPacks && m.filterActive && !m.packDetailOpen {
+				m.packFilter += " "
+				m.refreshPacks()
+			}
+			if m.activePanel == panelDoctor && m.filterActive {
+				m.doctorFilter += " "
+				m.doctorScroll = 0
+			}
 		case tea.KeyDelete:
 			if m.activePanel == panelRepos {
 				m.startRemoveRepo()
@@ -319,6 +336,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activePanel == panelUnmanaged && len(m.unmanagedFilter) > 0 {
 				m.unmanagedFilter = m.unmanagedFilter[:len(m.unmanagedFilter)-1]
 				m.refreshUnmanaged()
+			}
+			if m.activePanel == panelStatus && len(m.statusFilter) > 0 {
+				m.statusFilter = m.statusFilter[:len(m.statusFilter)-1]
+				m.rebuildStatusRows()
+			}
+			if m.activePanel == panelRepos && len(m.repoFilter) > 0 {
+				m.repoFilter = m.repoFilter[:len(m.repoFilter)-1]
+				m.refreshRepos()
+			}
+			if m.activePanel == panelPacks && len(m.packFilter) > 0 && !m.packDetailOpen {
+				m.packFilter = m.packFilter[:len(m.packFilter)-1]
+				m.refreshPacks()
+			}
+			if m.activePanel == panelDoctor && len(m.doctorFilter) > 0 {
+				m.doctorFilter = m.doctorFilter[:len(m.doctorFilter)-1]
+				m.doctorScroll = 0
 			}
 		case tea.KeyRunes:
 			ch := msg.String()
@@ -349,6 +382,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.startViewSkillMd()
 				}
 			case panelStatus:
+				if ch == "/" && !m.filterActive {
+					m.filterActive = true
+					return m, nil
+				}
+				if m.filterActive {
+					m.statusFilter += ch
+					m.rebuildStatusRows()
+					return m, nil
+				}
 				switch ch {
 				case "q":
 					return m, tea.Quit
@@ -379,6 +421,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.startSelfUpdate()
 				}
 			case panelRepos:
+				if ch == "/" && !m.filterActive {
+					m.filterActive = true
+					return m, nil
+				}
+				if m.filterActive {
+					m.repoFilter += ch
+					m.refreshRepos()
+					return m, nil
+				}
 				switch ch {
 				case "q":
 					return m, tea.Quit
@@ -404,6 +455,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.startViewSkillMd()
 				}
 			case panelPacks:
+				// Filter UI isn't shown while the detail overlay is open, so '/'
+				// and typed runes fall through to the overlay's own shortcuts
+				// instead of silently mutating packFilter behind it.
+				if ch == "/" && !m.filterActive && !m.packDetailOpen {
+					m.filterActive = true
+					return m, nil
+				}
+				if m.filterActive && !m.packDetailOpen {
+					m.packFilter += ch
+					m.refreshPacks()
+					return m, nil
+				}
 				switch ch {
 				case "q":
 					return m, tea.Quit
@@ -433,6 +496,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.startPackRemove()
 				}
 			case panelDoctor:
+				if ch == "/" && !m.filterActive {
+					m.filterActive = true
+					return m, nil
+				}
+				if m.filterActive {
+					m.doctorFilter += ch
+					m.doctorScroll = 0
+					return m, nil
+				}
 				switch ch {
 				case "q":
 					return m, tea.Quit

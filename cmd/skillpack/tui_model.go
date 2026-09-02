@@ -89,7 +89,8 @@ type model struct {
 	installed map[string]map[string]bool // addr → agent → installed
 
 	// Repos panel data
-	repoList []repoEntry
+	repoList   []repoEntry
+	repoFilter string // incremental filter for the repos panel
 
 	// UI state
 	activePanel  panel
@@ -121,8 +122,9 @@ type model struct {
 
 	// Status info per skill+agent
 	statusInfo   map[string]map[string]string // addr → agent → status text
-	statusRows   []statusRow                  // rows for status panel
+	statusRows   []statusRow                  // rows for status panel, filtered by statusFilter
 	statusCursor int                          // cursor for status panel
+	statusFilter string                       // incremental filter for the status panel
 	busy         string                       // non-empty when an async operation is running
 
 	// Update banner
@@ -152,13 +154,15 @@ type model struct {
 	// Packs panel
 	packRows       []packRow
 	packCursor     int
+	packFilter     string     // incremental filter for the packs panel
 	packDetailOpen bool       // true when showing per-skill detail overlay for selected pack
 	packDetailDef  *pack.Pack // parsed pack.yaml for an available pack's detail overlay, loaded once on open
 	packDetailErr  error      // load error for the detail overlay, if any
 
 	// Doctor panel (read-only Duplicate Set report)
 	doctorSets   []doctorSetRow
-	doctorScroll int // line offset, like helpScroll
+	doctorScroll int    // line offset, like helpScroll
+	doctorFilter string // incremental filter for the doctor panel
 
 	// packWizard, when non-nil, is the embedded create/edit wizard child model.
 	// It receives all key/window messages and is rendered in place of the
@@ -317,6 +321,38 @@ func (m *model) refreshSkills() {
 	}
 }
 
+// rebuildStatusRows rebuilds m.statusRows from m.statusInfo, keeping only
+// rows that match statusFilter. Called after a status refresh completes and
+// whenever the filter text changes, since statusInfo (not statusRows) is the
+// source of truth.
+func (m *model) rebuildStatusRows() {
+	m.statusRows = nil
+	for addr, agents := range m.statusInfo {
+		for agentName, status := range agents {
+			if m.statusFilter != "" && !statusRowMatches(addr, agentName, m.statusFilter) {
+				continue
+			}
+			m.statusRows = append(m.statusRows, statusRow{addr: addr, agentName: agentName, status: status})
+		}
+	}
+	sort.Slice(m.statusRows, func(i, j int) bool {
+		if m.statusRows[i].addr != m.statusRows[j].addr {
+			return m.statusRows[i].addr < m.statusRows[j].addr
+		}
+		return m.statusRows[i].agentName < m.statusRows[j].agentName
+	})
+	if m.statusCursor >= len(m.statusRows) {
+		m.statusCursor = 0
+	}
+}
+
+// statusRowMatches reports whether a status row's skill address or agent
+// name contains filter, case-insensitively.
+func statusRowMatches(addr, agentName, filter string) bool {
+	f := strings.ToLower(filter)
+	return strings.Contains(strings.ToLower(addr), f) || strings.Contains(strings.ToLower(agentName), f)
+}
+
 // refreshDoctor rescans every registered repo's cache for Duplicate Sets.
 // Cheap and synchronous (pure local filesystem walk, no network), unlike
 // cmdCheckStatus, so it runs directly on panel switch rather than as an
@@ -345,6 +381,23 @@ func (m *model) refreshDoctor() error {
 	return nil
 }
 
+// doctorSetMatches reports whether a duplicate set's basename or any member
+// address contains filter, case-insensitively. Filtering happens at render
+// time (see doctorLines) rather than during refreshDoctor, since doctorScroll
+// is a line offset into rendered report text, not a row cursor.
+func doctorSetMatches(set doctorSetRow, filter string) bool {
+	f := strings.ToLower(filter)
+	if strings.Contains(strings.ToLower(set.basename), f) {
+		return true
+	}
+	for _, member := range set.members {
+		if strings.Contains(strings.ToLower(member), f) {
+			return true
+		}
+	}
+	return false
+}
+
 // refreshAgents rebuilds the sorted agent-name list used for skill/pack
 // columns. Called at init and after Add Agent registers a new one.
 func (m *model) refreshAgents() {
@@ -358,9 +411,21 @@ func (m *model) refreshAgents() {
 func (m *model) refreshRepos() {
 	m.repoList = nil
 	for name, rec := range m.st.Repos {
+		if m.repoFilter != "" && !repoMatches(name, rec.URL, m.repoFilter) {
+			continue
+		}
 		m.repoList = append(m.repoList, repoEntry{name: name, url: rec.URL})
 	}
 	sort.Slice(m.repoList, func(i, j int) bool { return m.repoList[i].name < m.repoList[j].name })
+	if m.repoCursor >= len(m.repoList) {
+		m.repoCursor = 0
+	}
+}
+
+// repoMatches reports whether a repo's name or URL contains filter, case-insensitively.
+func repoMatches(name, url, filter string) bool {
+	f := strings.ToLower(filter)
+	return strings.Contains(strings.ToLower(name), f) || strings.Contains(strings.ToLower(url), f)
 }
 
 func (m *model) refreshPacks() {
@@ -405,12 +470,23 @@ func (m *model) refreshPacks() {
 	}
 	sort.Strings(addrs)
 	for _, addr := range addrs {
-		m.packRows = append(m.packRows, rows[addr])
+		row := rows[addr]
+		if m.packFilter != "" && !packMatches(row, m.packFilter) {
+			continue
+		}
+		m.packRows = append(m.packRows, row)
 	}
 
 	if m.packCursor >= len(m.packRows) {
 		m.packCursor = 0
 	}
+}
+
+// packMatches reports whether a pack's address or description contains
+// filter, case-insensitively.
+func packMatches(row packRow, filter string) bool {
+	f := strings.ToLower(filter)
+	return strings.Contains(strings.ToLower(row.packAddr), f) || strings.Contains(strings.ToLower(row.desc), f)
 }
 
 func (m *model) refreshUnmanaged() {

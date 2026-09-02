@@ -102,9 +102,9 @@ func hintForPanel(m model) string {
 				rHelp = "r register fork"
 			}
 		}
-		return fmt.Sprintf("↑↓ navigate  u update selected  S sync all  %s  U self-update  Tab switch  q quit", rHelp)
+		return fmt.Sprintf("↑↓ navigate  u update selected  S sync all  %s  U self-update  / filter  Tab switch  q quit", rHelp)
 	case panelRepos:
-		return "↑↓ navigate  a add  d remove  Tab skills  q quit"
+		return "↑↓ navigate  a add  d remove  / filter  Tab skills  q quit"
 	case panelUnmanaged:
 		return "↑↓ navigate  / filter  Enter adopt into repo  v view  Tab switch  q quit"
 	case panelPacks:
@@ -118,21 +118,21 @@ func hintForPanel(m model) string {
 			}
 			return "e edit  d remove  Esc back  Tab switch  q quit"
 		}
-		help := "↑↓ navigate  Enter detail  n new  Tab switch  q quit"
+		help := "↑↓ navigate  Enter detail  n new  / filter  Tab switch  q quit"
 		if m.packCursor < len(m.packRows) {
 			row := m.packRows[m.packCursor]
 			switch {
 			case !row.installed:
-				help = "↑↓ navigate  Enter detail  i install  n new  e edit  Tab switch  q quit"
+				help = "↑↓ navigate  Enter detail  i install  n new  e edit  / filter  Tab switch  q quit"
 			case row.isPartial:
-				help = "↑↓ navigate  Enter detail  c complete  n new  e edit  d remove  Tab switch  q quit"
+				help = "↑↓ navigate  Enter detail  c complete  n new  e edit  d remove  / filter  Tab switch  q quit"
 			default:
-				help = "↑↓ navigate  Enter detail  n new  e edit  d remove  Tab switch  q quit"
+				help = "↑↓ navigate  Enter detail  n new  e edit  d remove  / filter  Tab switch  q quit"
 			}
 		}
 		return help
 	case panelDoctor:
-		return "↑↓ scroll  r rescan  Tab switch  q quit"
+		return "↑↓ scroll  r rescan  / filter  Tab switch  q quit"
 	default:
 		return ""
 	}
@@ -543,12 +543,28 @@ func (m model) viewStatus(b *strings.Builder) {
 	// Register-fork-provenance renders as a centered dialog (tui_dialogs.go).
 	b.WriteString("\n")
 
+	// Filter indicator
+	switch {
+	case m.filterActive:
+		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s▌", m.statusFilter)))
+	case m.statusFilter != "":
+		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s", m.statusFilter)))
+	default:
+		b.WriteString(dimStyle.Render(" / to filter…"))
+	}
+	b.WriteString("\n")
+
 	if len(m.statusRows) == 0 {
-		b.WriteString(dimStyle.Render("   No status data. Press 'r' to refresh."))
-		b.WriteString("\n")
-		if len(m.st.InstalledSkills) == 0 {
-			b.WriteString(dimStyle.Render("   (No skills installed)"))
+		if m.statusFilter != "" {
+			b.WriteString(dimStyle.Render("   No status rows match filter."))
 			b.WriteString("\n")
+		} else {
+			b.WriteString(dimStyle.Render("   No status data. Press 'r' to refresh."))
+			b.WriteString("\n")
+			if len(m.st.InstalledSkills) == 0 {
+				b.WriteString(dimStyle.Render("   (No skills installed)"))
+				b.WriteString("\n")
+			}
 		}
 	} else {
 		// Compute column widths
@@ -699,12 +715,24 @@ func (m model) viewStatus(b *strings.Builder) {
 // `skillpack doctor`'s CLI output with TUI styling. Returns the already
 // scrolled/paginated page (see helpLines for the same pattern).
 func doctorLines(m model) []string {
-	if len(m.doctorSets) == 0 {
+	sets := m.doctorSets
+	if m.doctorFilter != "" {
+		sets = nil
+		for _, set := range m.doctorSets {
+			if doctorSetMatches(set, m.doctorFilter) {
+				sets = append(sets, set)
+			}
+		}
+	}
+	if len(sets) == 0 {
+		if m.doctorFilter != "" {
+			return []string{dimStyle.Render("No duplicate sets match filter.")}
+		}
 		return []string{dimStyle.Render("No duplicates found.")}
 	}
 
 	var all []string
-	for i, set := range m.doctorSets {
+	for i, set := range sets {
 		if i > 0 {
 			all = append(all, "")
 		}
@@ -750,6 +778,18 @@ func doctorLines(m model) []string {
 // mutates state, so this panel has no per-row selection or actions.
 func (m model) viewDoctor(b *strings.Builder) {
 	b.WriteString("\n")
+
+	// Filter indicator
+	switch {
+	case m.filterActive:
+		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s▌", m.doctorFilter)))
+	case m.doctorFilter != "":
+		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s", m.doctorFilter)))
+	default:
+		b.WriteString(dimStyle.Render(" / to filter…"))
+	}
+	b.WriteString("\n")
+
 	for _, l := range doctorLines(m) {
 		b.WriteString(" " + l)
 		b.WriteString("\n")
@@ -759,6 +799,14 @@ func (m model) viewDoctor(b *strings.Builder) {
 	b.WriteString("\n")
 	if m.message != "" {
 		b.WriteString(msgStyle.Render(" " + m.message))
+	} else if m.doctorFilter != "" {
+		matched := 0
+		for _, set := range m.doctorSets {
+			if doctorSetMatches(set, m.doctorFilter) {
+				matched++
+			}
+		}
+		b.WriteString(dimStyle.Render(fmt.Sprintf(" %d/%d duplicate set(s) match filter", matched, len(m.doctorSets))))
 	} else {
 		b.WriteString(dimStyle.Render(fmt.Sprintf(" %d duplicate set(s)", len(m.doctorSets))))
 	}
@@ -768,6 +816,16 @@ func (m model) viewRepos(b *strings.Builder) {
 	// Add-repo name/URL prompts and remove confirmation render as centered
 	// dialogs (tui_dialogs.go).
 	b.WriteString("\n")
+
+	// Filter indicator
+	switch {
+	case m.filterActive:
+		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s▌", m.repoFilter)))
+	case m.repoFilter != "":
+		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s", m.repoFilter)))
+	default:
+		b.WriteString(dimStyle.Render(" / to filter…"))
+	}
 	b.WriteString("\n")
 
 	// Compute dynamic NAME column width from longest repo name
@@ -813,7 +871,11 @@ func (m model) viewRepos(b *strings.Builder) {
 	}
 
 	if len(m.repoList) == 0 {
-		b.WriteString(dimStyle.Render("   No repos registered. Press 'a' to add one."))
+		if m.repoFilter != "" {
+			b.WriteString(dimStyle.Render("   No repos match filter."))
+		} else {
+			b.WriteString(dimStyle.Render("   No repos registered. Press 'a' to add one."))
+		}
 		b.WriteString("\n")
 	}
 
@@ -1068,11 +1130,28 @@ func (m model) viewPacks(b *strings.Builder) {
 	}
 
 	// List view
+
+	// Filter indicator
+	switch {
+	case m.filterActive:
+		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s▌", m.packFilter)))
+	case m.packFilter != "":
+		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s", m.packFilter)))
+	default:
+		b.WriteString(dimStyle.Render(" / to filter…"))
+	}
+	b.WriteString("\n")
+
 	if len(m.packRows) == 0 {
-		b.WriteString(emptyStyle.Render("   No packs found."))
-		b.WriteString("\n")
-		b.WriteString(emptyStyle.Render("   Press n to create a pack, or register a repo containing packs (Tab → Repos → a)."))
-		b.WriteString("\n")
+		if m.packFilter != "" {
+			b.WriteString(emptyStyle.Render("   No packs match filter."))
+			b.WriteString("\n")
+		} else {
+			b.WriteString(emptyStyle.Render("   No packs found."))
+			b.WriteString("\n")
+			b.WriteString(emptyStyle.Render("   Press n to create a pack, or register a repo containing packs (Tab → Repos → a)."))
+			b.WriteString("\n")
+		}
 	} else {
 		// Column widths
 		addrW := 12

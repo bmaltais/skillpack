@@ -29,9 +29,9 @@ Skills panel:
   f           Fork a skill into your repo
   R           Repair a stale or broken-upstream skill
   v           View SKILL.md of the selected skill
-  Type        Filter skills (incremental search)
-  Backspace   Delete filter character
-  Esc         Clear filter
+  /           Enter filter mode (incremental search)
+  Backspace   Delete filter character (while filtering)
+  Esc         Exit filter mode and clear the filter
 
 Status panel:
   ↑/↓         Move between skills
@@ -47,9 +47,9 @@ Repos panel:
 
 Unmanaged panel:
   ↑/↓         Move between items
-  Type       Filter skills (incremental search)
-  Backspace  Delete filter character
-  Esc        Clear filter
+  /          Enter filter mode (incremental search)
+  Backspace  Delete filter character (while filtering)
+  Esc        Exit filter mode and clear the filter
   Enter      Adopt selected skill into a registered repo
   v          View SKILL.md of the selected skill
 

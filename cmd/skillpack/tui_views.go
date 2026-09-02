@@ -93,7 +93,7 @@ func renderMenuBar(m model) string {
 func hintForPanel(m model) string {
 	switch m.activePanel {
 	case panelSkills:
-		return "↑↓ navigate  ←→ agents  Space/Enter toggle  f fork  R repair  v view  Tab switch  q quit"
+		return "↑↓ navigate  ←→ agents  Space/Enter toggle  f fork  R repair  v view  / filter  Tab switch  q quit"
 	case panelStatus:
 		rHelp := "r refresh"
 		if m.statusCursor < len(m.statusRows) {
@@ -106,7 +106,7 @@ func hintForPanel(m model) string {
 	case panelRepos:
 		return "↑↓ navigate  a add  d remove  Tab skills  q quit"
 	case panelUnmanaged:
-		return "↑↓ navigate  Type to filter  Enter adopt into repo  v view  Tab switch  q quit"
+		return "↑↓ navigate  / filter  Enter adopt into repo  v view  Tab switch  q quit"
 	case panelPacks:
 		if m.packDetailOpen && m.packCursor < len(m.packRows) {
 			row := m.packRows[m.packCursor]
@@ -240,10 +240,13 @@ func (m model) viewSkills(b *strings.Builder) {
 	// panel keeps rendering its normal content underneath.
 
 	// Filter
-	if m.filter != "" {
+	switch {
+	case m.filterActive:
 		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s▌", m.filter)))
-	} else {
-		b.WriteString(dimStyle.Render(" Type to filter…"))
+	case m.filter != "":
+		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s", m.filter)))
+	default:
+		b.WriteString(dimStyle.Render(" / to filter…"))
 	}
 	b.WriteString("\n\n")
 
@@ -862,12 +865,15 @@ func (m model) viewUnmanaged(b *strings.Builder) {
 	b.WriteString("\n")
 
 	// Filter indicator
-	if m.unmanagedFilter != "" {
+	switch {
+	case m.filterActive:
 		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s▌", m.unmanagedFilter)))
-		b.WriteString("\n")
-	} else {
-		b.WriteString("\n")
+	case m.unmanagedFilter != "":
+		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s", m.unmanagedFilter)))
+	default:
+		b.WriteString(dimStyle.Render(" / to filter…"))
 	}
+	b.WriteString("\n")
 
 	if len(m.unmanagedEntries) == 0 {
 		b.WriteString(emptyStyle.Render("   No unmanaged skills found."))

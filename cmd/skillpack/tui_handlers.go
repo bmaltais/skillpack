@@ -616,6 +616,7 @@ func (m *model) startSelfUpdate() tea.Cmd {
 func (m *model) switchPanel(p panel) tea.Cmd {
 	m.activePanel = p
 	m.message = ""
+	m.filterActive = false
 	switch p {
 	case panelUnmanaged:
 		m.refreshUnmanaged()

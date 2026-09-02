@@ -92,14 +92,15 @@ type model struct {
 	repoList []repoEntry
 
 	// UI state
-	activePanel panel
-	cursorRow   int
-	cursorCol   int // agent column index (skills panel)
-	repoCursor  int // cursor for repos panel
-	filter      string
-	width       int
-	height      int
-	message     string
+	activePanel  panel
+	cursorRow    int
+	cursorCol    int // agent column index (skills panel)
+	repoCursor   int // cursor for repos panel
+	filter       string
+	filterActive bool // true once '/' has been pressed to enter filter-input mode for the active panel
+	width        int
+	height       int
+	message      string
 
 	// DOS Shell menu bar state (F10 / Alt+letter to open, wired in Move 4)
 	menuOpen      bool

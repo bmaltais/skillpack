@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bmaltais/skillpack/internal/config"
+	"github.com/bmaltais/skillpack/internal/gitops"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/state"
 )
@@ -21,7 +22,7 @@ var repoAddCmd = &cobra.Command{
 	Short: "Clone and register a skill repository",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		url := args[0]
+		url := gitops.NormalizeURL(args[0])
 		name, _ := cmd.Flags().GetString("name")
 		token, _ := cmd.Flags().GetString("token")
 		if name == "" {

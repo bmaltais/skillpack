@@ -30,6 +30,11 @@ func TestNameFromURL(t *testing.T) {
 		{"https://internal.company.com/myrepo.git", "myrepo"},
 		// Trailing slash after .git-stripped path
 		{"https://github.com/owner/repo.git/", "owner-repo"},
+		// Azure DevOps HTTPS URLs — "_git" is a routing marker, not a path segment
+		{"https://dev.azure.com/myorg/myproject/_git/myrepo", "myproject-myrepo"},
+		{"https://myorg.visualstudio.com/myproject/_git/myrepo", "myproject-myrepo"},
+		// Azure DevOps SSH URL
+		{"git@ssh.dev.azure.com:v3/myorg/myproject/myrepo", "myproject-myrepo"},
 	}
 	for _, tc := range cases {
 		got := repo.NameFromURL(tc.url)

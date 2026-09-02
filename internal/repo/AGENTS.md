@@ -24,7 +24,8 @@ Clones, updates, and discovers skills in git repos. Owns the repo cache at `~/.s
 - `Update` recovers from stale credentials by retrying anonymously for public repos.
 - `resolveRemoteHEAD` tries `refs/remotes/origin/HEAD` first, then derives from checked-out branch tracking ref. Never hardcode "main"/"master".
 - `DiscoverSkills` skips `.git` dirs only. Other hidden dirs (e.g. `.agents/`) may contain skills.
-- `NameFromURL` infers `<owner>-<repo>` from HTTPS or SSH URLs. Single-segment URLs become the name as-is.
+- `NameFromURL` infers `<owner>-<repo>` from HTTPS or SSH URLs. Single-segment URLs become the name as-is. A literal `_git` path segment (Azure DevOps URL routing marker, e.g. `.../project/_git/repo`) is dropped before inference — see [ADR-0002](../../docs/adr/0002-git-host-agnostic-repos.md).
+- Repos are git-host-agnostic by design: no per-host adapter, detection, or provider-specific env var. Any git remote (GitHub, Azure DevOps, GitLab, self-hosted) works through the same `Add`/`Update`/`gitops.Auth` path.
 
 ## Work Guidance
 

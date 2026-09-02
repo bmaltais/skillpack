@@ -6,7 +6,7 @@ A directory containing a `SKILL.md` file, optionally with supporting files (`ref
 
 ## Skill Repo
 
-A git repository that contains one or more skills. May be flat (skills at the root level) or categorised (skills grouped under category subdirectories). Discovered by walking the repo for directories that contain a `SKILL.md` file.
+A git repository that contains one or more skills. May be flat (skills at the root level) or categorised (skills grouped under category subdirectories). Discovered by walking the repo for directories that contain a `SKILL.md` file. Host-agnostic: GitHub, Azure DevOps, GitLab, or any other git remote reachable over HTTPS or SSH works identically — skillpack has no per-host adapter (see [ADR-0002](docs/adr/0002-git-host-agnostic-repos.md)).
 
 ## Skill Address
 

@@ -78,6 +78,9 @@ skillpack repo add https://github.com/example/my-skills.git
 # 1b. Private repo? Pass a token — saved to config for future use
 skillpack repo add https://github.com/example/private-skills.git --token ghp_xxx
 
+# 1c. Any other git host works too, e.g. Azure DevOps — same generic flow
+skillpack repo add https://dev.azure.com/myorg/myproject/_git/my-skills --token <PAT>
+
 # 2. Browse available skills
 skillpack list --available
 
@@ -300,6 +303,14 @@ export GITHUB_TOKEN=ghp_xxx          # fallback (set automatically by GitHub Act
 ```
 
 Token lookup order: `credentials` in config → `SKILLPACK_GIT_TOKEN` → `GITHUB_TOKEN`.
+
+skillpack is git-host-agnostic — repos on Azure DevOps, GitLab, or any other
+git host work exactly the same way as GitHub, via the same `--token` flag or
+`credentials:`/`SKILLPACK_GIT_TOKEN` lookup. For Azure DevOps, create a
+personal access token under **User Settings → Personal Access Tokens** with
+scope `Code: Read` (or `Code: Read & Write` to publish/fork) and use it as
+the token — the username is ignored by Azure DevOps, so no extra config is
+needed.
 
 Default agents detected automatically on first run: `claude-code`, `copilot`, `hermes`, `pi`, `opencode`, `openclaw`.
 

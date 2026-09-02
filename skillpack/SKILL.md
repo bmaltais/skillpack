@@ -101,6 +101,14 @@ skillpack repo update [<name>]        # git pull one or all repos
 skillpack repo rename <old> <new>     # rename a repo (updates state, cache dir, installed skill addresses)
 ```
 
+> **Git host is not limited to GitHub.** skillpack talks to git over HTTPS/SSH
+> directly (no `gh` CLI dependency) — Azure DevOps, GitLab, or any other git
+> remote works the same way:
+> ```bash
+> skillpack repo add https://dev.azure.com/myorg/myproject/_git/my-skills --token <PAT>
+> ```
+> The Azure DevOps PAT needs `Code: Read` scope (or `Code: Read & Write` to publish/fork).
+
 ### Installing Skills
 
 > **IMPORTANT — skill addresses are full repo-relative paths, not just skill names.**

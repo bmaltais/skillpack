@@ -6,6 +6,7 @@ package gitops
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -19,8 +20,27 @@ import (
 )
 
 // IsSSHURL reports whether the URL uses SSH transport.
-func IsSSHURL(url string) bool {
-	return strings.HasPrefix(url, "git@") || strings.HasPrefix(url, "ssh://")
+func IsSSHURL(rawURL string) bool {
+	return strings.HasPrefix(rawURL, "git@") || strings.HasPrefix(rawURL, "ssh://")
+}
+
+// NormalizeURL strips an embedded username/password from an HTTPS remote URL.
+// skillpack always authenticates via a separately supplied token (see Auth),
+// so a leftover "user@" prefix (e.g. copied from a browser address bar) is
+// redundant — and on some hosts (Azure DevOps observed) it makes the server
+// reject the request with a protocol-level 400 instead of the expected
+// 401/403 for a bad credential. SSH URLs are left untouched: "git@" there is
+// required syntax, not a stray credential.
+func NormalizeURL(rawURL string) string {
+	if IsSSHURL(rawURL) {
+		return rawURL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.User == nil {
+		return rawURL
+	}
+	u.User = nil
+	return u.String()
 }
 
 // Auth resolves the appropriate transport.AuthMethod for a remote URL.
@@ -119,7 +139,7 @@ func CommitAndPush(cachePath, skillRelPath, message, remoteURL, token string) (*
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
-	if err := push(r, remoteURL, token); err != nil {
+	if err := push(cachePath, r, remoteURL, token); err != nil {
 		// Roll back the local commit so the cache HEAD stays at the
 		// pre-commit SHA. Best-effort: ignore the reset error since we
 		// already have a push error to return.
@@ -240,7 +260,15 @@ func ListFilesAtCommit(cachePath, commitSHA, skillRelPath string) (map[string]st
 }
 
 // push pushes the repo to origin with appropriate auth.
-func push(r *gogit.Repository, remoteURL, token string) error {
+func push(cachePath string, r *gogit.Repository, remoteURL, token string) error {
+	// See IsAzureDevOpsURL: go-git can't push to Azure DevOps at all.
+	if IsAzureDevOpsURL(remoteURL) {
+		if err := SystemGitPush(cachePath, token); err != nil {
+			return err
+		}
+		return nil
+	}
+
 	pushOpts := &gogit.PushOptions{Progress: os.Stdout}
 	auth, err := Auth(remoteURL, token)
 	if err != nil {

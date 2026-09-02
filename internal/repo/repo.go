@@ -37,6 +37,7 @@ type PackInfo struct {
 // cloned fresh (e.g. after a previous repo remove left the clone on disk).
 // token is optional; pass "" to rely on env vars (SKILLPACK_GIT_TOKEN, GITHUB_TOKEN).
 func Add(name, url, token string, st *state.State) (recovered bool, err error) {
+	url = gitops.NormalizeURL(url)
 	if _, exists := st.Repos[name]; exists {
 		return false, fmt.Errorf("repo %q is already registered", name)
 	}
@@ -66,21 +67,30 @@ func Add(name, url, token string, st *state.State) (recovered bool, err error) {
 	}
 
 	if !recovered {
-		cloneOpts := &gogit.CloneOptions{
-			URL:      url,
-			Progress: os.Stdout,
+		// go-git cannot talk to Azure DevOps at all (missing multi_ack
+		// capability support — see gitops.IsAzureDevOpsURL); shell out to the
+		// system git binary for those hosts instead, bypassing go-git's auth
+		// resolution entirely (system git handles its own SSH/HTTPS auth).
+		var cloneErr error
+		if gitops.IsAzureDevOpsURL(url) {
+			cloneErr = gitops.SystemGitClone(url, cachePath, token)
+		} else {
+			cloneOpts := &gogit.CloneOptions{
+				URL:      url,
+				Progress: os.Stdout,
+			}
+			auth, err := gitops.Auth(url, token)
+			if err != nil {
+				return false, err
+			}
+			cloneOpts.Auth = auth
+			_, cloneErr = gogit.PlainClone(cachePath, false, cloneOpts)
 		}
-		auth, err := gitops.Auth(url, token)
-		if err != nil {
-			return false, err
-		}
-		cloneOpts.Auth = auth
-
-		if _, err := gogit.PlainClone(cachePath, false, cloneOpts); err != nil {
-			if hint := FormatAuthHint(name, token, err, false); hint != "" {
+		if cloneErr != nil {
+			if hint := FormatAuthHint(name, token, cloneErr, false); hint != "" {
 				return false, fmt.Errorf("%s", hint)
 			}
-			return false, fmt.Errorf("cloning %s: %w", url, err)
+			return false, fmt.Errorf("cloning %s: %w", url, cloneErr)
 		}
 	}
 
@@ -141,6 +151,8 @@ func Update(name, token string, st *state.State) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("repo %q not found", name)
 	}
+	// Self-heal state written before NormalizeURL existed.
+	rec.URL = gitops.NormalizeURL(rec.URL)
 
 	r, err := gogit.PlainOpen(rec.CachePath)
 	if err != nil {
@@ -155,34 +167,45 @@ func Update(name, token string, st *state.State) (string, error) {
 		RemoteName: "origin",
 		Progress:   os.Stdout,
 	}
-	auth, err := gitops.Auth(rec.URL, token)
-	if err != nil {
-		return "", err
-	}
-	fetchOpts.Auth = auth
 
 	var warning string
-	fetchErr := r.Fetch(fetchOpts)
-	switch {
-	case fetchErr == nil || fetchErr == gogit.NoErrAlreadyUpToDate:
-		// success
-	case isTransportAuthError(fetchErr) && !gitops.IsSSHURL(rec.URL) && token != "":
-		// Credential failed for an HTTPS repo. Retry anonymously — if the repo
-		// is public, anonymous fetch succeeds and we surface a stale-credential
-		// notice rather than a hard error.
-		anonOpts := *fetchOpts
-		anonOpts.Auth = nil
-		anonErr := r.Fetch(&anonOpts)
-		if anonErr == nil || anonErr == gogit.NoErrAlreadyUpToDate {
-			warning = fmt.Sprintf("stale credential for %q ignored; repo is public and was fetched anonymously", name)
-		} else {
-			// Both authenticated and anonymous fetches failed: genuine private-repo auth failure.
-			if hint := FormatAuthHint(name, token, fetchErr, false); hint != "" {
-				return "", fmt.Errorf("%s", hint)
-			}
-			return "", fmt.Errorf("private repo auth failed for %q (check your token): %w", name, fetchErr)
+	var fetchErr error
+	if gitops.IsAzureDevOpsURL(rec.URL) {
+		// See gitops.IsAzureDevOpsURL: go-git can't fetch from Azure DevOps at all.
+		fetchErr = gitops.SystemGitFetch(rec.CachePath, token)
+	} else {
+		auth, err := gitops.Auth(rec.URL, token)
+		if err != nil {
+			return "", err
 		}
-	default:
+		fetchOpts.Auth = auth
+
+		fetchErr = r.Fetch(fetchOpts)
+		switch {
+		case fetchErr == nil || fetchErr == gogit.NoErrAlreadyUpToDate:
+			// success
+		case isTransportAuthError(fetchErr) && !gitops.IsSSHURL(rec.URL) && token != "":
+			// Credential failed for an HTTPS repo. Retry anonymously — if the repo
+			// is public, anonymous fetch succeeds and we surface a stale-credential
+			// notice rather than a hard error.
+			anonOpts := *fetchOpts
+			anonOpts.Auth = nil
+			anonErr := r.Fetch(&anonOpts)
+			if anonErr == nil || anonErr == gogit.NoErrAlreadyUpToDate {
+				warning = fmt.Sprintf("stale credential for %q ignored; repo is public and was fetched anonymously", name)
+				fetchErr = nil
+			} else {
+				// Both authenticated and anonymous fetches failed: genuine private-repo auth failure.
+				if hint := FormatAuthHint(name, token, fetchErr, false); hint != "" {
+					return "", fmt.Errorf("%s", hint)
+				}
+				return "", fmt.Errorf("private repo auth failed for %q (check your token): %w", name, fetchErr)
+			}
+		default:
+			return "", fmt.Errorf("fetching repo: %w", fetchErr)
+		}
+	}
+	if fetchErr != nil && fetchErr != gogit.NoErrAlreadyUpToDate {
 		return "", fmt.Errorf("fetching repo: %w", fetchErr)
 	}
 
@@ -354,6 +377,19 @@ func NameFromURL(rawURL string) string {
 	// s is now "host/owner/repo" or "host/repo"
 	parts := strings.Split(s, "/")
 	path := parts[1:] // drop host
+
+	// "_git" is a routing marker in Azure DevOps URLs
+	// (https://dev.azure.com/org/project/_git/repo), not a meaningful path
+	// segment — drop it so the owner/repo inference below still lands on the
+	// project and repo names instead of "_git-repo".
+	filtered := path[:0]
+	for _, seg := range path {
+		if seg != "_git" {
+			filtered = append(filtered, seg)
+		}
+	}
+	path = filtered
+
 	switch len(path) {
 	case 0:
 		return s

@@ -260,6 +260,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.activePanel = panelSkills
 			}
 			m.message = ""
+			m.filterActive = false
 			if m.activePanel == panelDoctor {
 				if err := m.refreshDoctor(); err != nil {
 					m.message = fmt.Sprintf("✗ %v", err)
@@ -268,11 +269,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEsc:
 			if m.activePanel == panelUnmanaged {
 				m.unmanagedFilter = ""
+				m.filterActive = false
 			} else if m.activePanel == panelPacks && m.packDetailOpen {
 				m.packDetailOpen = false
 				m.message = ""
-			} else if m.filter != "" {
+			} else if m.filter != "" || m.filterActive {
 				m.filter = ""
+				m.filterActive = false
 			} else {
 				return m, tea.Quit
 			}
@@ -292,9 +295,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.handleAction()
 		case tea.KeySpace:
 			if m.activePanel == panelSkills {
-				m.handleEnter()
+				if m.filterActive {
+					m.filter += " "
+				} else {
+					m.handleEnter()
+				}
 			}
-			if m.activePanel == panelUnmanaged {
+			if m.activePanel == panelUnmanaged && m.filterActive {
 				m.unmanagedFilter += " "
 				m.refreshUnmanaged()
 			}
@@ -303,6 +310,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.startRemoveRepo()
 			}
 		case tea.KeyBackspace:
+			if !m.filterActive {
+				break
+			}
 			if m.activePanel == panelSkills && len(m.filter) > 0 {
 				m.filter = m.filter[:len(m.filter)-1]
 			}
@@ -314,19 +324,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ch := msg.String()
 			switch m.activePanel {
 			case panelSkills:
-				if ch == "q" && m.filter == "" {
-					return m, tea.Quit
-				}
-				if ch == "f" && m.filter == "" {
-					m.startFork()
+				if ch == "/" && !m.filterActive {
+					m.filterActive = true
 					return m, nil
 				}
-				if ch == "R" && m.filter == "" {
-					m.startRepair()
+				if m.filterActive {
+					m.filter += ch
 					return m, nil
-				}
-				if ch == "v" && m.filter == "" {
-					return m, m.startViewSkillMd()
 				}
 				// On Windows (ConPTY), space can arrive as a rune instead of
 				// KeySpace. Treat it as the toggle action to match Linux/macOS.
@@ -334,7 +338,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.handleEnter()
 					return m, nil
 				}
-				m.filter += ch
+				switch ch {
+				case "q":
+					return m, tea.Quit
+				case "f":
+					m.startFork()
+				case "R":
+					m.startRepair()
+				case "v":
+					return m, m.startViewSkillMd()
+				}
 			case panelStatus:
 				switch ch {
 				case "q":
@@ -375,14 +388,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.startRemoveRepo()
 				}
 			case panelUnmanaged:
-				if ch == "q" && m.unmanagedFilter == "" {
-					return m, tea.Quit
+				if ch == "/" && !m.filterActive {
+					m.filterActive = true
+					return m, nil
 				}
-				if ch == "v" && m.unmanagedFilter == "" {
+				if m.filterActive {
+					m.unmanagedFilter += ch
+					m.refreshUnmanaged()
+					return m, nil
+				}
+				switch ch {
+				case "q":
+					return m, tea.Quit
+				case "v":
 					return m, m.startViewSkillMd()
 				}
-				m.unmanagedFilter += ch
-				m.refreshUnmanaged()
 			case panelPacks:
 				switch ch {
 				case "q":

@@ -11,7 +11,7 @@ and a status bar pinned to the last row, wrapped around five panels.
                          SkillPack v0.4.0 ── Skills
  File  View  Actions  Packs  Help
 
- Type to filter…
+ / to filter…
 
  SKILL                          claude-code  copilot   pi
  ─────────────────────────────  ───────────  ────────  ───────
@@ -51,7 +51,7 @@ open menu: **←/→** switch menus, **↑/↓** move the highlight, **Enter** o
 mnemonic letter runs the highlighted/matched item (skipped if disabled for
 the current panel/selection), **Esc** or **F10** closes without action.
 Bare letters are never menu shortcuts — they stay reserved for
-type-to-filter and existing single-letter shortcuts.
+existing single-letter shortcuts (filtering requires pressing **/** first).
 
 | Menu | Item | Key |
 |------|------|-----|
@@ -122,9 +122,9 @@ A collapsible tree of repos with agent columns forming a matrix.
 | f | Fork the selected skill into a writable repo |
 | R | Repair a stale or broken-upstream skill |
 | v | View SKILL.md of the selected skill |
-| Type | Filter skills (incremental search) |
-| Backspace | Delete filter character |
-| Esc | Clear filter |
+| / | Enter filter mode (incremental search) |
+| Backspace | Delete filter character (while filtering) |
+| Esc | Exit filter mode and clear the filter |
 | Tab | Switch panel |
 | q / Ctrl+C | Quit |
 
@@ -171,9 +171,9 @@ Skills found in an agent's skill directory that skillpack doesn't track yet.
 | Key | Action |
 |-----|--------|
 | ↑/↓ | Navigate between items |
-| Type | Filter (incremental search) |
-| Backspace | Delete filter character |
-| Esc | Clear filter |
+| / | Enter filter mode (incremental search) |
+| Backspace | Delete filter character (while filtering) |
+| Esc | Exit filter mode and clear the filter |
 | Enter | Adopt the selected skill into a registered repo |
 | v | View SKILL.md of the selected skill |
 | Tab | Switch panel |

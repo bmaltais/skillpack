@@ -111,9 +111,10 @@ func TestMenu_F2ThroughF7SwitchPanels(t *testing.T) {
 	}
 }
 
-// TestMenu_FilterUnaffectedByBareLetters confirms the menu-key precedence
-// change didn't steal bare letters from the Skills panel's type-to-filter,
-// and that Esc still clears the filter instead of closing (menu is closed).
+// TestMenu_FilterUnaffectedByBareLetters confirms bare letters no longer
+// filter on their own (they require '/' first) and are left for menu/
+// shortcut handling, while '/'-prefixed typing still fills the filter and
+// Esc still clears it (menu stays closed throughout).
 func TestMenu_FilterUnaffectedByBareLetters(t *testing.T) {
 	m := emptyTestModel()
 	m.activePanel = panelSkills
@@ -121,17 +122,132 @@ func TestMenu_FilterUnaffectedByBareLetters(t *testing.T) {
 		next, _ := m.Update(keyRune(ch))
 		m = next.(model)
 	}
+	if m.filter != "" {
+		t.Fatalf("filter = %q, want %q (bare letters must not filter without '/')", m.filter, "")
+	}
+
+	next, _ := m.Update(keyRune("/"))
+	m = next.(model)
+	if !m.filterActive {
+		t.Fatal("'/' did not enter filter mode")
+	}
+	for _, ch := range []string{"d", "e", "b"} {
+		next, _ := m.Update(keyRune(ch))
+		m = next.(model)
+	}
 	if m.filter != "deb" {
-		t.Fatalf("filter = %q, want %q (menu must not consume bare letters)", m.filter, "deb")
+		t.Fatalf("filter = %q, want %q (menu must not consume filter-mode letters)", m.filter, "deb")
 	}
 	if m.menuOpen {
 		t.Fatal("typing filter letters must not open the menu")
 	}
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = next.(model)
 	if m.filter != "" {
 		t.Fatal("Esc should clear the filter when no menu/input mode is active")
+	}
+	if m.filterActive {
+		t.Fatal("Esc should exit filter mode")
+	}
+}
+
+// TestSlashFilter_ShortcutsWorkUntilSlashPressed confirms bare single-letter
+// shortcuts ('q', 'v') still fire on the Skills and Unmanaged panels when
+// filter mode is off, but the same letters feed the filter instead once '/'
+// has been pressed.
+func TestSlashFilter_ShortcutsWorkUntilSlashPressed(t *testing.T) {
+	m := emptyTestModel()
+	m.activePanel = panelSkills
+
+	next, cmd := m.Update(keyRune("q"))
+	m = next.(model)
+	if cmd == nil {
+		t.Fatal("'q' should quit when filter mode is off")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("'q' should send tea.QuitMsg, got %T", cmd())
+	}
+
+	next, _ = m.Update(keyRune("/"))
+	m = next.(model)
+	if !m.filterActive {
+		t.Fatal("'/' did not enter filter mode")
+	}
+
+	next, cmd = m.Update(keyRune("q"))
+	m = next.(model)
+	if cmd != nil {
+		t.Fatal("'q' should feed the filter, not quit, once filter mode is active")
+	}
+	if m.filter != "q" {
+		t.Fatalf("filter = %q, want %q", m.filter, "q")
+	}
+}
+
+// TestSlashFilter_EscRightAfterSlashExitsFilterModeWithoutQuitting confirms
+// pressing Esc immediately after '/' (before typing anything) exits filter
+// mode rather than quitting the app.
+func TestSlashFilter_EscRightAfterSlashExitsFilterModeWithoutQuitting(t *testing.T) {
+	m := emptyTestModel()
+	m.activePanel = panelSkills
+
+	next, _ := m.Update(keyRune("/"))
+	m = next.(model)
+	if !m.filterActive {
+		t.Fatal("expected filter mode active after '/'")
+	}
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(model)
+	if cmd != nil {
+		t.Fatal("Esc right after '/' should exit filter mode, not quit")
+	}
+	if m.filterActive {
+		t.Fatal("Esc should have exited filter mode")
+	}
+}
+
+// TestSlashFilter_UnmanagedPanel mirrors the Skills-panel behavior for the
+// Unmanaged panel's 'v' shortcut and its unmanagedFilter field.
+func TestSlashFilter_UnmanagedPanel(t *testing.T) {
+	m := emptyTestModel()
+	m.activePanel = panelUnmanaged
+
+	next, _ := m.Update(keyRune("/"))
+	m = next.(model)
+	if !m.filterActive {
+		t.Fatal("'/' did not enter filter mode on the Unmanaged panel")
+	}
+
+	next, _ = m.Update(keyRune("v"))
+	m = next.(model)
+	if m.unmanagedFilter != "v" {
+		t.Fatalf("unmanagedFilter = %q, want %q", m.unmanagedFilter, "v")
+	}
+}
+
+// TestSlashFilter_SpaceFeedsFilterInsteadOfToggling confirms that once filter
+// mode is active on the Skills panel, Space appends to the filter text
+// rather than toggling the selected row's install state — both via the
+// KeySpace message and the ConPTY rune-space fallback.
+func TestSlashFilter_SpaceFeedsFilterInsteadOfToggling(t *testing.T) {
+	m := emptyTestModel()
+	m.activePanel = panelSkills
+
+	next, _ := m.Update(keyRune("/"))
+	m = next.(model)
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = next.(model)
+	if m.filter != " " {
+		t.Fatalf("KeySpace while filtering: filter = %q, want %q", m.filter, " ")
+	}
+
+	next, _ = m.Update(keyRune(" "))
+	m = next.(model)
+	if m.filter != "  " {
+		t.Fatalf("rune space while filtering: filter = %q, want %q", m.filter, "  ")
 	}
 }
 

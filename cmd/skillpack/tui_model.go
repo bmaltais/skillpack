@@ -12,6 +12,7 @@ import (
 	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/pack"
 	"github.com/bmaltais/skillpack/internal/repo"
+	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
@@ -52,6 +53,7 @@ const (
 	panelStatus
 	panelUnmanaged
 	panelPacks
+	panelDoctor
 )
 
 // --- Input mode ---
@@ -153,6 +155,10 @@ type model struct {
 	packDetailDef  *pack.Pack // parsed pack.yaml for an available pack's detail overlay, loaded once on open
 	packDetailErr  error      // load error for the detail overlay, if any
 
+	// Doctor panel (read-only Duplicate Set report)
+	doctorSets   []doctorSetRow
+	doctorScroll int // line offset, like helpScroll
+
 	// packWizard, when non-nil, is the embedded create/edit wizard child model.
 	// It receives all key/window messages and is rendered in place of the
 	// active panel until it finishes or is cancelled.
@@ -198,6 +204,21 @@ type statusRow struct {
 	addr      string
 	agentName string
 	status    string // "ok", "update", "modified", "conflict", "error"
+}
+
+// doctorSetRow is the TUI-local, plain-data view of a skill.DuplicateSet.
+// Domain types stay out of the model/view layers (see cmd/skillpack/AGENTS.md);
+// refreshDoctor converts at the boundary.
+type doctorSetRow struct {
+	basename string
+	members  []string
+	pairs    []doctorPairRow
+}
+
+type doctorPairRow struct {
+	a, b       string
+	confidence string // "identical" or "diverged"
+	linkStatus string // "linked (fork)" or "unlinked"
 }
 
 func initialModel(cfg *config.Config, st *state.State) model {
@@ -292,6 +313,25 @@ func (m *model) refreshSkills() {
 		for agentName := range agents {
 			m.installed[addr][agentName] = true
 		}
+	}
+}
+
+// refreshDoctor rescans every registered repo's cache for Duplicate Sets.
+// Cheap and synchronous (pure local filesystem walk, no network), unlike
+// cmdCheckStatus, so it runs directly on panel switch rather than as an
+// async tea.Cmd. Converts skill.DuplicateSet into plain doctorSetRow values
+// so the model/view layers never hold internal/skill types directly.
+func (m *model) refreshDoctor() {
+	allSkills, _ := repo.DiscoverAllSkills(m.st)
+	sets, _ := skill.DetectDuplicateSets(allSkills)
+
+	m.doctorSets = make([]doctorSetRow, len(sets))
+	for i, set := range sets {
+		pairs := make([]doctorPairRow, len(set.Pairs))
+		for j, p := range set.Pairs {
+			pairs[j] = doctorPairRow{a: p.A, b: p.B, confidence: p.Confidence, linkStatus: p.LinkStatus}
+		}
+		m.doctorSets[i] = doctorSetRow{basename: set.Basename, members: set.Members, pairs: pairs}
 	}
 }
 

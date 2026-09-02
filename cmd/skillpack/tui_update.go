@@ -254,6 +254,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.activePanel = panelPacks
 				m.refreshPacks()
 			case panelPacks:
+				m.activePanel = panelDoctor
+				m.refreshDoctor()
+				m.doctorScroll = 0
+			case panelDoctor:
 				m.activePanel = panelSkills
 			}
 			m.message = ""
@@ -403,6 +407,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "d", "D":
 					// Remove pack (with confirmation)
 					m.startPackRemove()
+				}
+			case panelDoctor:
+				switch ch {
+				case "q":
+					return m, tea.Quit
+				case "r":
+					m.refreshDoctor()
+					m.doctorScroll = 0
+					m.message = "Rescanned"
 				}
 			}
 		}

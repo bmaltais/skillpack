@@ -86,7 +86,7 @@ func TestMenu_AltLetterOpensCorrectMenu(t *testing.T) {
 
 // TestMenu_F2ThroughF6SwitchPanels checks direct panel-jump keys work from
 // any starting panel without opening a menu.
-func TestMenu_F2ThroughF6SwitchPanels(t *testing.T) {
+func TestMenu_F2ThroughF7SwitchPanels(t *testing.T) {
 	cases := []struct {
 		key   tea.KeyMsg
 		panel panel
@@ -96,6 +96,7 @@ func TestMenu_F2ThroughF6SwitchPanels(t *testing.T) {
 		{keyF(4), panelRepos},
 		{keyF(5), panelUnmanaged},
 		{keyF(6), panelPacks},
+		{keyF(7), panelDoctor},
 	}
 	for _, c := range cases {
 		m := emptyTestModel()

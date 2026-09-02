@@ -47,6 +47,8 @@ func panelName(p panel) string {
 		return "Unmanaged"
 	case panelPacks:
 		return "Packs"
+	case panelDoctor:
+		return "Doctor"
 	default:
 		return ""
 	}
@@ -129,6 +131,8 @@ func hintForPanel(m model) string {
 			}
 		}
 		return help
+	case panelDoctor:
+		return "↑↓ scroll  r rescan  Tab switch  q quit"
 	default:
 		return ""
 	}
@@ -224,6 +228,8 @@ func (m model) View() string {
 		m.viewUnmanaged(&b)
 	case panelPacks:
 		m.viewPacks(&b)
+	case panelDoctor:
+		m.viewDoctor(&b)
 	}
 
 	return m.render(overlayDropdown(m, overlayDialog(m, b.String())))
@@ -683,6 +689,75 @@ func (m model) viewStatus(b *strings.Builder) {
 			parts = append(parts, fmt.Sprintf("%d conflict(s)", nConflict))
 		}
 		b.WriteString(dimStyle.Render(" " + strings.Join(parts, "  •  ")))
+	}
+}
+
+// doctorLines renders every Duplicate Set as report text, mirroring
+// `skillpack doctor`'s CLI output with TUI styling. Returns the already
+// scrolled/paginated page (see helpLines for the same pattern).
+func doctorLines(m model) []string {
+	if len(m.doctorSets) == 0 {
+		return []string{dimStyle.Render("No duplicates found.")}
+	}
+
+	var all []string
+	for i, set := range m.doctorSets {
+		if i > 0 {
+			all = append(all, "")
+		}
+		all = append(all, titleStyle.Render(fmt.Sprintf("%s (%d members)", set.basename, len(set.members))))
+		for _, member := range set.members {
+			all = append(all, "  - "+member)
+		}
+		for _, p := range set.pairs {
+			confidence := p.confidence
+			if confidence == "diverged" {
+				confidence = modifiedStyle.Render(confidence)
+			}
+			linkStatus := p.linkStatus
+			if linkStatus == "unlinked" {
+				linkStatus = modifiedStyle.Render(linkStatus)
+			}
+			all = append(all, fmt.Sprintf("  %s <-> %s: %s, %s", p.a, p.b, confidence, linkStatus))
+		}
+	}
+
+	visible := m.height - 9 // title+menu bar, panel header, footer, margin
+	if visible < 6 {
+		visible = 6
+	}
+	if len(all) <= visible {
+		return all
+	}
+
+	maxScroll := len(all) - visible
+	scroll := m.doctorScroll
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+	if scroll < 0 {
+		scroll = 0
+	}
+	page := append([]string{}, all[scroll:scroll+visible-1]...)
+	page = append(page, dimStyle.Render(fmt.Sprintf("↑↓ scroll (%d/%d)", scroll+visible-1, len(all))))
+	return page
+}
+
+// viewDoctor renders the read-only Duplicate Set report. doctor never
+// mutates state, so this panel has no per-row selection or actions.
+func (m model) viewDoctor(b *strings.Builder) {
+	b.WriteString("\n")
+	for _, l := range doctorLines(m) {
+		b.WriteString(" " + l)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
+	b.WriteString("\n")
+	if m.message != "" {
+		b.WriteString(msgStyle.Render(" " + m.message))
+	} else {
+		b.WriteString(dimStyle.Render(fmt.Sprintf(" %d duplicate set(s)", len(m.doctorSets))))
 	}
 }
 

@@ -25,7 +25,6 @@ Owns the Cobra CLI surface: commands, flags, TUI, and re-exec plumbing. Translat
 
 - New commands go in their own file under `cmd/skillpack/`. One file per command group.
 - TUI changes touch `tui_model.go` (state), `tui_views.go` (render), `tui_handlers.go` (input), `tui_commands.go` (actions). Keep concerns separated.
-- Never import `internal/skill` types directly in TUI files — pass strings/ints.
 
 ## Verification
 

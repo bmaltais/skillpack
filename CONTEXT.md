@@ -87,7 +87,11 @@ The act of installing all skills declared in a pack recipe for one or more selec
 
 ## Partial Pack Deployment
 
-A pack deployment where one or more skills failed to install — typically because a referenced repo required authentication that was not available. Tracked in state. Listed as partial in CLI output and the TUI. The user can complete a partial deployment once credentials are configured; skillpack never completes it automatically.
+A pack deployment where one or more skills failed to install — typically because a referenced repo required authentication that was not available. Tracked in state. Listed as partial in CLI output and the TUI. The user can complete a partial deployment once credentials are configured; skillpack never completes it automatically. Completing re-attempts registering the pack's missing repos when the pack recipe can still be resolved from its address. A skill whose update is blocked by a Local Modification or Conflict is still installed, so it does not make a deployment partial.
+
+## Pack Removal
+
+The act of removing a pack deployment for one or more agents. Skills with a Local Modification are kept unless the user explicitly forces removal; a kept skill becomes an ordinary Installed Skill and is reported to the user. The pack record is dropped once the pack is removed for all its agents.
 
 ## Pack Authoring
 

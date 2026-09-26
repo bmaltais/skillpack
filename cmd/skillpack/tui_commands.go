@@ -7,11 +7,11 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/bmaltais/skillpack/internal/config"
+	"github.com/bmaltais/skillpack/internal/pack"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
@@ -252,129 +252,52 @@ func cmdSelfUpdate() tea.Cmd {
 }
 
 // cmdCompleteDeployment installs all missing skills in a partial pack.
-// It mirrors the logic of packUpdateCmd but targets only skills marked not-installed.
 func (m *model) cmdCompleteDeployment(packAddr string) tea.Cmd {
 	cfg := m.cfg
 	stCopy := cloneState(m.st)
 	return func() tea.Msg {
-		rec, ok := stCopy.InstalledPacks[packAddr]
-		if !ok {
-			return packCompleteDoneMsg{
-				packAddr: packAddr,
-				err:      fmt.Errorf("pack %q not found in state", packAddr),
-			}
-		}
-
-		installed := 0
-		failed := 0
-		for skillAddr, agStatuses := range rec.Skills {
-			for ag, agStatus := range agStatuses {
-				if agStatus.Installed {
-					continue // already installed
-				}
-				installErr := skill.Install(skillAddr, ag, cfg, stCopy, false)
-				if installErr != nil {
-					rec.Skills[skillAddr][ag] = state.PackSkillStatus{
-						Installed: false,
-						Error:     installErr.Error(),
-					}
-					failed++
-				} else {
-					rec.Skills[skillAddr][ag] = state.PackSkillStatus{Installed: true}
-					installed++
-				}
-			}
-		}
-
-		if err := stCopy.RecordPackInstall(packAddr, rec); err != nil {
-			return packCompleteDoneMsg{packAddr: packAddr, err: err}
-		}
-		if err := state.Save(stCopy); err != nil {
+		res, err := pack.Complete(cfg, stCopy, packAddr, pack.Options{})
+		if err != nil {
 			return packCompleteDoneMsg{packAddr: packAddr, err: err}
 		}
 
 		var summary string
 		switch {
-		case installed > 0 && failed == 0:
-			summary = fmt.Sprintf("✓ Pack %q complete — %d skill(s) installed", packAddr, installed)
-		case installed > 0 && failed > 0:
-			summary = fmt.Sprintf("⚠ Pack %q still partial — %d installed, %d failed", packAddr, installed, failed)
-		case installed == 0 && failed == 0:
+		case res.Installed > 0 && res.Failed == 0:
+			summary = fmt.Sprintf("✓ Pack %q complete — %d skill(s) installed", packAddr, res.Installed)
+		case res.Installed > 0 && res.Failed > 0:
+			summary = fmt.Sprintf("⚠ Pack %q still partial — %d installed, %d failed", packAddr, res.Installed, res.Failed)
+		case res.Installed == 0 && res.Failed == 0:
 			summary = fmt.Sprintf("✓ Pack %q already fully deployed", packAddr)
 		default:
-			summary = fmt.Sprintf("✗ Pack %q — all %d skill(s) failed to install", packAddr, failed)
+			summary = fmt.Sprintf("✗ Pack %q — all %d skill(s) failed to install", packAddr, res.Failed)
 		}
 		return packCompleteDoneMsg{packAddr: packAddr, st: stCopy, summary: summary}
 	}
 }
 
-// cmdPackInstall installs every skill in the pack for the given agents.
-// It mirrors runPackInstall (pack.go) but stays quiet — progress is reported
-// back to the Update loop via packInstallDoneMsg instead of stdout.
+// cmdPackInstall installs every skill in the pack for the given agents. It stays
+// quiet: the outcome is reported back to the Update loop via packInstallDoneMsg.
 func (m *model) cmdPackInstall(packAddr string, agents []string) tea.Cmd {
 	cfg := m.cfg
 	stCopy := cloneState(m.st)
 	return func() tea.Msg {
-		pk, canonAddr, err := loadPackDefinition(packAddr, cfg, stCopy)
+		def, err := pack.Resolve(packAddr, stCopy)
 		if err != nil {
 			return packInstallDoneMsg{packAddr: packAddr, err: err}
 		}
-
-		// Register any repos the pack references that aren't registered yet.
-		repoErrors := make(map[string]error)
-		for _, r := range pk.Repos {
-			if _, exists := stCopy.Repos[r.Name]; exists {
-				continue
-			}
-			if _, addErr := repo.Add(r.Name, r.URL, cfg.TokenForRepo(r.Name), stCopy); addErr != nil {
-				repoErrors[r.Name] = addErr
-			}
+		res, err := pack.Install(cfg, stCopy, def, agents, pack.Options{})
+		if err != nil {
+			return packInstallDoneMsg{packAddr: def.Address, err: err}
 		}
 
-		rec := state.InstalledPackRecord{
-			PackAddress: canonAddr,
-			InstalledAt: time.Now(),
-			Agents:      agents,
-			Skills:      make(map[string]map[string]state.PackSkillStatus),
-		}
-
-		installed, failed := 0, 0
-		for _, skillAddr := range pk.Skills {
-			rec.Skills[skillAddr] = make(map[string]state.PackSkillStatus)
-			repoName := repoNameFromAddr(skillAddr)
-			for _, ag := range agents {
-				if repoErr, bad := repoErrors[repoName]; bad {
-					rec.Skills[skillAddr][ag] = state.PackSkillStatus{
-						Installed: false,
-						Error:     fmt.Sprintf("repo unavailable: %v", repoErr),
-					}
-					failed++
-					continue
-				}
-				if installErr := skill.Install(skillAddr, ag, cfg, stCopy, false); installErr != nil {
-					rec.Skills[skillAddr][ag] = state.PackSkillStatus{Installed: false, Error: installErr.Error()}
-					failed++
-				} else {
-					rec.Skills[skillAddr][ag] = state.PackSkillStatus{Installed: true}
-					installed++
-				}
-			}
-		}
-
-		if err := stCopy.RecordPackInstall(canonAddr, rec); err != nil {
-			return packInstallDoneMsg{packAddr: canonAddr, err: err}
-		}
-		if err := state.Save(stCopy); err != nil {
-			return packInstallDoneMsg{packAddr: canonAddr, err: err}
-		}
-
-		// installed/failed count skill×agent installs, not unique skills.
+		// Installed/Failed count skill×agent installs, not unique skills.
 		var summary string
-		if failed > 0 {
-			summary = fmt.Sprintf("⚠ Pack %q installed partial — %d install(s) succeeded, %d failed (Enter for details)", canonAddr, installed, failed)
+		if res.Failed > 0 {
+			summary = fmt.Sprintf("⚠ Pack %q installed partial — %d install(s) succeeded, %d failed (Enter for details)", def.Address, res.Installed, res.Failed)
 		} else {
-			summary = fmt.Sprintf("✓ Pack %q installed complete — %d install(s) for %s", canonAddr, installed, strings.Join(agents, ", "))
+			summary = fmt.Sprintf("✓ Pack %q installed complete — %d install(s) for %s", def.Address, res.Installed, strings.Join(agents, ", "))
 		}
-		return packInstallDoneMsg{packAddr: canonAddr, st: stCopy, summary: summary}
+		return packInstallDoneMsg{packAddr: def.Address, st: stCopy, summary: summary}
 	}
 }

@@ -3,14 +3,11 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -66,7 +63,7 @@ func packListInstalled(st *state.State) error {
 	for _, addr := range addrs {
 		rec := st.InstalledPacks[addr]
 
-		partial := isPackPartial(rec)
+		partial := pack.IsPartial(rec)
 		status := green("complete")
 		if partial {
 			status = yellow("partial")
@@ -76,18 +73,6 @@ func packListInstalled(st *state.State) error {
 		fmt.Printf("%-48s  [%s]  agents: %s\n", addr, status, agents)
 	}
 	return nil
-}
-
-// isPackPartial returns true when any skill in the pack failed to install for any agent.
-func isPackPartial(rec state.InstalledPackRecord) bool {
-	for _, agentStatuses := range rec.Skills {
-		for _, s := range agentStatuses {
-			if !s.Installed {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // packListAvailable lists all packs discoverable from registered repos.
@@ -175,185 +160,48 @@ var packInstallCmd = &cobra.Command{
 
 // runPackInstall handles the pack install command logic.
 func runPackInstall(addr, agentName string, allAgents bool, app *App) error {
-	// 1. Load the pack definition.
-	pk, packAddr, err := loadPackDefinition(addr, app.Cfg, app.St)
+	def, err := pack.Resolve(addr, app.St)
 	if err != nil {
 		return err
 	}
 
-	// 2. Determine target agents.
 	agents, err := selectAgentsForPack(agentName, allAgents, app.Cfg)
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("Installing pack %q for agents: %s\n", packAddr, strings.Join(agents, ", "))
+	fmt.Printf("Installing pack %q for agents: %s\n", def.Address, strings.Join(agents, ", "))
 
-	// 3. Ensure all repos referenced by the pack are registered, registering missing ones.
-	repoErrors := ensurePackRepos(pk, app.Cfg, app.St)
-
-	// 4. Build the pack record.
-	rec := state.InstalledPackRecord{
-		PackAddress: packAddr,
-		InstalledAt: time.Now(),
-		Agents:      agents,
-		Skills:      make(map[string]map[string]state.PackSkillStatus),
-	}
-
-	// 5. Install each skill for each agent.
-	for _, skillAddr := range pk.Skills {
-		rec.Skills[skillAddr] = make(map[string]state.PackSkillStatus)
-
-		// Check whether this skill's repo had a registration error.
-		repoName := repoNameFromAddr(skillAddr)
-		if repoErr, failed := repoErrors[repoName]; failed {
-			for _, ag := range agents {
-				rec.Skills[skillAddr][ag] = state.PackSkillStatus{
-					Installed: false,
-					Error:     fmt.Sprintf("repo unavailable: %v", repoErr),
-				}
-				fmt.Printf("  %s [%s]  skipped — repo %q unavailable: %v\n", skillAddr, ag, repoName, repoErr)
-			}
-			continue
-		}
-
-		for _, ag := range agents {
-			fmt.Printf("  installing %s for %s ...\n", skillAddr, ag)
-			installErr := skill.Install(skillAddr, ag, app.Cfg, app.St, false)
-			if installErr != nil {
-				rec.Skills[skillAddr][ag] = state.PackSkillStatus{
-					Installed: false,
-					Error:     installErr.Error(),
-				}
-				fmt.Printf("    %s\n", yellow("warning: "+installErr.Error()))
-			} else {
-				rec.Skills[skillAddr][ag] = state.PackSkillStatus{Installed: true}
-				fmt.Printf("    installed\n")
-			}
-		}
-	}
-
-	// 6. Save the pack record.
-	if err := app.St.RecordPackInstall(packAddr, rec); err != nil {
-		return err
-	}
-	if err := state.Save(app.St); err != nil {
+	res, err := pack.Install(app.Cfg, app.St, def, agents, pack.Options{Progress: printPackProgress})
+	if err != nil {
 		return err
 	}
 
-	if isPackPartial(rec) {
-		fmt.Printf("\nPack %q installed with %s — some skills could not be deployed.\n", packAddr, yellow("partial"))
+	if res.Partial() {
+		fmt.Printf("\nPack %q installed with %s — some skills could not be deployed.\n", def.Address, yellow("partial"))
 		fmt.Println("  Run `skillpack pack status` for details.")
 	} else {
-		fmt.Printf("\nPack %q installed %s.\n", packAddr, green("complete"))
+		fmt.Printf("\nPack %q installed %s.\n", def.Address, green("complete"))
 	}
 	return nil
 }
 
-// loadPackDefinition resolves addr to a Pack and a canonical pack address.
-// addr may be:
-//   - a registered pack address (e.g. "my-repo/packs/go-dev")
-//   - an HTTP/HTTPS URL to a raw pack.yaml file
-//   - a local filepath to a pack.yaml file or directory containing one
-func loadPackDefinition(addr string, cfg *config.Config, st *state.State) (*pack.Pack, string, error) {
-	switch {
-	case strings.HasPrefix(addr, "https://"):
-		// Fetch raw pack.yaml content. Only HTTPS is accepted (see fetchURL).
-		data, err := fetchURL(addr)
-		if err != nil {
-			return nil, "", fmt.Errorf("fetching pack.yaml from %s: %w", addr, err)
-		}
-		pk, err := pack.Parse(data)
-		if err != nil {
-			return nil, "", err
-		}
-		return pk, packAddrFromName(pk.Name), nil
-
-	case isLocalPath(addr):
-		// Local filepath.
-		packFile := addr
-		expanded, err := config.ExpandPath(addr)
-		if err != nil {
-			return nil, "", fmt.Errorf("expanding path %q: %w", addr, err)
-		}
-		info, statErr := os.Stat(expanded)
-		if statErr != nil {
-			return nil, "", fmt.Errorf("accessing %q: %w", expanded, statErr)
-		}
-		if info.IsDir() {
-			packFile = filepath.Join(expanded, "pack.yaml")
-		} else {
-			packFile = expanded
-		}
-		pk, err := pack.ParseFile(packFile)
-		if err != nil {
-			return nil, "", err
-		}
-		return pk, packAddrFromName(pk.Name), nil
-
-	default:
-		// Registered pack address.
-		packInfo, err := repo.FindPack(addr, st)
-		if err != nil {
-			return nil, "", err
-		}
-		pk, err := pack.ParseFile(filepath.Join(packInfo.FullPath, "pack.yaml"))
-		if err != nil {
-			return nil, "", err
-		}
-		return pk, addr, nil
+// printPackProgress renders pack deployment events as CLI output.
+func printPackProgress(e pack.Event) {
+	switch e.Kind {
+	case pack.RepoRegistering:
+		fmt.Printf("  registering repo %q (%s) ...\n", e.Repo, e.URL)
+	case pack.RepoFailed:
+		fmt.Printf("  %s\n", yellow(fmt.Sprintf("warning: could not register repo %q: %v", e.Repo, e.Err)))
+	case pack.SkillSkipped:
+		fmt.Printf("  %s [%s]  skipped — repo %q unavailable: %v\n", e.Skill, e.Agent, e.Repo, e.Err)
+	case pack.SkillInstalling:
+		fmt.Printf("  installing %s for %s ...\n", e.Skill, e.Agent)
+	case pack.SkillInstalled:
+		fmt.Printf("    installed\n")
+	case pack.SkillFailed:
+		fmt.Printf("    %s\n", yellow("warning: "+e.Err.Error()))
 	}
-}
-
-// isLocalPath returns true when addr looks like a filesystem path (cross-platform).
-func isLocalPath(addr string) bool {
-	return filepath.IsAbs(addr) ||
-		strings.HasPrefix(addr, "./") ||
-		strings.HasPrefix(addr, "../") ||
-		strings.HasPrefix(addr, "~/")
-}
-
-// packAddrFromName builds a synthetic pack address from a pack name for URL/filepath installs.
-func packAddrFromName(name string) string {
-	// Normalise: lowercase, replace spaces with hyphens.
-	return strings.ToLower(strings.ReplaceAll(name, " ", "-"))
-}
-
-// fetchURL downloads the content at rawURL and returns the bytes.
-// Only HTTPS URLs are accepted to prevent MITM tampering of downloaded pack.yaml.
-func fetchURL(rawURL string) ([]byte, error) {
-	if !strings.HasPrefix(rawURL, "https://") {
-		return nil, fmt.Errorf("only HTTPS URLs are supported for pack.yaml downloads (got %q)", rawURL)
-	}
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(rawURL) //nolint:gosec
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d fetching %s", resp.StatusCode, rawURL)
-	}
-	return io.ReadAll(resp.Body)
-}
-
-// ensurePackRepos registers any repos listed in the pack that are not yet
-// registered. Returns a map of repoName → error for repos that could not be added.
-func ensurePackRepos(pk *pack.Pack, cfg *config.Config, st *state.State) map[string]error {
-	errors := make(map[string]error)
-	for _, r := range pk.Repos {
-		if _, exists := st.Repos[r.Name]; exists {
-			continue
-		}
-		fmt.Printf("  registering repo %q (%s) ...\n", r.Name, r.URL)
-		token := cfg.TokenForRepo(r.Name)
-		_, err := repo.Add(r.Name, r.URL, token, st)
-		if err != nil {
-			fmt.Printf("  %s\n", yellow(fmt.Sprintf("warning: could not register repo %q: %v", r.Name, err)))
-			errors[r.Name] = err
-		}
-	}
-	return errors
 }
 
 // selectAgentsForPack returns agents to install a pack for.
@@ -557,10 +405,11 @@ var packUpdateCmd = &cobra.Command{
 		}
 
 		// Load the pack definition from the repo cache.
-		pk, _, err := loadPackDefinition(packAddr, app.Cfg, app.St)
+		def, err := pack.Resolve(packAddr, app.St)
 		if err != nil {
 			return err
 		}
+		pk := def.Pack
 
 		// Pull all repos referenced by the pack.
 		fmt.Printf("Updating pack %q ...\n", packAddr)
@@ -653,7 +502,7 @@ var packUpdateCmd = &cobra.Command{
 		} else {
 			fmt.Printf("\nPack %q updated (%d skill(s) changed).\n", packAddr, changed)
 		}
-		if isPackPartial(rec) {
+		if pack.IsPartial(rec) {
 			fmt.Printf("Pack is %s — run `skillpack pack status %s` for details.\n", yellow("partial"), packAddr)
 		}
 		return nil
@@ -680,7 +529,7 @@ var packStatusCmd = &cobra.Command{
 			return fmt.Errorf("pack %q is not installed", packAddr)
 		}
 
-		partial := isPackPartial(rec)
+		partial := pack.IsPartial(rec)
 		overallStatus := green("complete")
 		if partial {
 			overallStatus = yellow("partial")

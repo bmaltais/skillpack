@@ -50,7 +50,7 @@ The binary entry point is `cmd/skillpack/`. There is no other binary in this rep
 | `internal/state/state.go` | State schema and management (`~/.skillpack/state.json`) |
 | `internal/repo/repo.go` | Repo management + skill discovery |
 | `internal/skill/skill.go` | Install, remove, hash, conflict detection |
-| `internal/pack/pack.go` | Pack schema: `pack.yaml` parsing and validation |
+| `internal/pack/pack.go` | Pack schema: `pack.yaml` parsing and validation (deployment lives in `deploy.go`, resolution in `resolve.go`) |
 
 ## Architecture Constraints
 
@@ -135,6 +135,6 @@ When a review or user correction establishes a convention no check enforces, add
 | [`internal/skill/AGENTS.md`](internal/skill/AGENTS.md) | Skill lifecycle: install, remove, update, fork, sync, publish, relink |
 | [`internal/gitops/AGENTS.md`](internal/gitops/AGENTS.md) | Git operations: auth, commit, push, diff, file listing |
 | [`internal/testutil/AGENTS.md`](internal/testutil/AGENTS.md) | Test helpers: isolated temp HOME for tests |
-| `internal/pack/` | Pack schema: `pack.yaml` parsing, validation, `PackInfo` type |
+| [`internal/pack/AGENTS.md`](internal/pack/AGENTS.md) | Pack Deployment: `pack.yaml` schema, recipe resolution, install/complete |
 
 Each child AGENTS.md lists its own children (if any) at the bottom. The repo child points to gitops as its only sub-domain.

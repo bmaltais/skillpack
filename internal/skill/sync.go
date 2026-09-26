@@ -364,7 +364,7 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 	return results, conflicts, nil
 }
 
-// Sync performs two-way reconciliation for all installed skills:
+// syncAll performs two-way reconciliation for all installed skills:
 //
 //  1. Pulls every registered repo (updates the local cache).
 //  2. Calls ReconcilePlan to determine the action for each installed skill,
@@ -374,44 +374,34 @@ func ApplySync(plan []SyncPlanItem, tokenFor func(string) string, st *state.Stat
 //     applies any updates that are now visible to sibling agents that were
 //     marked already-current before the publish.
 //
-// When dryRun is true, repo pulls are skipped and only a status message is
-// printed per repo. ApplySync is not called — steps 2 and 3 are skipped.
-//
 // tokenFor is called with a repo name to resolve its token; pass nil to rely
 // on environment variables only.
 //
-// Returns all results and a separate slice for conflicts.
-func Sync(dryRun bool, tokenFor func(string) string, st *state.State) (results []SyncResult, conflicts []SyncResult, err error) {
+// Returns all results, a separate slice for conflicts, and notices for
+// non-fatal problems (internal packages never print).
+func syncAll(tokenFor func(string) string, st *state.State) (results []SyncResult, conflicts []SyncResult, notices []string, err error) {
 	if tokenFor == nil {
 		tokenFor = func(string) string { return "" }
 	}
 	// Step 1: Pull all registered repos so we have fresh upstream state.
 	for name := range st.Repos {
-		if dryRun {
-			fmt.Printf("  would pull repo %s (skipped in dry-run)\n", name)
-		} else {
-			if warn, pullErr := repo.Update(name, tokenFor(name), st); pullErr != nil {
-				// Non-fatal: report but keep going with stale cache.
-				fmt.Printf("  warning: could not pull %s: %v\n", name, pullErr)
-			} else if warn != "" {
-				fmt.Printf("  notice: %s\n", warn)
-			}
+		if warn, pullErr := repo.Update(name, tokenFor(name), st); pullErr != nil {
+			// Non-fatal: report but keep going with stale cache.
+			notices = append(notices, fmt.Sprintf("warning: could not pull %s: %v", name, pullErr))
+		} else if warn != "" {
+			notices = append(notices, "notice: "+warn)
 		}
-	}
-
-	if dryRun {
-		return nil, nil, nil
 	}
 
 	// Step 2: Reconcile and apply.
 	heads, headsErr := CollectRepoHeads(st)
 	if headsErr != nil {
-		return nil, nil, headsErr
+		return nil, nil, notices, headsErr
 	}
 	plan := ReconcilePlan(st, heads)
 	results, conflicts, err = ApplySync(plan, tokenFor, st)
 	if err != nil {
-		return results, conflicts, err
+		return results, conflicts, notices, err
 	}
 
 	// Step 3: Second-pass sibling re-check.
@@ -422,12 +412,12 @@ func Sync(dryRun bool, tokenFor func(string) string, st *state.State) (results [
 	// Sync call fully converges.
 	heads2, heads2Err := CollectRepoHeads(st)
 	if heads2Err != nil {
-		return results, conflicts, fmt.Errorf("second-pass head collection: %w", heads2Err)
+		return results, conflicts, notices, fmt.Errorf("second-pass head collection: %w", heads2Err)
 	}
 	plan2 := ReconcilePlan(st, heads2)
 	secondResults, secondConflicts, err2 := ApplySync(plan2, tokenFor, st)
 	if err2 != nil {
-		return results, conflicts, err2
+		return results, conflicts, notices, err2
 	}
 
 	// Merge second-pass outcomes into the main results.
@@ -453,5 +443,5 @@ func Sync(dryRun bool, tokenFor func(string) string, st *state.State) (results [
 		}
 	}
 
-	return results, conflicts, nil
+	return results, conflicts, notices, nil
 }

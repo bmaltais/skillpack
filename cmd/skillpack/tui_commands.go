@@ -175,33 +175,31 @@ func (m *model) cmdSync() tea.Cmd {
 	// Deep-copy state to avoid data races with UI reads
 	stCopy := cloneState(m.st)
 	return func() tea.Msg {
-		results, conflicts, err := skill.Sync(false, cfg.TokenForRepo, stCopy)
+		rep, err := skill.Sync(cfg.TokenForRepo, stCopy)
 		if err != nil {
 			return syncDoneMsg{summary: fmt.Sprintf("✗ Sync error: %v", err), st: stCopy}
 		}
+		sum := rep.Summary
 
-		sum := skill.Summarize(results, conflicts)
-		updated, published, current, errCount := sum.Updated, sum.Published, sum.Current, sum.Errors
-
-		if updated > 0 || published > 0 {
+		if sum.Updated > 0 || sum.Published > 0 {
 			_ = state.Save(stCopy)
 		}
 
 		parts := []string{}
-		if updated > 0 {
-			parts = append(parts, fmt.Sprintf("%d updated", updated))
+		if sum.Updated > 0 {
+			parts = append(parts, fmt.Sprintf("%d updated", sum.Updated))
 		}
-		if published > 0 {
-			parts = append(parts, fmt.Sprintf("%d pushed", published))
+		if sum.Published > 0 {
+			parts = append(parts, fmt.Sprintf("%d pushed", sum.Published))
 		}
-		if current > 0 {
-			parts = append(parts, fmt.Sprintf("%d current", current))
+		if sum.Current > 0 {
+			parts = append(parts, fmt.Sprintf("%d current", sum.Current))
 		}
-		if len(conflicts) > 0 {
-			parts = append(parts, fmt.Sprintf("%d conflict(s)", len(conflicts)))
+		if sum.Conflicts > 0 {
+			parts = append(parts, fmt.Sprintf("%d conflict(s)", sum.Conflicts))
 		}
-		if errCount > 0 {
-			parts = append(parts, fmt.Sprintf("%d error(s)", errCount))
+		if sum.Errors > 0 {
+			parts = append(parts, fmt.Sprintf("%d error(s)", sum.Errors))
 		}
 		summary := "✓ Sync: " + strings.Join(parts, ", ")
 		if len(parts) == 0 {

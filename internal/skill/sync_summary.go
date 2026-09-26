@@ -12,8 +12,12 @@ type SyncSummary struct {
 	Updated   int
 	Published int
 	Current   int
+	// Conflicts counts conflicts left unresolved.
 	Conflicts int
-	Errors    int
+	// MergedWithConflicts counts conflicts a merge resolved only partially:
+	// conflict markers were written and need manual attention.
+	MergedWithConflicts int
+	Errors              int
 	// Stale lists skills whose path no longer exists upstream.
 	Stale []SyncKey
 	// BrokenUpstream lists skills whose upstream tracking was disabled because
@@ -21,13 +25,25 @@ type SyncSummary struct {
 	BrokenUpstream []SyncKey
 }
 
-// Record classifies one result into the summary. SyncConflict results are not
-// counted here: Sync returns conflicts in a separate slice (see Summarize), and
-// callers that resolve a conflict inline decide themselves whether it stays one.
-func (s *SyncSummary) Record(r SyncResult) {
+// summarizeRows classifies every row of a report into a SyncSummary.
+func summarizeRows(rows []SyncRow) SyncSummary {
+	var s SyncSummary
+	for _, r := range rows {
+		s.record(r)
+	}
+	return s
+}
+
+func (s *SyncSummary) record(r SyncRow) {
 	switch {
 	case r.Err != nil:
 		s.Errors++
+	case r.Action == SyncConflict && r.Resolved == "":
+		s.Conflicts++
+	case r.Action == SyncConflict && r.MergeConflicts:
+		s.MergedWithConflicts++
+	case r.Action == SyncConflict && r.LLMResolved:
+		s.Published++
 	case r.Action == SyncUpdated:
 		s.Updated++
 	case r.Action == SyncPublished:
@@ -37,45 +53,9 @@ func (s *SyncSummary) Record(r SyncResult) {
 	case r.Action == SyncStaleAddress:
 		s.Stale = append(s.Stale, SyncKey{r.Addr, r.AgentName})
 	}
-	s.noteBroken(r)
-}
-
-// RecordConflict counts r as an unresolved conflict.
-func (s *SyncSummary) RecordConflict(r SyncResult) {
-	s.Conflicts++
-	s.noteBroken(r)
-}
-
-func (s *SyncSummary) noteBroken(r SyncResult) {
 	if r.UpstreamPathBroken {
 		s.BrokenUpstream = append(s.BrokenUpstream, SyncKey{r.Addr, r.AgentName})
 	}
-}
-
-// Summarize tallies the output of Sync or ApplySync. Conflicts come from the
-// conflicts slice only, because a second-pass conflict appears in both slices.
-func Summarize(results, conflicts []SyncResult) SyncSummary {
-	var s SyncSummary
-	for _, r := range results {
-		s.Record(r)
-	}
-	s.Conflicts = len(conflicts)
-	return s
-}
-
-// SummarizePlan tallies a ReconcilePlan (dry-run): each item counts as if it had
-// been applied successfully.
-func SummarizePlan(plan []SyncPlanItem) SyncSummary {
-	var s SyncSummary
-	for _, p := range plan {
-		r := p.Result()
-		if p.Action == SyncConflict && p.Err == nil {
-			s.RecordConflict(r)
-			continue
-		}
-		s.Record(r)
-	}
-	return s
 }
 
 // Result converts a plan item to the result it would produce if applied successfully.

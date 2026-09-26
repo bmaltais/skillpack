@@ -74,15 +74,15 @@ func TestSync_EmptyState(t *testing.T) {
 		Repos:           map[string]state.RepoRecord{},
 		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{},
 	}
-	results, conflicts, err := Sync(true /* dry-run */, nil, st)
+	rep, err := Sync(nil, st)
 	if err != nil {
 		t.Fatalf("Sync on empty state: %v", err)
 	}
-	if len(results) != 0 {
-		t.Errorf("expected 0 results, got %d", len(results))
+	if len(rep.Rows) != 0 {
+		t.Errorf("expected 0 rows, got %d", len(rep.Rows))
 	}
-	if len(conflicts) != 0 {
-		t.Errorf("expected 0 conflicts, got %d", len(conflicts))
+	if rep.Summary.Conflicts != 0 {
+		t.Errorf("expected 0 conflicts, got %d", rep.Summary.Conflicts)
 	}
 }
 

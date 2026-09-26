@@ -5,55 +5,46 @@ import (
 	"testing"
 )
 
-func TestSummarize_ClassifiesResults(t *testing.T) {
-	results := []SyncResult{
-		{Addr: "r/a", AgentName: "x", Action: SyncUpdated},
-		{Addr: "r/b", AgentName: "x", Action: SyncPublished},
-		{Addr: "r/c", AgentName: "x", Action: SyncAlreadyCurrent},
-		{Addr: "r/d", AgentName: "x", Action: SyncAlreadyCurrent, Err: errors.New("boom")},
-		{Addr: "r/e", AgentName: "y", Action: SyncStaleAddress},
-		{Addr: "r/f", AgentName: "y", Action: SyncUpdated, UpstreamPathBroken: true},
-		// second-pass conflict appears in results and conflicts; counted once.
-		{Addr: "r/g", AgentName: "x", Action: SyncConflict},
+func TestSummarizeRows_Classifies(t *testing.T) {
+	rows := []SyncRow{
+		{SyncResult: SyncResult{Addr: "r/a", AgentName: "x", Action: SyncUpdated}},
+		{SyncResult: SyncResult{Addr: "r/b", AgentName: "x", Action: SyncPublished}},
+		{SyncResult: SyncResult{Addr: "r/c", AgentName: "x", Action: SyncAlreadyCurrent}},
+		{SyncResult: SyncResult{Addr: "r/d", AgentName: "x", Err: errors.New("boom")}},
+		{SyncResult: SyncResult{Addr: "r/e", AgentName: "y", Action: SyncStaleAddress}},
+		{SyncResult: SyncResult{Addr: "r/f", AgentName: "y", Action: SyncUpdated, UpstreamPathBroken: true}},
+		{SyncResult: SyncResult{Addr: "r/g", AgentName: "x", Action: SyncConflict, UpstreamPathBroken: true}},
+		{SyncResult: SyncResult{Addr: "r/h", AgentName: "x", Action: SyncConflict}, Resolved: ResolveMerge},
+		{SyncResult: SyncResult{Addr: "r/i", AgentName: "x", Action: SyncConflict}, Resolved: ResolveMerge, MergeConflicts: true},
+		{SyncResult: SyncResult{Addr: "r/j", AgentName: "x", Action: SyncConflict}, Resolved: ResolveLLM, LLMResolved: true},
+		{SyncResult: SyncResult{Addr: "r/k", AgentName: "x", Action: SyncConflict}, Resolved: ResolveMerge},
 	}
-	conflicts := []SyncResult{
-		{Addr: "r/h", AgentName: "x", Action: SyncConflict},
-		{Addr: "r/g", AgentName: "x", Action: SyncConflict},
-	}
-	s := Summarize(results, conflicts)
-
-	if s.Updated != 2 || s.Published != 1 || s.Current != 1 || s.Errors != 1 || s.Conflicts != 2 {
+	s := summarizeRows(rows)
+	if s.Updated != 2 || s.Published != 2 || s.Current != 1 || s.Errors != 1 {
 		t.Errorf("counts = %+v", s)
+	}
+	if s.Conflicts != 1 || s.MergedWithConflicts != 1 {
+		t.Errorf("conflict counts = %+v", s)
 	}
 	if len(s.Stale) != 1 || s.Stale[0] != (SyncKey{"r/e", "y"}) {
 		t.Errorf("Stale = %v", s.Stale)
 	}
-	if len(s.BrokenUpstream) != 1 || s.BrokenUpstream[0] != (SyncKey{"r/f", "y"}) {
-		t.Errorf("BrokenUpstream = %v", s.BrokenUpstream)
+	if len(s.BrokenUpstream) != 2 {
+		t.Errorf("BrokenUpstream = %v (conflicting items must be included)", s.BrokenUpstream)
 	}
 }
 
-func TestSummarizePlan_SplitsConflicts(t *testing.T) {
-	plan := []SyncPlanItem{
-		{Addr: "r/a", AgentName: "x", Action: SyncUpdated},
-		{Addr: "r/b", AgentName: "x", Action: SyncConflict, UpstreamPathBroken: true},
-		{Addr: "r/c", AgentName: "x", Err: errors.New("no repo")},
-		{Addr: "r/d", AgentName: "x", Action: SyncStaleAddress},
+func TestRowsFor_ConflictsListedOnce(t *testing.T) {
+	results := []SyncResult{
+		{Addr: "r/b", AgentName: "x", Action: SyncUpdated},
+		{Addr: "r/a", AgentName: "x", Action: SyncConflict}, // second-pass duplicate
 	}
-	s := SummarizePlan(plan)
-	if s.Updated != 1 || s.Conflicts != 1 || s.Errors != 1 || len(s.Stale) != 1 {
-		t.Errorf("summary = %+v", s)
+	conflicts := []SyncResult{{Addr: "r/a", AgentName: "x", Action: SyncConflict}}
+	rows := rowsFor(results, conflicts)
+	if len(rows) != 2 || rows[0].Addr != "r/b" || rows[1].Action != SyncConflict {
+		t.Errorf("rows = %+v", rows)
 	}
-	if len(s.BrokenUpstream) != 1 || s.BrokenUpstream[0] != (SyncKey{"r/b", "x"}) {
-		t.Errorf("conflicting item lost from BrokenUpstream: %v", s.BrokenUpstream)
-	}
-}
-
-func TestSyncSummary_RecordAccumulates(t *testing.T) {
-	var s SyncSummary
-	s.Record(SyncResult{Action: SyncPublished})
-	s.Record(SyncResult{Err: errors.New("x")})
-	if s.Published != 1 || s.Errors != 1 {
-		t.Errorf("summary = %+v", s)
+	if got := summarizeRows(rows).Conflicts; got != 1 {
+		t.Errorf("Conflicts = %d, want 1", got)
 	}
 }

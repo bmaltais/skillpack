@@ -9,8 +9,7 @@ Judgement-call conventions for this repo. `/code-review` reads this file as its 
 ## Layering
 
 - Orchestration that calls more than one domain function (install, update, remove, sync flows) lives in `internal/*`; `cmd/skillpack` resolves flags and renders the result, for the CLI and the TUI alike.
-- `internal/*` never prints. Long operations report through an optional progress callback and return a structured result (see `internal/pack`).
-- `cmd` never calls `state.Save`; internal operations own persistence (one save per operation).
+- Long operations report through an optional progress callback and return a structured result (see `internal/pack`). `internal/layering` enforces the mechanical halves: `internal/*` never prints and `cmd` never calls `state.Save`.
 
 ## Maintenance
 

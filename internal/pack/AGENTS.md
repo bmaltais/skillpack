@@ -23,7 +23,7 @@ Owns everything about Packs: the `pack.yaml` schema, resolving a Pack Recipe fro
 
 ## Work Guidance
 
-- Import direction: `pack` may import `config`, `repo`, `skill`, `state`. None of those may import `pack`.
+- Import direction: `pack` sits above `config`, `repo`, `skill`, `state`; the compiler rejects the reverse (import cycle).
 - Tests use the temp-HOME `TestMain` and local git fixtures (see `deploy_test.go`); no network.
 
 ## Verification

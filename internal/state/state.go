@@ -18,6 +18,8 @@ type State struct {
 	// inner key: agent name (e.g. "claude-code")
 	InstalledPacks map[string]InstalledPackRecord `json:"installed_packs,omitempty"`
 	// InstalledPacks key: pack address (e.g. "awesome-skills/packs/go-dev")
+
+	store Store // persistence adapter; nil means the JSON file under ~/.skillpack
 }
 
 // InstalledPackRecord holds the state for one installed pack.
@@ -85,8 +87,19 @@ func Load() (*State, error) {
 	return &st, nil
 }
 
+// Save persists st through its store (the JSON file unless st came from NewMemory).
+func Save(st *State) error { return st.Save() }
+
+// Save persists the state through its store.
+func (st *State) Save() error {
+	if st.store != nil {
+		return st.store.Save(st)
+	}
+	return fileStore{}.Save(st)
+}
+
 // Save writes state to ~/.skillpack/state.json.
-func Save(st *State) error {
+func (fileStore) Save(st *State) error {
 	dir, err := config.Dir()
 	if err != nil {
 		return err

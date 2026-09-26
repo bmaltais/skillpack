@@ -406,46 +406,6 @@ func TestRefreshPacks_SortedByAddr(t *testing.T) {
 	}
 }
 
-// TestCloneState_CopiesInstalledPacks verifies cloneState correctly copies InstalledPacks.
-func TestCloneState_CopiesInstalledPacks(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	src := &state.State{
-		Repos:           make(map[string]state.RepoRecord),
-		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-		InstalledPacks: map[string]state.InstalledPackRecord{
-			"my-repo/packs/go-dev": {
-				PackAddress: "my-repo/packs/go-dev",
-				Agents:      []string{"claude-code"},
-				Skills: map[string]map[string]state.PackSkillStatus{
-					"my-repo/skills/go": {"claude-code": {Installed: true}},
-				},
-			},
-		},
-	}
-
-	dst := cloneState(src)
-
-	// Verify the pack was copied
-	if len(dst.InstalledPacks) != 1 {
-		t.Fatalf("expected 1 InstalledPack in clone, got %d", len(dst.InstalledPacks))
-	}
-	rec, ok := dst.InstalledPacks["my-repo/packs/go-dev"]
-	if !ok {
-		t.Fatal("pack not found in cloned state")
-	}
-	if len(rec.Skills) != 1 {
-		t.Errorf("expected 1 skill in cloned pack, got %d", len(rec.Skills))
-	}
-
-	// Verify it is a deep copy — mutations don't bleed back
-	dst.InstalledPacks["my-repo/packs/go-dev"].Skills["my-repo/skills/go"]["claude-code"] = state.PackSkillStatus{Installed: false}
-	origStatus := src.InstalledPacks["my-repo/packs/go-dev"].Skills["my-repo/skills/go"]["claude-code"]
-	if !origStatus.Installed {
-		t.Error("cloneState is not deep-copying InstalledPacks — mutation in dst affected src")
-	}
-}
-
 // makePackDir writes a pack.yaml at relPath inside a repo cache dir.
 func makePackDir(t *testing.T, cacheDir, relPath, name, desc string) {
 	t.Helper()

@@ -10,6 +10,7 @@ Manages `~/.skillpack/state.json`: tracks registered repos, installed skills per
 |---------|-------|
 | State struct & JSON load/save | `internal/state/state.go` |
 | Install/remove/rename/hash mutation methods | `internal/state/state.go` |
+| Persistence seam (`Store`, file + `MemoryStore` adapters), `Clone` | `internal/state/store.go` |
 
 ## Local Contracts
 
@@ -23,6 +24,8 @@ Manages `~/.skillpack/state.json`: tracks registered repos, installed skills per
   - `UpstreamSHA` — upstream HEAD at fork time (for three-way merge base)
 - `RecordRemove` deletes the agent entry; removes the address map if empty.
 - `RecordRenameAddr` moves all agent entries from oldAddr to newAddr.
+
+- Persistence goes through `State.Save()` / `state.Save(st)`; a State saves via its `Store` (JSON file by default, `NewMemory()` for tests, no temp HOME needed). `Clone()` deep-copies and keeps the store; add new State fields there.
 
 ## Work Guidance
 

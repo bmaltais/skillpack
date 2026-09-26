@@ -98,23 +98,6 @@ func (st *State) Save() error {
 	return fileStore{}.Save(st)
 }
 
-// Save writes state to ~/.skillpack/state.json.
-func (fileStore) Save(st *State) error {
-	dir, err := config.Dir()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("creating skillpack dir: %w", err)
-	}
-	p := filepath.Join(dir, "state.json")
-	data, err := json.MarshalIndent(st, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshaling state: %w", err)
-	}
-	return os.WriteFile(p, data, 0600)
-}
-
 func statePath() (string, error) {
 	dir, err := config.Dir()
 	if err != nil {

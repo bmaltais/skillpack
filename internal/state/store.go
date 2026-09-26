@@ -1,5 +1,15 @@
 package state
 
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+
+	"github.com/bmaltais/skillpack/internal/config"
+)
+
 // Store is the persistence seam: one place that decides how a State is saved.
 // Adapters: the JSON file under ~/.skillpack (default) and MemoryStore (tests).
 type Store interface {
@@ -8,9 +18,27 @@ type Store interface {
 
 type fileStore struct{}
 
+// Save writes state to ~/.skillpack/state.json.
+func (fileStore) Save(st *State) error {
+	dir, err := config.Dir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("creating skillpack dir: %w", err)
+	}
+	p := filepath.Join(dir, "state.json")
+	data, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling state: %w", err)
+	}
+	return os.WriteFile(p, data, 0600)
+}
+
 // MemoryStore is an in-memory Store that records snapshots instead of writing
 // to disk, so tests need no temp HOME.
 type MemoryStore struct {
+	mu    sync.Mutex
 	saves int
 	last  *State
 }
@@ -28,16 +56,26 @@ func NewMemory() (*State, *MemoryStore) {
 
 // Save records a deep snapshot of st.
 func (m *MemoryStore) Save(st *State) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.saves++
 	m.last = st.Clone()
 	return nil
 }
 
 // Saves returns how many times Save was called.
-func (m *MemoryStore) Saves() int { return m.saves }
+func (m *MemoryStore) Saves() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.saves
+}
 
 // Last returns the most recently saved snapshot, or nil if never saved.
-func (m *MemoryStore) Last() *State { return m.last }
+func (m *MemoryStore) Last() *State {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.last
+}
 
 // Clone returns a deep copy that saves through the same store. Async commands
 // use it to avoid data races with UI rendering.

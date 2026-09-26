@@ -2,13 +2,14 @@
 
 ## Purpose
 
-Shared test helpers. Provides `RunWithTempHome` to isolate tests from the developer's real `~/.skillpack`.
+Shared test helpers. Provides `RunWithTempHome` to isolate tests from the developer's real `~/.skillpack`, and git fixtures (`InitGitRepo`, `CommitFile`) for tests that need a local repo.
 
 ## Ownership
 
 | Concern | Owner |
 |---------|-------|
 | Temp HOME setup | `internal/testutil/testmain.go` (`RunWithTempHome`) |
+| Local git fixtures | `internal/testutil/git.go` (`InitGitRepo`, `CommitFile`) |
 
 ## Local Contracts
 
@@ -18,7 +19,7 @@ Shared test helpers. Provides `RunWithTempHome` to isolate tests from the develo
 
 ## Work Guidance
 
-- New test helpers: add to this package. Keep it small.
+- New test helpers: add to this package. Keep it small. Reach for `InitGitRepo`/`CommitFile` before writing another go-git fixture in a test file.
 - Never import production code that has side effects (network, file I/O to real paths).
 
 ## Verification

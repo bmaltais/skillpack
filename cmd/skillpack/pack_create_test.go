@@ -85,12 +85,12 @@ func TestBuildPackFromWizard(t *testing.T) {
 	}
 
 	m := packCreateModel{
-		nameInput:    "Go Dev",
-		descInput:    "Go development pack",
-		allSkills:    skills,
-		skillSel:     map[int]bool{0: true, 1: true}, // select first two skills
-		cfg:          cfg,
-		st:           st,
+		nameInput: "Go Dev",
+		descInput: "Go development pack",
+		allSkills: skills,
+		skillSel:  map[int]bool{0: true, 1: true}, // select first two skills
+		cfg:       cfg,
+		st:        st,
 	}
 
 	p, err := m.buildPackFromWizard()
@@ -179,9 +179,9 @@ func TestRenderYAML(t *testing.T) {
 
 func TestRenderYAML_NoDescription(t *testing.T) {
 	p := &packYAML{
-		Name:    "minimal",
-		Repos:   []packRepoRef{{Name: "r", URL: "https://example.com/r"}},
-		Skills:  []string{"r/a"},
+		Name:   "minimal",
+		Repos:  []packRepoRef{{Name: "r", URL: "https://example.com/r"}},
+		Skills: []string{"r/a"},
 	}
 	yml, err := renderYAML(p)
 	if err != nil {
@@ -246,9 +246,9 @@ func TestSanitizePackPath(t *testing.T) {
 		{"packs//go-dev", "packs/go-dev", false}, // double slash cleaned
 		{"/etc/passwd", "", true},                // absolute path rejected
 		{"../escape", "", true},                  // traversal rejected
-		{"packs/../../../etc", "", true},          // traversal via clean rejected
+		{"packs/../../../etc", "", true},         // traversal via clean rejected
 		{"", "", true},                           // empty rejected
-		{".", "", true},                           // dot-only rejected
+		{".", "", true},                          // dot-only rejected
 	}
 	for _, tc := range cases {
 		got, err := sanitizePackPath(tc.input)

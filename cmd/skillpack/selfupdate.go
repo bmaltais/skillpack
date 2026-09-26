@@ -22,7 +22,7 @@ const (
 var selfUpdateCmd = &cobra.Command{
 	Use:   "self-update",
 	Short: "Download and install the latest version of skillpack",
-	Long: `Fetches the latest release from GitHub and replaces the running binary.`,
+	Long:  `Fetches the latest release from GitHub and replaces the running binary.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		current := strings.TrimPrefix(Version, "v")
 		if current == "dev" {

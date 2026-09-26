@@ -55,7 +55,7 @@ Two modes:
 		if agentName == "" {
 			agentName = app.Cfg.DefaultAgent
 		}
-repoName := repoNameFromAddr(addr)
+		repoName := repoNameFromAddr(addr)
 
 		is, err := skill.Open(addr, agentName, app.Cfg, app.St)
 		if err != nil {

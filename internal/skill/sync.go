@@ -16,10 +16,10 @@ type SyncAction string
 
 const (
 	SyncUpdated        SyncAction = "updated"          // upstream applied to local
-	SyncPublished      SyncAction = "published"         // local edits pushed to remote
-	SyncConflict       SyncAction = "skipped-conflict"  // modified locally + upstream changed
-	SyncAlreadyCurrent SyncAction = "already-current"   // nothing to do
-	SyncStaleAddress   SyncAction = "stale-address"     // skill path no longer exists upstream
+	SyncPublished      SyncAction = "published"        // local edits pushed to remote
+	SyncConflict       SyncAction = "skipped-conflict" // modified locally + upstream changed
+	SyncAlreadyCurrent SyncAction = "already-current"  // nothing to do
+	SyncStaleAddress   SyncAction = "stale-address"    // skill path no longer exists upstream
 )
 
 // SyncResult describes the outcome of syncing one installed skill.

@@ -15,7 +15,7 @@ var installCmd = &cobra.Command{
   skillpack install my-repo/coding/debugger --agent claude-code
   skillpack install my-repo/coding/debugger --all-agents
   skillpack install my-repo/coding/debugger --skip-existing`,
-	Args:  cobra.ExactArgs(1),
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		addr := args[0]
 		agentName, _ := cmd.Flags().GetString("agent")

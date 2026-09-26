@@ -124,8 +124,8 @@ func findSkillInRepo(cachePath, repoName, skillName string) (string, error) {
 			return nil
 		}
 		found = repoName + "/" + filepath.ToSlash(rel)
-			return fs.SkipAll // stop walking on first match
-		})
+		return fs.SkipAll // stop walking on first match
+	})
 	if err == fs.SkipAll {
 		err = nil
 	}

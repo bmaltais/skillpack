@@ -358,10 +358,10 @@ func skillsInPack(rec state.InstalledPackRecord) []string {
 // ─── pack update ──────────────────────────────────────────────────────────────
 
 var packUpdateCmd = &cobra.Command{
-	Use:   "update <address>",
-	Short: "Pull latest repo content and reinstall changed skills in a pack",
+	Use:     "update <address>",
+	Short:   "Pull latest repo content and reinstall changed skills in a pack",
 	Example: `  skillpack pack update my-repo/packs/go-dev`,
-	Args:  cobra.ExactArgs(1),
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		packAddr := args[0]
 
@@ -394,10 +394,10 @@ var packUpdateCmd = &cobra.Command{
 // ─── pack status ──────────────────────────────────────────────────────────────
 
 var packStatusCmd = &cobra.Command{
-	Use:   "status <address>",
-	Short: "Show per-skill, per-agent install status for a pack",
+	Use:     "status <address>",
+	Short:   "Show per-skill, per-agent install status for a pack",
 	Example: `  skillpack pack status my-repo/packs/go-dev`,
-	Args:  cobra.ExactArgs(1),
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		packAddr := args[0]
 

@@ -11,10 +11,10 @@ import (
 type UpdateAction string
 
 const (
-	UpdateAlreadyCurrent UpdateAction = "up-to-date"     // no upstream changes, no local edits
-	UpdateAvailable      UpdateAction = "update-available" // upstream has new changes
+	UpdateAlreadyCurrent  UpdateAction = "up-to-date"       // no upstream changes, no local edits
+	UpdateAvailable       UpdateAction = "update-available" // upstream has new changes
 	UpdateLocallyModified UpdateAction = "locally-modified" // local edits, no upstream changes
-	UpdateConflict       UpdateAction = "conflict"         // both local edits and upstream changes
+	UpdateConflict        UpdateAction = "conflict"         // both local edits and upstream changes
 )
 
 // UpdatePlanItem is the decision for one installed skill, computed without

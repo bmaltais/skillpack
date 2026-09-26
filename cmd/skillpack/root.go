@@ -189,11 +189,7 @@ func bootstrapSkillpackRepo(cfg *config.Config) error {
 		}
 	}
 
-	if err := skill.Install(skillAddr, cfg.DefaultAgent, cfg, st, true /* skipExisting */); err != nil {
-		return err
-	}
-
-	return state.Save(st)
+	return skill.Install(skillAddr, cfg.DefaultAgent, cfg, st, true /* skipExisting */)
 }
 
 // repoNameFromAddr extracts the repo name from a skill address of the form

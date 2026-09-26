@@ -84,6 +84,20 @@ func (s InstalledSkill) Remove(force bool) error {
 	return remove(s.Addr, s.AgentName, s.cfg, s.st, force)
 }
 
+// RemoveDirect removes a skill the user asked to remove by hand and marks every
+// installed pack that lists it as partially deployed for this agent, saving
+// state once. It returns the addresses of the packs it marked.
+func (s InstalledSkill) RemoveDirect(force bool) ([]string, error) {
+	owning := s.st.FindPacksOwningSkill(s.Addr)
+	if err := removeUnsaved(s.Addr, s.AgentName, s.st, force); err != nil {
+		return nil, err
+	}
+	for _, packAddr := range owning {
+		s.st.MarkPackSkillMissing(packAddr, s.Addr, s.AgentName, "directly removed by user")
+	}
+	return owning, s.st.Save()
+}
+
 // Update checks for an upstream change and applies it.
 // The token is used for forked skills that need a push.
 func (s InstalledSkill) Update(token string) error {

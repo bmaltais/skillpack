@@ -14,14 +14,13 @@ import (
 	"github.com/bmaltais/skillpack/internal/pack"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/skill"
-	"github.com/bmaltais/skillpack/internal/state"
 )
 
 // --- Async Command Factories (extracted in Phase 4) ---
 // These functions create tea.Cmd values that perform I/O-heavy work
 // (git operations, status checks, sync, self-update, LLM fork registration, etc.)
 // in background goroutines and send *Msg results back to the Update loop.
-// They deliberately take deep copies of state (via cloneState) to avoid races.
+// They deliberately take deep copies of state (via State.Clone) to avoid races.
 
 func (m *model) doAddAgent(name, skillDir string) {
 	if err := config.AddAgent(m.cfg, name, skillDir); err != nil {
@@ -53,7 +52,7 @@ func cmdCheckForUpdate() tea.Cmd {
 func (m *model) cmdRegisterForkProvenance(addr, upstream string) tea.Cmd {
 	cfg := m.cfg
 	token := cfg.TokenForRepo(repoNameFromAddr(addr))
-	stCopy := cloneState(m.st)
+	stCopy := m.st.Clone()
 	return func() tea.Msg {
 		err := skill.RegisterForkProvenance(addr, upstream, token, stCopy)
 		if err != nil {
@@ -64,7 +63,7 @@ func (m *model) cmdRegisterForkProvenance(addr, upstream string) tea.Cmd {
 }
 
 func (m *model) cmdRelink(oldAddr, newAddr, agentName string) tea.Cmd {
-	stCopy := cloneState(m.st)
+	stCopy := m.st.Clone()
 	return func() tea.Msg {
 		err := skill.Relink(oldAddr, newAddr, agentName, false, stCopy)
 		if err != nil {
@@ -75,7 +74,7 @@ func (m *model) cmdRelink(oldAddr, newAddr, agentName string) tea.Cmd {
 }
 
 func (m *model) cmdRelinkUpstream(addr, newUpstreamAddr, agentName string) tea.Cmd {
-	stCopy := cloneState(m.st)
+	stCopy := m.st.Clone()
 	return func() tea.Msg {
 		err := skill.RelinkUpstream(addr, newUpstreamAddr, agentName, stCopy)
 		if err != nil {
@@ -123,7 +122,7 @@ func cmdViewSkillMd(path string) tea.Cmd {
 func (m *model) cmdCheckStatus() tea.Cmd {
 	cfg := m.cfg
 	// Deep-copy state to avoid data races with UI reads
-	stCopy := cloneState(m.st)
+	stCopy := m.st.Clone()
 	return func() tea.Msg {
 		// Fetch repos first
 		for name := range stCopy.Repos {
@@ -173,7 +172,7 @@ func (m *model) cmdCheckStatus() tea.Cmd {
 func (m *model) cmdSync() tea.Cmd {
 	cfg := m.cfg
 	// Deep-copy state to avoid data races with UI reads
-	stCopy := cloneState(m.st)
+	stCopy := m.st.Clone()
 	return func() tea.Msg {
 		results, conflicts, err := skill.Sync(false, cfg.TokenForRepo, stCopy)
 		if err != nil {
@@ -192,10 +191,6 @@ func (m *model) cmdSync() tea.Cmd {
 			case r.Action == skill.SyncAlreadyCurrent:
 				current++
 			}
-		}
-
-		if updated > 0 || published > 0 {
-			_ = state.Save(stCopy)
 		}
 
 		parts := []string{}
@@ -254,7 +249,7 @@ func cmdSelfUpdate() tea.Cmd {
 // cmdCompleteDeployment installs all missing skills in a partial pack.
 func (m *model) cmdCompleteDeployment(packAddr string) tea.Cmd {
 	cfg := m.cfg
-	stCopy := cloneState(m.st)
+	stCopy := m.st.Clone()
 	return func() tea.Msg {
 		res, err := pack.Complete(cfg, stCopy, packAddr, pack.Options{})
 		if err != nil {
@@ -280,7 +275,7 @@ func (m *model) cmdCompleteDeployment(packAddr string) tea.Cmd {
 // quiet: the outcome is reported back to the Update loop via packInstallDoneMsg.
 func (m *model) cmdPackInstall(packAddr string, agents []string) tea.Cmd {
 	cfg := m.cfg
-	stCopy := cloneState(m.st)
+	stCopy := m.st.Clone()
 	return func() tea.Msg {
 		def, err := pack.Resolve(packAddr, stCopy)
 		if err != nil {

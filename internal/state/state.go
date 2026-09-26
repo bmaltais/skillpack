@@ -1,9 +1,7 @@
 package state
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -18,6 +16,8 @@ type State struct {
 	// inner key: agent name (e.g. "claude-code")
 	InstalledPacks map[string]InstalledPackRecord `json:"installed_packs,omitempty"`
 	// InstalledPacks key: pack address (e.g. "awesome-skills/packs/go-dev")
+
+	store Store // persistence adapter; nil means the JSON file under ~/.skillpack
 }
 
 // InstalledPackRecord holds the state for one installed pack.
@@ -55,51 +55,19 @@ type InstalledSkillRecord struct {
 	UpstreamSHA string `json:"upstream_sha,omitempty"`
 }
 
-// Load reads state from ~/.skillpack/state.json.
+// Load reads state through the file store (~/.skillpack/state.json).
 // Returns an empty State (no error) if the file does not exist yet.
-func Load() (*State, error) {
-	p, err := statePath()
-	if err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(p)
-	if os.IsNotExist(err) {
-		return empty(), nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("reading state: %w", err)
-	}
-	var st State
-	if err := json.Unmarshal(data, &st); err != nil {
-		return nil, fmt.Errorf("parsing state: %w", err)
-	}
-	if st.Repos == nil {
-		st.Repos = make(map[string]RepoRecord)
-	}
-	if st.InstalledSkills == nil {
-		st.InstalledSkills = make(map[string]map[string]InstalledSkillRecord)
-	}
-	if st.InstalledPacks == nil {
-		st.InstalledPacks = make(map[string]InstalledPackRecord)
-	}
-	return &st, nil
-}
+func Load() (*State, error) { return fileStore{}.Load() }
 
-// Save writes state to ~/.skillpack/state.json.
-func Save(st *State) error {
-	dir, err := config.Dir()
-	if err != nil {
-		return err
+// Save persists st through its store (the JSON file unless st came from NewMemory).
+func Save(st *State) error { return st.Save() }
+
+// Save persists the state through its store.
+func (st *State) Save() error {
+	if st.store != nil {
+		return st.store.Save(st)
 	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("creating skillpack dir: %w", err)
-	}
-	p := filepath.Join(dir, "state.json")
-	data, err := json.MarshalIndent(st, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshaling state: %w", err)
-	}
-	return os.WriteFile(p, data, 0600)
+	return fileStore{}.Save(st)
 }
 
 func statePath() (string, error) {

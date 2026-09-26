@@ -151,3 +151,94 @@ func TestRepoRemove_PersistsStateToDisk(t *testing.T) {
 		t.Errorf("state.json on disk still contains removed repo %q", "my-repo")
 	}
 }
+
+// assertNotOnDisk fails if state.json was written under the fake home.
+func assertNotOnDisk(t *testing.T, home string) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(home, ".skillpack", "state.json")); err == nil {
+		t.Error("state.json was written; a memory-backed state must not touch disk")
+	}
+}
+
+func TestInstall_SavesExactlyOnce(t *testing.T) {
+	home := setupHome(t)
+	cacheDir := t.TempDir()
+	writeFile(t, filepath.Join(cacheDir, "my-skill", "SKILL.md"), "# My Skill")
+	_, _ = initRepoWithCommit(t, cacheDir, "initial commit")
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{"test-agent": {SkillDir: t.TempDir()}}}
+	st, mem := state.NewMemoryFrom(&state.State{
+		Repos: map[string]state.RepoRecord{"test-repo": {CachePath: cacheDir}},
+	})
+
+	if err := Install("test-repo/my-skill", "test-agent", cfg, st, false); err != nil {
+		t.Fatal(err)
+	}
+	if mem.Saves() != 1 {
+		t.Errorf("Saves() = %d, want 1", mem.Saves())
+	}
+	if _, ok := mem.Last().InstalledSkills["test-repo/my-skill"]["test-agent"]; !ok {
+		t.Error("saved snapshot lacks the install record")
+	}
+	assertNotOnDisk(t, home)
+}
+
+func removeFixture(t *testing.T) (*state.State, *state.MemoryStore, string) {
+	t.Helper()
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "SKILL.md"), "# My Skill")
+	hash, err := ComputeHash(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := "test-repo/my-skill"
+	st, mem := state.NewMemoryFrom(&state.State{
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			addr: {"test-agent": {InstalledHash: hash, LocalPath: dir}},
+		},
+		InstalledPacks: map[string]state.InstalledPackRecord{
+			"test-repo/packs/p": {
+				PackAddress: "test-repo/packs/p",
+				Agents:      []string{"test-agent"},
+				Skills:      map[string]map[string]state.PackSkillStatus{addr: {"test-agent": {Installed: true}}},
+			},
+		},
+	})
+	return st, mem, addr
+}
+
+func TestRemove_SavesExactlyOnce(t *testing.T) {
+	home := setupHome(t)
+	st, mem, addr := removeFixture(t)
+	if err := remove(addr, "test-agent", &config.Config{}, st, false); err != nil {
+		t.Fatal(err)
+	}
+	if mem.Saves() != 1 {
+		t.Errorf("Saves() = %d, want 1", mem.Saves())
+	}
+	if len(mem.Last().InstalledSkills) != 0 {
+		t.Error("saved snapshot still has the skill")
+	}
+	assertNotOnDisk(t, home)
+}
+
+func TestRemoveDirect_MarksOwningPacksAndSavesOnce(t *testing.T) {
+	home := setupHome(t)
+	st, mem, addr := removeFixture(t)
+	is := InstalledSkill{Addr: addr, AgentName: "test-agent", cfg: &config.Config{}, st: st}
+
+	marked, err := is.RemoveDirect(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(marked) != 1 || marked[0] != "test-repo/packs/p" {
+		t.Errorf("marked = %v", marked)
+	}
+	if mem.Saves() != 1 {
+		t.Errorf("Saves() = %d, want 1", mem.Saves())
+	}
+	got := mem.Last().InstalledPacks["test-repo/packs/p"].Skills[addr]["test-agent"]
+	if got.Installed || got.Error == "" {
+		t.Errorf("pack skill status not marked missing in saved snapshot: %+v", got)
+	}
+	assertNotOnDisk(t, home)
+}

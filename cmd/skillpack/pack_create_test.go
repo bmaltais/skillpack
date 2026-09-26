@@ -70,12 +70,12 @@ func TestValidatePackCreate(t *testing.T) {
 func TestBuildPackFromWizard(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"my-repo": {URL: "https://github.com/example/my-repo", CachePath: "/tmp/my-repo"},
 		},
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-	}
+	})
 	cfg := &config.Config{Agents: make(map[string]config.AgentConfig)}
 
 	skills := []repo.SkillInfo{
@@ -123,10 +123,10 @@ func TestBuildPackFromWizard_Errors(t *testing.T) {
 			allSkills: []repo.SkillInfo{{Address: "r/s", RepoName: "r"}},
 			skillSel:  map[int]bool{0: true},
 			cfg:       cfg,
-			st: &state.State{
+			st: memState(&state.State{
 				Repos:           make(map[string]state.RepoRecord),
 				InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-			},
+			}),
 		}
 		_, err := m.buildPackFromWizard()
 		if err == nil || !strings.Contains(err.Error(), "name") {
@@ -140,10 +140,10 @@ func TestBuildPackFromWizard_Errors(t *testing.T) {
 			allSkills: []repo.SkillInfo{{Address: "r/s", RepoName: "r"}},
 			skillSel:  map[int]bool{0: false},
 			cfg:       cfg,
-			st: &state.State{
+			st: memState(&state.State{
 				Repos:           make(map[string]state.RepoRecord),
 				InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-			},
+			}),
 		}
 		_, err := m.buildPackFromWizard()
 		if err == nil || !strings.Contains(err.Error(), "skill") {
@@ -313,12 +313,12 @@ skills:
 		t.Fatal(err)
 	}
 
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"my-repo": {URL: "https://github.com/example/my-repo", CachePath: cacheDir},
 		},
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-	}
+	})
 	cfg := &config.Config{Agents: make(map[string]config.AgentConfig)}
 
 	m, err := initialPackEditModel("my-repo/packs/go-dev", cfg, st)
@@ -385,12 +385,12 @@ skills:
 		t.Fatal(err)
 	}
 
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"my-repo": {URL: "https://github.com/example/my-repo", CachePath: cacheDir},
 		},
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-	}
+	})
 	cfg := &config.Config{Agents: make(map[string]config.AgentConfig)}
 
 	m, err := initialPackEditModel("my-repo/packs/go-dev", cfg, st)
@@ -420,12 +420,12 @@ skills:
 func TestInitialPackEditModel_MissingPack(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"my-repo": {URL: "https://example.com", CachePath: t.TempDir()},
 		},
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-	}
+	})
 	cfg := &config.Config{Agents: make(map[string]config.AgentConfig)}
 
 	_, err := initialPackEditModel("my-repo/packs/nonexistent", cfg, st)

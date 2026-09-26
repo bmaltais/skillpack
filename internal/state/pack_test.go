@@ -175,9 +175,7 @@ func TestFindPacksOwningSkill_FindsMultipleOwners(t *testing.T) {
 // ─── isPackPartial helper (via round-trip test) ───────────────────────────────
 
 func TestInstalledPacks_PartialDetection(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	st := emptyState()
+	st, mem := state.NewMemory()
 	st.InstalledPacks = make(map[string]state.InstalledPackRecord)
 	st.InstalledPacks["my-repo/packs/mixed"] = state.InstalledPackRecord{
 		PackAddress: "my-repo/packs/mixed",
@@ -193,10 +191,10 @@ func TestInstalledPacks_PartialDetection(t *testing.T) {
 		},
 	}
 
-	if err := state.Save(st); err != nil {
+	if err := st.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	loaded, err := state.Load()
+	loaded, err := mem.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}

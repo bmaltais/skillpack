@@ -22,10 +22,10 @@ func TestAppFromCtx_WithApp(t *testing.T) {
 		DefaultAgent: "claude-code",
 		Agents:       map[string]config.AgentConfig{"claude-code": {SkillDir: "/tmp/claude/skills"}},
 	}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos:           make(map[string]state.RepoRecord),
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-	}
+	})
 
 	// Use a fresh command so the test does not mutate the global rootCmd.
 	cmd := &cobra.Command{Use: "test"}
@@ -41,4 +41,11 @@ func TestAppFromCtx_WithApp(t *testing.T) {
 	if got.St != st {
 		t.Error("App.St mismatch")
 	}
+}
+
+// memState binds a seed State to an in-memory store so cmd tests never write
+// state.json.
+func memState(seed *state.State) *state.State {
+	st, _ := state.NewMemoryFrom(seed)
+	return st
 }

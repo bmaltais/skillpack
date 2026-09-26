@@ -9,7 +9,6 @@ import (
 	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/gitops"
 	"github.com/bmaltais/skillpack/internal/repo"
-	"github.com/bmaltais/skillpack/internal/state"
 )
 
 var repoCmd = &cobra.Command{
@@ -177,45 +176,9 @@ var repoRenameCmd = &cobra.Command{
 			return fmt.Errorf("configuration not available")
 		}
 
-		rec, ok := app.St.Repos[oldName]
-		if !ok {
-			return fmt.Errorf("repo %q not found", oldName)
-		}
-		if _, exists := app.St.Repos[newName]; exists {
-			return fmt.Errorf("repo %q already exists", newName)
-		}
-
-		// Compute the new cache path.
-		newCachePath, err := repo.NewCachePath(newName)
-		if err != nil {
-			return err
-		}
-
-		// Update in-memory state before touching disk so that if a save
-		// fails nothing on disk has changed yet.
-		rec.CachePath = newCachePath
-		delete(app.St.Repos, oldName)
-		app.St.Repos[newName] = rec
-
-		// Rekey installed skills. Collect first, then apply to avoid
-		// mutating the map while ranging over it.
-		type rekey struct{ oldAddr, newAddr string }
-		prefix := oldName + "/"
-		var rekeys []rekey
-		for addr := range app.St.InstalledSkills {
-			if strings.HasPrefix(addr, prefix) {
-				rekeys = append(rekeys, rekey{addr, newName + "/" + addr[len(prefix):]})
-			}
-		}
-		for _, rk := range rekeys {
-			if err := app.St.RecordRenameAddr(rk.oldAddr, rk.newAddr); err != nil {
-				return fmt.Errorf("renaming skill address %q: %w", rk.oldAddr, err)
-			}
-		}
-
-		// Save state and config before renaming the directory.
-		// If either save fails, the disk is unchanged and the user can retry.
-		if err := state.Save(app.St); err != nil {
+		// State is renamed and saved before touching config or disk so that
+		// if a save fails nothing on disk has changed yet.
+		if err := repo.Rename(oldName, newName, app.St); err != nil {
 			return err
 		}
 		if token, ok := app.Cfg.Credentials[oldName]; ok {

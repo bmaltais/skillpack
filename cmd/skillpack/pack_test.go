@@ -88,7 +88,7 @@ func TestSelectAgentsForPack_AllAgents(t *testing.T) {
 // ─── packListInstalled ────────────────────────────────────────────────────────
 
 func TestPackListInstalled_Empty(t *testing.T) {
-	st := &state.State{InstalledPacks: make(map[string]state.InstalledPackRecord)}
+	st := memState(&state.State{InstalledPacks: make(map[string]state.InstalledPackRecord)})
 	// Should not error on empty.
 	if err := packListInstalled(st); err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -96,7 +96,7 @@ func TestPackListInstalled_Empty(t *testing.T) {
 }
 
 func TestPackListInstalled_ShowsStatus(t *testing.T) {
-	st := &state.State{
+	st := memState(&state.State{
 		InstalledPacks: map[string]state.InstalledPackRecord{
 			"my-repo/packs/go-dev": {
 				PackAddress: "my-repo/packs/go-dev",
@@ -109,7 +109,7 @@ func TestPackListInstalled_ShowsStatus(t *testing.T) {
 				},
 			},
 		},
-	}
+	})
 	// Should not error.
 	if err := packListInstalled(st); err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -132,7 +132,7 @@ func TestDirectRemoveMarksPackPartial(t *testing.T) {
 	}
 	hash := "sha256:fake"
 
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"my-repo": {URL: "fake://my-repo", CachePath: t.TempDir()},
 		},
@@ -157,7 +157,7 @@ func TestDirectRemoveMarksPackPartial(t *testing.T) {
 				},
 			},
 		},
-	}
+	})
 
 	// Verify owning packs are found before remove.
 	owning := st.FindPacksOwningSkill("my-repo/coding/debugger")

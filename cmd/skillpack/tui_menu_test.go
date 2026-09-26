@@ -11,10 +11,10 @@ import (
 
 func emptyTestModel() model {
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos:           make(map[string]state.RepoRecord),
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-	}
+	})
 	return initialModel(cfg, st)
 }
 
@@ -299,10 +299,10 @@ func TestAppMenus_WellFormed(t *testing.T) {
 // context is absent.
 func TestAppMenus_NoPanicOnEmptyModel(t *testing.T) {
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos:           make(map[string]state.RepoRecord),
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-	}
+	})
 
 	for _, menu := range appMenus {
 		for _, item := range menu.items {

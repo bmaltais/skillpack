@@ -24,10 +24,10 @@ func blankPackCreateModel(t *testing.T) packCreateModel {
 	t.Setenv("HOME", t.TempDir())
 	return initialPackCreateModel(
 		&config.Config{Agents: make(map[string]config.AgentConfig)},
-		&state.State{
+		memState(&state.State{
 			Repos:           make(map[string]state.RepoRecord),
 			InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-		},
+		}),
 	)
 }
 

@@ -111,6 +111,42 @@ func Remove(name string, st *state.State) error {
 	return state.Save(st)
 }
 
+// Rename re-keys a registered repo and its installed skills from oldName to
+// newName in state and saves. It touches no directory; the caller moves the
+// cache with RenameCache afterwards so a failed save leaves disk unchanged.
+func Rename(oldName, newName string, st *state.State) error {
+	rec, ok := st.Repos[oldName]
+	if !ok {
+		return fmt.Errorf("repo %q not found", oldName)
+	}
+	if _, exists := st.Repos[newName]; exists {
+		return fmt.Errorf("repo %q already exists", newName)
+	}
+	newCachePath, err := NewCachePath(newName)
+	if err != nil {
+		return err
+	}
+	rec.CachePath = newCachePath
+	delete(st.Repos, oldName)
+	st.Repos[newName] = rec
+
+	// Collect first, then apply, to avoid mutating the map while ranging it.
+	type rekey struct{ oldAddr, newAddr string }
+	prefix := oldName + "/"
+	var rekeys []rekey
+	for addr := range st.InstalledSkills {
+		if strings.HasPrefix(addr, prefix) {
+			rekeys = append(rekeys, rekey{addr, newName + "/" + addr[len(prefix):]})
+		}
+	}
+	for _, rk := range rekeys {
+		if err := st.RecordRenameAddr(rk.oldAddr, rk.newAddr); err != nil {
+			return fmt.Errorf("renaming skill address %q: %w", rk.oldAddr, err)
+		}
+	}
+	return st.Save()
+}
+
 // NewCachePath returns the absolute path where a repo named name would be cached.
 func NewCachePath(name string) (string, error) {
 	reposDir, err := config.ReposDir()

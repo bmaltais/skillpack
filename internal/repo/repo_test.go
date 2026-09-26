@@ -493,3 +493,47 @@ func packAddrs(packs []repo.PackInfo) []string {
 	}
 	return out
 }
+
+func TestRemove_SavesExactlyOnce(t *testing.T) {
+	st, mem := state.NewMemoryFrom(&state.State{
+		Repos: map[string]state.RepoRecord{"r": {URL: "u"}},
+	})
+	if err := repo.Remove("r", st); err != nil {
+		t.Fatal(err)
+	}
+	if mem.Saves() != 1 || len(mem.Last().Repos) != 0 {
+		t.Errorf("Saves() = %d, repos after = %v", mem.Saves(), mem.Last().Repos)
+	}
+}
+
+func TestRename_RekeysStateAndSavesOnce(t *testing.T) {
+	st, mem := state.NewMemoryFrom(&state.State{
+		Repos: map[string]state.RepoRecord{"old": {URL: "u"}},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
+			"old/a/b": {"agent": {InstalledHash: "h"}},
+			"other/c": {"agent": {InstalledHash: "h"}},
+		},
+	})
+	if err := repo.Rename("old", "new", st); err != nil {
+		t.Fatal(err)
+	}
+	if mem.Saves() != 1 {
+		t.Errorf("Saves() = %d, want 1", mem.Saves())
+	}
+	last := mem.Last()
+	if _, ok := last.Repos["new"]; !ok || len(last.Repos) != 1 {
+		t.Errorf("repos = %v", last.Repos)
+	}
+	if _, ok := last.InstalledSkills["new/a/b"]; !ok {
+		t.Errorf("skills not rekeyed: %v", last.InstalledSkills)
+	}
+	if _, ok := last.InstalledSkills["other/c"]; !ok {
+		t.Error("unrelated skill lost")
+	}
+	if err := repo.Rename("missing", "x", st); err == nil {
+		t.Error("expected error for unknown repo")
+	}
+	if mem.Saves() != 1 {
+		t.Error("failed rename must not save")
+	}
+}

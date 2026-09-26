@@ -2,4 +2,4 @@ build/*
 !build/.gitkeep
 .pi
 .memory
-skillpack.test
+skillpack.test.claude/worktrees/

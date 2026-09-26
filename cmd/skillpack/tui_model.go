@@ -699,10 +699,7 @@ func runTUI() error {
 	}
 	st, err := state.Load()
 	if err != nil {
-		st = &state.State{
-			Repos:           make(map[string]state.RepoRecord),
-			InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-		}
+		st = state.New()
 	}
 
 	m := initialModel(cfg, st)
@@ -718,39 +715,4 @@ func runTUI() error {
 		}
 	}
 	return nil
-}
-
-// cloneState creates a deep copy of State to avoid data races
-// between async commands and UI rendering.
-func cloneState(src *state.State) *state.State {
-	dst := &state.State{
-		Repos:           make(map[string]state.RepoRecord, len(src.Repos)),
-		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord, len(src.InstalledSkills)),
-		InstalledPacks:  make(map[string]state.InstalledPackRecord, len(src.InstalledPacks)),
-	}
-	for k, v := range src.Repos {
-		dst.Repos[k] = v
-	}
-	for addr, agents := range src.InstalledSkills {
-		dst.InstalledSkills[addr] = make(map[string]state.InstalledSkillRecord, len(agents))
-		for agent, rec := range agents {
-			dst.InstalledSkills[addr][agent] = rec
-		}
-	}
-	for packAddr, rec := range src.InstalledPacks {
-		newRec := state.InstalledPackRecord{
-			PackAddress: rec.PackAddress,
-			InstalledAt: rec.InstalledAt,
-			Agents:      append([]string{}, rec.Agents...),
-			Skills:      make(map[string]map[string]state.PackSkillStatus, len(rec.Skills)),
-		}
-		for skillAddr, agStatuses := range rec.Skills {
-			newRec.Skills[skillAddr] = make(map[string]state.PackSkillStatus, len(agStatuses))
-			for agName, s := range agStatuses {
-				newRec.Skills[skillAddr][agName] = s
-			}
-		}
-		dst.InstalledPacks[packAddr] = newRec
-	}
-	return dst
 }

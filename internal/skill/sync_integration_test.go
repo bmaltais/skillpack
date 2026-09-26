@@ -9,6 +9,7 @@ import (
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
+	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
 )
@@ -107,18 +108,33 @@ func TestSync_SiblingUpdate_SinglePass(t *testing.T) {
 	// --- Step 4: simulate copilot editing its installed copy ---
 	writeFile(t, filepath.Join(copilotInstallDir, "SKILL.md"), "# My Skill\nEdited by copilot.")
 
+	// --- Step 4b: a dry run reports the plan and changes nothing ---
+	dry, err := skill.RunSync(skill.SyncOptions{DryRun: true}, &config.Config{}, st)
+	if err != nil {
+		t.Fatalf("dry-run RunSync: %v", err)
+	}
+	if !dry.DryRun || dry.Summary.Published != 1 || dry.Summary.Errors != 0 {
+		t.Errorf("dry-run summary = %+v (DryRun=%v), want 1 published", dry.Summary, dry.DryRun)
+	}
+	if got := st.InstalledSkills[addr]["copilot"].InstalledHash; got != copilotHash {
+		t.Errorf("dry run changed the copilot record hash: %s", got)
+	}
+
 	// --- Step 5: single Sync call — must fully converge ---
-	results, conflicts, err := skill.Sync(false, nil, st)
+	rep, err := skill.Sync(nil, st)
 	if err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
-	if len(conflicts) != 0 {
-		t.Errorf("unexpected conflicts: %v", conflicts)
+	if rep.Summary.Conflicts != 0 {
+		t.Errorf("unexpected conflicts: %+v", rep.Summary)
+	}
+	if rep.Summary.Updated != 1 || rep.Summary.Published != 1 || rep.Summary.Errors != 0 {
+		t.Errorf("summary = %+v, want 1 updated + 1 published", rep.Summary)
 	}
 
 	// Build action map for easy assertion
 	actions := make(map[string]skill.SyncAction)
-	for _, r := range results {
+	for _, r := range rep.Rows {
 		if r.Err != nil {
 			t.Errorf("error result for %s/%s: %v", r.Addr, r.AgentName, r.Err)
 		}
@@ -131,5 +147,35 @@ func TestSync_SiblingUpdate_SinglePass(t *testing.T) {
 	// Before the fix this was intermittently SyncAlreadyCurrent, requiring a second sync.
 	if actions["claude-code"] != skill.SyncUpdated {
 		t.Errorf("claude-code: expected SyncUpdated, got %q (bug: required two syncs before fix)", actions["claude-code"])
+	}
+}
+
+// TestRunSync_ScopedUnknownSkill reports a clear error for an uninstalled address.
+func TestRunSync_ScopedUnknownSkill(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	st := &state.State{
+		Repos:           map[string]state.RepoRecord{},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{},
+	}
+	_, err := skill.RunSync(skill.SyncOptions{Addr: "repo/none"}, &config.Config{}, st)
+	if err == nil {
+		t.Fatal("expected error for a skill that is not installed")
+	}
+}
+
+// TestRunSync_NilConfigAndBulkForceIgnored: RunSync tolerates a nil config and
+// never applies a force strategy without a named skill.
+func TestRunSync_NilConfigAndBulkForceIgnored(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	st := &state.State{
+		Repos:           map[string]state.RepoRecord{},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{},
+	}
+	rep, err := skill.RunSync(skill.SyncOptions{DryRun: true, Resolve: skill.ResolveForceRemote}, nil, st)
+	if err != nil {
+		t.Fatalf("RunSync: %v", err)
+	}
+	if len(rep.Rows) != 0 {
+		t.Errorf("rows = %+v, want none", rep.Rows)
 	}
 }

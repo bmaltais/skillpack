@@ -180,19 +180,8 @@ func (m *model) cmdSync() tea.Cmd {
 			return syncDoneMsg{summary: fmt.Sprintf("✗ Sync error: %v", err), st: stCopy}
 		}
 
-		var updated, published, current, errCount int
-		for _, r := range results {
-			switch {
-			case r.Err != nil:
-				errCount++
-			case r.Action == skill.SyncUpdated:
-				updated++
-			case r.Action == skill.SyncPublished:
-				published++
-			case r.Action == skill.SyncAlreadyCurrent:
-				current++
-			}
-		}
+		sum := skill.Summarize(results, conflicts)
+		updated, published, current, errCount := sum.Updated, sum.Published, sum.Current, sum.Errors
 
 		if updated > 0 || published > 0 {
 			_ = state.Save(stCopy)

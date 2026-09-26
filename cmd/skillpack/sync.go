@@ -108,47 +108,26 @@ Resolve conflicts with:
 				agentW = maxInt(agentW, len(p.AgentName))
 			}
 
-			var updated, published, current, conflicts, errCount int
-			var staleAddrs [][2]string
-			var brokenUpstreamAddrs [][2]string
+			sum := skill.SummarizePlan(plan)
 			for _, p := range plan {
 				if p.Err != nil {
 					fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, p.Addr, agentW, p.AgentName, p.Err)
-					errCount++
 					continue
 				}
 				switch p.Action {
 				case skill.SyncUpdated:
 					fmt.Printf("  %-*s  %-*s  [dry-run] would update\n", addrW, p.Addr, agentW, p.AgentName)
-					updated++
 				case skill.SyncPublished:
 					fmt.Printf("  %-*s  %-*s  [dry-run] would push\n", addrW, p.Addr, agentW, p.AgentName)
-					published++
 				case skill.SyncConflict:
 					fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, red("CONFLICT — resolve manually"))
-					conflicts++
-				case skill.SyncAlreadyCurrent:
-					current++
-				case skill.SyncStaleAddress:
-					staleAddrs = append(staleAddrs, [2]string{p.Addr, p.AgentName})
-				}
-				if p.UpstreamPathBroken {
-					brokenUpstreamAddrs = append(brokenUpstreamAddrs, [2]string{p.Addr, p.AgentName})
 				}
 				if p.Warning != "" {
 					fmt.Printf("  %-*s  %-*s  %s\n", addrW, "", agentW, "", yellow("warning: "+p.Warning))
 				}
 			}
-			fmt.Printf("\n  %d updated, %d pushed, %d already current", updated, published, current)
-			if conflicts > 0 {
-				fmt.Printf(", %d conflict(s)", conflicts)
-			}
-			if errCount > 0 {
-				fmt.Printf(", %d error(s)", errCount)
-			}
-			fmt.Println()
-			printStaleSection(staleAddrs, addrW, agentW, app.St)
-			printBrokenUpstreamSection(brokenUpstreamAddrs, addrW, agentW)
+			printSyncSummary(sum, addrW, agentW, app.St)
+			conflicts, errCount := sum.Conflicts, sum.Errors
 			if conflicts > 0 {
 				return fmt.Errorf(
 					"%d conflict(s) skipped — resolve with: skillpack sync --force-remote|--force-local|--merge <addr>",
@@ -186,28 +165,15 @@ Resolve conflicts with:
 			agentW = maxInt(agentW, len(c.AgentName))
 		}
 
-		// Tally
-		var updated, published, current, errCount int
-		var staleAddrs [][2]string
-		var brokenUpstreamAddrs [][2]string
+		sum := skill.Summarize(results, conflicts)
 		for _, r := range results {
 			switch {
 			case r.Err != nil:
 				fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, r.Addr, agentW, r.AgentName, r.Err)
-				errCount++
 			case r.Action == skill.SyncUpdated:
 				fmt.Printf("  %-*s  %-*s  %s\n", addrW, r.Addr, agentW, r.AgentName, green("updated"))
-				updated++
 			case r.Action == skill.SyncPublished:
 				fmt.Printf("  %-*s  %-*s  %s\n", addrW, r.Addr, agentW, r.AgentName, green("pushed"))
-				published++
-			case r.Action == skill.SyncAlreadyCurrent:
-				current++
-			case r.Action == skill.SyncStaleAddress:
-				staleAddrs = append(staleAddrs, [2]string{r.Addr, r.AgentName})
-			}
-			if r.UpstreamPathBroken {
-				brokenUpstreamAddrs = append(brokenUpstreamAddrs, [2]string{r.Addr, r.AgentName})
 			}
 			if r.Warning != "" {
 				fmt.Printf("  %-*s  %-*s  %s\n", addrW, "", agentW, "", yellow("warning: "+r.Warning))
@@ -218,28 +184,16 @@ Resolve conflicts with:
 				token := app.Cfg.TokenForRepo(repoNameFromAddr(c.Addr))
 				llmPublished, hadErr := applyMerge(c.Addr, c.AgentName, llmAgent, token, app, addrW, agentW)
 				if hadErr {
-					errCount++
+					sum.Errors++
 				} else if llmPublished {
-					published++
+					sum.Published++
 				}
 			} else {
 				fmt.Printf("  %-*s  %-*s  %s\n", addrW, c.Addr, agentW, c.AgentName, red("CONFLICT — resolve manually"))
 			}
 		}
 
-		// Summary line
-		fmt.Printf("\n  %d updated, %d pushed, %d already current", updated, published, current)
-		if len(conflicts) > 0 {
-			fmt.Printf(", %d conflict(s)", len(conflicts))
-		}
-		if errCount > 0 {
-			fmt.Printf(", %d error(s)", errCount)
-		}
-		fmt.Println()
-
-		// Stale-address remediation section.
-		printStaleSection(staleAddrs, addrW, agentW, app.St)
-		printBrokenUpstreamSection(brokenUpstreamAddrs, addrW, agentW)
+		printSyncSummary(sum, addrW, agentW, app.St)
 
 		// Internal functions (skill.Resolve, skill.ApplySync) persist state
 		// themselves — no explicit save needed here.
@@ -296,42 +250,26 @@ func syncOne(cmd *cobra.Command, addr string, dryRun, forceRemote, forceLocal, d
 		agentW = maxInt(agentW, len(p.AgentName))
 	}
 
-	var updated, published, current, conflictCount, errCount int
-	var staleAddrs [][2]string
-	var brokenUpstreamAddrs [][2]string
+	var sum skill.SyncSummary
 
 	for _, p := range plan {
 		if p.Err != nil {
 			fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, p.Addr, agentW, p.AgentName, p.Err)
-			errCount++
+			sum.Record(skill.SyncResult{Err: p.Err})
 			continue
 		}
+		res := skill.SyncResult{Addr: p.Addr, AgentName: p.AgentName, Action: p.Action, UpstreamPathBroken: p.UpstreamPathBroken}
 		switch p.Action {
-		case skill.SyncAlreadyCurrent:
-			current++
-		case skill.SyncStaleAddress:
-			staleAddrs = append(staleAddrs, [2]string{p.Addr, p.AgentName})
-		case skill.SyncUpdated:
-			if dryRun {
-				fmt.Printf("  %-*s  %-*s  [dry-run] would update\n", addrW, p.Addr, agentW, p.AgentName)
-				updated++
-			} else {
-				results, _, applyErr := skill.ApplySync([]skill.SyncPlanItem{p}, app.Cfg.TokenForRepo, app.St)
-				if applyErr != nil {
-					return applyErr
-				}
-				if len(results) > 0 && results[0].Err != nil {
-					fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, p.Addr, agentW, p.AgentName, results[0].Err)
-					errCount++
-				} else {
-					fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, green("updated"))
-					updated++
-				}
+		case skill.SyncAlreadyCurrent, skill.SyncStaleAddress:
+			sum.Record(res)
+		case skill.SyncUpdated, skill.SyncPublished:
+			verb, wouldVerb := "updated", "would update"
+			if p.Action == skill.SyncPublished {
+				verb, wouldVerb = "pushed", "would push"
 			}
-		case skill.SyncPublished:
 			if dryRun {
-				fmt.Printf("  %-*s  %-*s  [dry-run] would push\n", addrW, p.Addr, agentW, p.AgentName)
-				published++
+				fmt.Printf("  %-*s  %-*s  [dry-run] %s\n", addrW, p.Addr, agentW, p.AgentName, wouldVerb)
+				sum.Record(res)
 			} else {
 				results, _, applyErr := skill.ApplySync([]skill.SyncPlanItem{p}, app.Cfg.TokenForRepo, app.St)
 				if applyErr != nil {
@@ -339,22 +277,23 @@ func syncOne(cmd *cobra.Command, addr string, dryRun, forceRemote, forceLocal, d
 				}
 				if len(results) > 0 && results[0].Err != nil {
 					fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, p.Addr, agentW, p.AgentName, results[0].Err)
-					errCount++
+					res.Err = results[0].Err
 				} else {
-					fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, green("pushed"))
-					published++
+					fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, green(verb))
 				}
+				sum.Record(res)
 			}
 		case skill.SyncConflict:
+			sum.Record(res) // broken-upstream bookkeeping only; conflicts are counted below
 			switch {
 			case dryRun:
 				fmt.Printf("  %-*s  %-*s  [dry-run] CONFLICT — would need resolution\n", addrW, p.Addr, agentW, p.AgentName)
-				conflictCount++
+				sum.Conflicts++
 			case forceRemote:
 				is, openErr := skill.Open(p.Addr, p.AgentName, app.Cfg, app.St)
 				if openErr != nil {
 					fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, p.Addr, agentW, p.AgentName, openErr)
-					errCount++
+					sum.Errors++
 					continue
 				}
 				if _, err := is.Resolve(skill.ResolveForceRemote, token, ""); err != nil {
@@ -365,7 +304,7 @@ func syncOne(cmd *cobra.Command, addr string, dryRun, forceRemote, forceLocal, d
 				is, openErr := skill.Open(p.Addr, p.AgentName, app.Cfg, app.St)
 				if openErr != nil {
 					fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, p.Addr, agentW, p.AgentName, openErr)
-					errCount++
+					sum.Errors++
 					continue
 				}
 				if _, err := is.Resolve(skill.ResolveForceLocal, token, ""); err != nil {
@@ -375,32 +314,20 @@ func syncOne(cmd *cobra.Command, addr string, dryRun, forceRemote, forceLocal, d
 			case doMerge:
 				_, hadErr := applyMerge(p.Addr, p.AgentName, llmAgent, token, app, addrW, agentW)
 				if hadErr {
-					errCount++
+					sum.Errors++
 				}
 			default:
 				fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, red("CONFLICT — resolve with --force-remote, --force-local, or --merge"))
-				conflictCount++
+				sum.Conflicts++
 			}
-		}
-		if p.UpstreamPathBroken {
-			brokenUpstreamAddrs = append(brokenUpstreamAddrs, [2]string{p.Addr, p.AgentName})
 		}
 		if p.Warning != "" {
 			fmt.Printf("  %-*s  %-*s  %s\n", addrW, "", agentW, "", yellow("warning: "+p.Warning))
 		}
 	}
 
-	fmt.Printf("\n  %d updated, %d pushed, %d already current", updated, published, current)
-	if conflictCount > 0 {
-		fmt.Printf(", %d conflict(s)", conflictCount)
-	}
-	if errCount > 0 {
-		fmt.Printf(", %d error(s)", errCount)
-	}
-	fmt.Println()
-
-	printStaleSection(staleAddrs, addrW, agentW, app.St)
-	printBrokenUpstreamSection(brokenUpstreamAddrs, addrW, agentW)
+	printSyncSummary(sum, addrW, agentW, app.St)
+	conflictCount := sum.Conflicts
 
 	if conflictCount > 0 {
 		return fmt.Errorf("%d conflict(s) skipped — resolve with: skillpack sync --force-remote|--force-local|--merge %s", conflictCount, addr)
@@ -440,17 +367,32 @@ func applyMerge(addr, agentName, llmAgent, token string, app *App, addrW, agentW
 	return false, false
 }
 
+// printSyncSummary prints the totals line followed by the stale-address and
+// broken-upstream remediation sections.
+func printSyncSummary(sum skill.SyncSummary, addrW, agentW int, st *state.State) {
+	fmt.Printf("\n  %d updated, %d pushed, %d already current", sum.Updated, sum.Published, sum.Current)
+	if sum.Conflicts > 0 {
+		fmt.Printf(", %d conflict(s)", sum.Conflicts)
+	}
+	if sum.Errors > 0 {
+		fmt.Printf(", %d error(s)", sum.Errors)
+	}
+	fmt.Println()
+	printStaleSection(sum.Stale, addrW, agentW, st)
+	printBrokenUpstreamSection(sum.BrokenUpstream, addrW, agentW)
+}
+
 // printBrokenUpstreamSection prints the broken-upstream-pointer remediation block
 // shared by the sync output paths. rows holds (addr, agent) pairs where upstream
 // tracking was disabled because the upstream skill path no longer exists.
 // It prints nothing when rows is empty.
-func printBrokenUpstreamSection(rows [][2]string, addrW, agentW int) {
+func printBrokenUpstreamSection(rows []skill.SyncKey, addrW, agentW int) {
 	if len(rows) == 0 {
 		return
 	}
 	fmt.Printf("\n  %s\n", yellow(fmt.Sprintf("%d broken upstream pointer(s) — upstream skill path no longer exists:", len(rows))))
 	for _, row := range rows {
-		fmt.Printf("    %-*s  %-*s\n", addrW, row[0], agentW, row[1])
+		fmt.Printf("    %-*s  %-*s\n", addrW, row.Addr, agentW, row.AgentName)
 	}
 	fmt.Printf("\n  Upstream tracking was disabled for this run; the installed skill was synced against its own repo.\n")
 	fmt.Printf("  To re-point upstream tracking:  skillpack relink <fork-addr> --set-upstream <new-upstream-addr>\n")
@@ -462,7 +404,7 @@ func printBrokenUpstreamSection(rows [][2]string, addrW, agentW int) {
 // longer exists upstream. For each stale mapping it surfaces likely replacement
 // addresses found in registered repos and the relink command to repair it. It
 // prints nothing when rows is empty.
-func printStaleSection(rows [][2]string, addrW, agentW int, st *state.State) {
+func printStaleSection(rows []skill.SyncKey, addrW, agentW int, st *state.State) {
 	if len(rows) == 0 {
 		return
 	}
@@ -472,8 +414,8 @@ func printStaleSection(rows [][2]string, addrW, agentW int, st *state.State) {
 	// when it is stale across multiple agents.
 	suggestions := make(map[string][]string)
 	for _, s := range rows {
-		addr := s[0]
-		fmt.Printf("    %-*s  %-*s\n", addrW, addr, agentW, s[1])
+		addr := s.Addr
+		fmt.Printf("    %-*s  %-*s\n", addrW, addr, agentW, s.AgentName)
 		if _, done := suggestions[addr]; !done {
 			suggestions[addr] = skill.SuggestReplacements(addr, st)
 		}

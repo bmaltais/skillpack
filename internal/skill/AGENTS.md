@@ -20,6 +20,7 @@ Installs, removes, updates, forks, syncs, publishes, and reconciles skills. The 
 | Fork metadata (provenance) | `internal/skill/fork_metadata.go` |
 | Fork missing upstream detection | `internal/skill/fork_missing_upstream_test.go` |
 | Sync (reconcile installed ↔ cache) | `internal/skill/sync.go`, `internal/skill/sync_reconcile_test.go` |
+| Sync summary (classified tally: counts, stale, broken upstream) | `internal/skill/sync_summary.go` |
 | Sync integration tests | `internal/skill/sync_integration_test.go` |
 | Publish (push to upstream) | `internal/skill/publish.go` |
 | Relink (re-register skill) | `internal/skill/relink.go` |
@@ -35,6 +36,8 @@ Installs, removes, updates, forks, syncs, publishes, and reconciles skills. The 
 - Conflict resolution flags (`--force-remote`, `--force-local`, `--merge`) apply to `update` and `sync`.
 - Fork metadata lives in `.skillpack-fork` at the skill root. Skipped during hash.
 - `DetectDuplicateSets` is pure (no `state.State`, no writes): it takes an already-discovered `[]repo.SkillInfo` and groups same-basename skills across ≥2 repos, cross-checked against SKILL.md frontmatter `name:`. See ADR-0003 and the "Duplicate Set" entry in CONTEXT.md.
+
+- Sync classification lives in `SyncSummary` (`Summarize`, `SummarizePlan`, `Record`). CLI and TUI render it; they never re-tally results.
 
 ## Work Guidance
 

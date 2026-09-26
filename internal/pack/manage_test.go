@@ -4,16 +4,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
-
-	gogit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/pack"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
+	"github.com/bmaltais/skillpack/internal/testutil"
 )
 
 const registeredPack = "my-repo/packs/p"
@@ -33,7 +30,7 @@ func deploy(t *testing.T, agents ...string) *deployment {
 	origin := skillRepo(t)
 	writeFile(t, filepath.Join(origin, "packs", "p", "pack.yaml"),
 		"name: p\nrepos:\n  - name: my-repo\n    url: "+origin+"\nskills:\n  - "+debuggerAddr+"\n")
-	commitFile(t, origin, "packs/p/pack.yaml")
+	testutil.CommitFile(t, origin, "packs/p/pack.yaml")
 	if _, err := repo.Add("my-repo", origin, "", st); err != nil {
 		t.Fatalf("repo.Add: %v", err)
 	}
@@ -52,32 +49,11 @@ func deploy(t *testing.T, agents ...string) *deployment {
 	return &deployment{cfg: cfg, st: st, origin: origin}
 }
 
-// commitFile stages relPath in the repo at dir and commits it.
-func commitFile(t *testing.T, dir, relPath string) {
-	t.Helper()
-	r, err := gogit.PlainOpen(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	w, err := r.Worktree()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.Add(relPath); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.Commit("change "+relPath, &gogit.CommitOptions{
-		Author: &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()},
-	}); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // upstreamChange commits a new SKILL.md to the origin repo.
 func (d *deployment) upstreamChange(t *testing.T, content string) {
 	t.Helper()
 	writeFile(t, filepath.Join(d.origin, "coding", "debugger", "SKILL.md"), content)
-	commitFile(t, d.origin, "coding/debugger/SKILL.md")
+	testutil.CommitFile(t, d.origin, "coding/debugger/SKILL.md")
 }
 
 func (d *deployment) installedFile(agent string) string {

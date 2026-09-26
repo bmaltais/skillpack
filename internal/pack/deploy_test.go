@@ -5,14 +5,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
-
-	gogit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/pack"
 	"github.com/bmaltais/skillpack/internal/state"
+	"github.com/bmaltais/skillpack/internal/testutil"
 )
 
 const debuggerAddr = "my-repo/coding/debugger"
@@ -28,34 +25,12 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-// commitAll git-inits dir and commits every file in it.
-func commitAll(t *testing.T, dir string) {
-	t.Helper()
-	r, err := gogit.PlainInit(dir, false)
-	if err != nil {
-		t.Fatalf("git init %s: %v", dir, err)
-	}
-	w, err := r.Worktree()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.Add("."); err != nil {
-		t.Fatal(err)
-	}
-	_, err = w.Commit("initial", &gogit.CommitOptions{
-		Author: &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
 // skillRepo creates a local git repo holding a coding/debugger skill and returns its path.
 func skillRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "coding", "debugger", "SKILL.md"), "# Debugger")
-	commitAll(t, dir)
+	testutil.InitGitRepo(t, dir)
 	return dir
 }
 
@@ -255,7 +230,7 @@ func TestComplete_ReRegistersMissingRepos(t *testing.T) {
 	skillsRepo := skillRepo(t)
 	writeFile(t, filepath.Join(packRepo, "packs", "p", "pack.yaml"),
 		"name: p\nrepos:\n  - name: my-repo\n    url: "+skillsRepo+"\nskills:\n  - "+debuggerAddr+"\n")
-	commitAll(t, packRepo)
+	testutil.InitGitRepo(t, packRepo)
 	st.Repos["pack-repo"] = state.RepoRecord{URL: "fake://pack-repo", CachePath: packRepo}
 
 	const packAddr = "pack-repo/packs/p"

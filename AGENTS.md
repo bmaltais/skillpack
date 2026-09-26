@@ -23,7 +23,7 @@ Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/do
 go build ./cmd/skillpack/        # build the binary
 go test ./...                    # run all tests
 go vet ./...                     # static analysis
-make check                       # vet + test (what CI runs)
+make check                       # gofmt check + vet + test (what CI runs)
 make hooks                       # enable the pre-commit hook (once per clone)
 ```
 

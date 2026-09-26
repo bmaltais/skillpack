@@ -8,6 +8,7 @@ import (
 
 	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
+	"github.com/bmaltais/skillpack/internal/testutil"
 )
 
 // ─── PlanUpdate: fork with missing upstream repo ─────────────────────────────
@@ -207,7 +208,7 @@ func TestApplySync_ForkMissingUpstream_UpdatesFromOwnRepo(t *testing.T) {
 	}
 
 	// Initialize a real git repo at ownRepoCache so HeadSHA works.
-	initGitRepo(t, ownRepoCache)
+	testutil.InitGitRepo(t, ownRepoCache)
 
 	st := &state.State{
 		Repos: map[string]state.RepoRecord{

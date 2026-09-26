@@ -7,6 +7,7 @@ import (
 
 	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
+	"github.com/bmaltais/skillpack/internal/testutil"
 )
 
 // TestSuggestReplacements finds skills in registered repos whose basename
@@ -104,13 +105,13 @@ func TestRelink(t *testing.T) {
 	// Old repo cache is a git clone whose skill path no longer exists (stale).
 	oldCache := t.TempDir()
 	writeFile(t, filepath.Join(oldCache, "README.md"), "old repo")
-	initGitRepo(t, oldCache)
+	testutil.InitGitRepo(t, oldCache)
 
 	// New repo cache is a git clone that carries the replacement skill.
 	newCache := t.TempDir()
 	writeFile(t, filepath.Join(newCache, "skills", "debugger", "SKILL.md"), "# Debugger v2")
 	writeFile(t, filepath.Join(newCache, "skills", "debugger", "extra.md"), "extra")
-	initGitRepo(t, newCache)
+	testutil.InitGitRepo(t, newCache)
 
 	// Installed copy holds the OLD skill's content.
 	installDir := filepath.Join(t.TempDir(), "debugger")
@@ -197,7 +198,7 @@ func TestRelink_InvalidNewAddr(t *testing.T) {
 
 	newCache := t.TempDir()
 	writeFile(t, filepath.Join(newCache, "README.md"), "new repo")
-	initGitRepo(t, newCache)
+	testutil.InitGitRepo(t, newCache)
 
 	installDir := filepath.Join(t.TempDir(), "debugger")
 	writeFile(t, filepath.Join(installDir, "SKILL.md"), "# Debugger")
@@ -264,7 +265,7 @@ func TestRelink_ModifiedWithoutForce(t *testing.T) {
 
 	newCache := t.TempDir()
 	writeFile(t, filepath.Join(newCache, "skills", "debugger", "SKILL.md"), "# Debugger v2")
-	initGitRepo(t, newCache)
+	testutil.InitGitRepo(t, newCache)
 
 	// Installed copy was edited after install: on-disk hash != recorded hash.
 	installDir := filepath.Join(t.TempDir(), "debugger")
@@ -314,7 +315,7 @@ func TestRelinkUpstream_SetUpstream(t *testing.T) {
 
 	upstreamCache := t.TempDir()
 	writeFile(t, filepath.Join(upstreamCache, "debugger", "SKILL.md"), "# Upstream Debugger")
-	initGitRepo(t, upstreamCache)
+	testutil.InitGitRepo(t, upstreamCache)
 
 	installDir := filepath.Join(t.TempDir(), "debugger")
 	writeFile(t, filepath.Join(installDir, "SKILL.md"), "# My forked debugger")
@@ -377,7 +378,7 @@ func TestRelinkUpstream_SetUpstream_InvalidAddr(t *testing.T) {
 
 	cache := t.TempDir()
 	writeFile(t, filepath.Join(cache, "README.md"), "empty repo")
-	initGitRepo(t, cache)
+	testutil.InitGitRepo(t, cache)
 
 	st := &state.State{
 		Repos: map[string]state.RepoRecord{

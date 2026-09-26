@@ -1,4 +1,4 @@
-.PHONY: build install test vet check hooks
+.PHONY: build install test vet fmt-check check hooks
 
 BINARY := skillpack
 INSTALL_DIR := $(HOME)/.local/bin
@@ -17,7 +17,10 @@ test:
 vet:
 	go vet ./...
 
-check: vet test
+fmt-check:
+	@files="$$(gofmt -l .)"; if [ -n "$$files" ]; then echo "gofmt needed (run: gofmt -w .):"; echo "$$files"; exit 1; fi
+
+check: fmt-check vet test
 
 hooks:
 	git config core.hooksPath .githooks

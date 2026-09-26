@@ -19,16 +19,7 @@ Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/do
 
 ## Build & Test
 
-```bash
-go build ./cmd/skillpack/        # build the binary
-go test ./...                    # run all tests
-go vet ./...                     # static analysis
-make check                       # gofmt check + vet + test (what CI runs)
-make fmt                         # gofmt -w . (fix what make check's format check reports)
-make hooks                       # enable the pre-commit hook: runs make check (once per clone)
-```
-
-The binary entry point is `cmd/skillpack/`. There is no other binary in this repo.
+`make check` is what CI and the pre-commit hook run (gofmt + vet + test); `make fmt` fixes formatting; `make hooks` enables the hook once per clone. Targets live in the `Makefile`. The only binary is `cmd/skillpack/`.
 
 ## Git Workflow
 
@@ -36,6 +27,7 @@ The binary entry point is `cmd/skillpack/`. There is no other binary in this rep
 - Branch naming follows the existing convention: `feat/issue-<N>-<slug>` for features, `fix/issue-<N>-<slug>` for bug fixes (see `git branch -a` for examples). Use the GitHub issue number when one exists.
 - After committing to the branch, push it with `git push -u origin <branch>`, then open a PR with `gh pr create --base main --head <branch> --title "..." --body "Closes #<N>..."`.
 - If a change is accidentally committed to `main` before pushing, fix it before pushing: create a branch at that commit (`git branch <name> <sha>`), reset `main` back to `origin/main` (`git reset --hard origin/main`), then check out the new branch and push it.
+- Independent PRs that touch the same file: branch each from `main`; whichever merges second rebases onto `main` (`git rebase origin/main`) and resolves the conflict. Stack a branch only when it needs the other's code.
 - Multi-PR issues: write `Part of #<N>` on every PR but the last, and branch each PR from `main` after the previous one merges (squash-merge deletes stacked base branches).
 - Do not merge your own PR unless the user explicitly asks you to.
 
@@ -48,11 +40,8 @@ The binary entry point is `cmd/skillpack/`. There is no other binary in this rep
 | `CONTEXT.md` | Canonical domain glossary — read this first |
 | `CODING_STANDARDS.md` | Code conventions; the Standards source for `/code-review` |
 | `plan.md` | Full design spec with resolved decisions |
-| `internal/config/config.go` | Config schema, `DefaultAgents`, loading (`~/.skillpack/config.yaml`) |
-| `internal/state/state.go` | State schema and management (`~/.skillpack/state.json`) |
-| `internal/repo/repo.go` | Repo management + skill discovery |
-| `internal/skill/skill.go` | Install, remove, hash, conflict detection |
-| `internal/pack/pack.go` | Pack schema: `pack.yaml` parsing and validation (deployment lives in `deploy.go`, resolution in `resolve.go`) |
+| Child `AGENTS.md` (index at the bottom) | Per-package ownership; state, config, repo, skill, pack, gitops live under `internal/` |
+
 
 ## Architecture Constraints
 

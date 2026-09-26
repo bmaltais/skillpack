@@ -162,3 +162,20 @@ func TestRunSync_ScopedUnknownSkill(t *testing.T) {
 		t.Fatal("expected error for a skill that is not installed")
 	}
 }
+
+// TestRunSync_NilConfigAndBulkForceIgnored: RunSync tolerates a nil config and
+// never applies a force strategy without a named skill.
+func TestRunSync_NilConfigAndBulkForceIgnored(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	st := &state.State{
+		Repos:           map[string]state.RepoRecord{},
+		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{},
+	}
+	rep, err := skill.RunSync(skill.SyncOptions{DryRun: true, Resolve: skill.ResolveForceRemote}, nil, st)
+	if err != nil {
+		t.Fatalf("RunSync: %v", err)
+	}
+	if len(rep.Rows) != 0 {
+		t.Errorf("rows = %+v, want none", rep.Rows)
+	}
+}

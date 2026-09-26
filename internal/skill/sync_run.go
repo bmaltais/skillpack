@@ -41,7 +41,8 @@ type SyncOptions struct {
 	Addr string
 	// DryRun plans without pulling or applying.
 	DryRun bool
-	// Resolve is applied to conflicts; empty leaves them unresolved.
+	// Resolve is applied to conflicts; empty leaves them unresolved. Force
+	// strategies are ignored unless Addr names a skill.
 	Resolve ResolveStrategy
 	// LLMAgent names the agent used when Resolve is ResolveLLM.
 	LLMAgent string
@@ -64,6 +65,13 @@ func RunSync(opts SyncOptions, cfg *config.Config, st *state.State) (SyncReport,
 		err error
 	)
 	rep.DryRun = opts.DryRun
+	if cfg == nil {
+		cfg = &config.Config{}
+	}
+	if opts.Addr == "" && (opts.Resolve == ResolveForceRemote || opts.Resolve == ResolveForceLocal) {
+		// Force strategies overwrite one side wholesale; only ever on a named skill.
+		opts.Resolve = ""
+	}
 	switch {
 	case opts.Addr != "":
 		err = syncOne(opts, cfg, st, &rep)
@@ -176,6 +184,7 @@ func resolveConflict(row SyncRow, opts SyncOptions, cfg *config.Config, st *stat
 	case errors.Is(err, ErrMergeConflicts):
 		row.MergeConflicts = true
 	case err != nil && (opts.Resolve == ResolveForceRemote || opts.Resolve == ResolveForceLocal):
+		row.Err = err
 		return row, err
 	case err != nil:
 		row.Err = err

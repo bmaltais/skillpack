@@ -90,10 +90,6 @@ Resolve conflicts with:
 		}
 		scoped := opts.Addr != ""
 		if !scoped {
-			// Force flags only apply to a named skill; bulk sync resolves by merge only.
-			if opts.Resolve == skill.ResolveForceRemote || opts.Resolve == skill.ResolveForceLocal {
-				opts.Resolve = ""
-			}
 			prefix := ""
 			if dryRun {
 				prefix = "[dry-run] "
@@ -102,7 +98,7 @@ Resolve conflicts with:
 		}
 
 		rep, err := skill.RunSync(opts, app.Cfg, app.St)
-		renderSyncReport(rep, scoped, app.St)
+		renderSyncReport(rep, scoped, app.St, err == nil)
 		if err != nil {
 			return err
 		}
@@ -121,8 +117,9 @@ Resolve conflicts with:
 	},
 }
 
-// renderSyncReport prints a report's notices, one line per row, and the summary.
-func renderSyncReport(rep skill.SyncReport, scoped bool, st *state.State) {
+// renderSyncReport prints a report's notices, one line per row and, when
+// withSummary is set, the summary (skipped after a fatal error).
+func renderSyncReport(rep skill.SyncReport, scoped bool, st *state.State, withSummary bool) {
 	for _, n := range rep.Notices {
 		fmt.Printf("  %s\n", n)
 	}
@@ -139,7 +136,9 @@ func renderSyncReport(rep skill.SyncReport, scoped bool, st *state.State) {
 			fmt.Printf("  %-*s  %-*s  %s\n", addrW, "", agentW, "", yellow("warning: "+r.Warning))
 		}
 	}
-	printSyncSummary(rep.Summary, addrW, agentW, st)
+	if withSummary {
+		printSyncSummary(rep.Summary, addrW, agentW, st)
+	}
 }
 
 // syncRowText is the status text for one row; empty when the row prints nothing.

@@ -37,7 +37,6 @@ Installs, removes, updates, forks, syncs, publishes, and reconciles skills. The 
 - Conflict resolution flags (`--force-remote`, `--force-local`, `--merge`) apply to `update` and `sync`.
 - Fork metadata lives in `.skillpack-fork` at the skill root. Skipped during hash.
 - `DetectDuplicateSets` is pure (no `state.State`, no writes): it takes an already-discovered `[]repo.SkillInfo` and groups same-basename skills across ≥2 repos, cross-checked against SKILL.md frontmatter `name:`. See ADR-0003 and the "Duplicate Set" entry in CONTEXT.md.
-
 - `Sync` and `RunSync` return a `SyncReport` (rows, notices, `SyncSummary`); classification lives in `summarizeRows`. CLI and TUI render the report and never re-tally or orchestrate conflict resolution. `internal/skill` never prints: non-fatal messages go in `SyncReport.Notices`.
 
 ## Work Guidance

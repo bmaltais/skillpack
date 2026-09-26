@@ -196,8 +196,8 @@ Browse, install, create, and edit packs (bundles of skills published together).
 | n | Create a new pack (embedded wizard, chrome stays visible around it) |
 | e | Edit the selected pack |
 | i | Install the selected available pack (agent multi-select dialog) |
-| c | Complete a partially-deployed pack |
-| d | Remove the selected installed pack (confirmation dialog) |
+| c | Complete a partially-deployed pack (re-registers the pack's missing repos when possible) |
+| d | Remove the selected installed pack (confirmation dialog; locally modified skills are kept) |
 | / | Enter filter mode (incremental search on pack address / description) |
 | Backspace | Delete filter character (while filtering) |
 | Esc | Exit filter mode and clear the filter (or close the detail overlay first) |

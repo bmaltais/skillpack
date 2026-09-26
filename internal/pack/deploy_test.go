@@ -59,11 +59,15 @@ func skillRepo(t *testing.T) string {
 	return dir
 }
 
-func newEnv(t *testing.T) (*config.Config, *state.State) {
+func newEnv(t *testing.T, agents ...string) (*config.Config, *state.State) {
 	t.Helper()
-	cfg := &config.Config{
-		DefaultAgent: "claude-code",
-		Agents:       map[string]config.AgentConfig{"claude-code": {SkillDir: t.TempDir()}},
+	t.Setenv("HOME", t.TempDir())
+	if len(agents) == 0 {
+		agents = []string{"claude-code"}
+	}
+	cfg := &config.Config{DefaultAgent: agents[0], Agents: make(map[string]config.AgentConfig)}
+	for _, a := range agents {
+		cfg.Agents[a] = config.AgentConfig{SkillDir: t.TempDir()}
 	}
 	st := &state.State{
 		Repos:           make(map[string]state.RepoRecord),

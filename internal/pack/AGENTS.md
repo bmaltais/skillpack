@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Owns everything about Packs: the `pack.yaml` schema, resolving a Pack Recipe from an address, and deploying it (install, complete a partial deployment). The CLI and TUI both call this package; neither re-implements the flow.
+Owns everything about Packs: the `pack.yaml` schema, resolving a Pack Recipe from an address, and the deployment lifecycle (install, complete a partial deployment, update, remove). The CLI and TUI both call this package; neither re-implements the flow.
 
 ## Ownership
 
@@ -11,6 +11,7 @@ Owns everything about Packs: the `pack.yaml` schema, resolving a Pack Recipe fro
 | `pack.yaml` schema, parse, validate | `internal/pack/pack.go` |
 | Resolve registered address / HTTPS URL / local path to a `Definition` | `internal/pack/resolve.go` |
 | Install, Complete, `Result`, `Options.Progress` events, `IsPartial` | `internal/pack/deploy.go` |
+| Update, Remove, `RemoveOptions` | `internal/pack/manage.go` |
 
 ## Local Contracts
 
@@ -19,6 +20,8 @@ Owns everything about Packs: the `pack.yaml` schema, resolving a Pack Recipe fro
 - No printing. Progress goes through `Options.Progress` (nil means quiet); summary wording belongs to the caller.
 - `Complete` re-registers missing repos only when the recipe resolves from the pack address (registered packs); URL/filepath packs have synthetic addresses and only retry installs.
 - `Resolve` accepts only `https://` URLs for remote recipes.
+- `Update` never overwrites a skill in Conflict (upstream changed and locally modified): it reports `OutcomeBlocked`. Blocked or failed updates leave the skill's pack status untouched, so they never make a deployment partial.
+- `Remove` keeps skills with Local Modifications unless `RemoveOptions.Force` is set; kept skills become ordinary Installed Skills (`OutcomeKept`). The pack record is dropped once no agents remain, otherwise the removed agents are pruned from it.
 - Agent selection and flag handling stay in `cmd/skillpack`; the module takes an explicit agent list.
 
 ## Work Guidance

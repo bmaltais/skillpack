@@ -24,7 +24,8 @@ go build ./cmd/skillpack/        # build the binary
 go test ./...                    # run all tests
 go vet ./...                     # static analysis
 make check                       # gofmt check + vet + test (what CI runs)
-make hooks                       # enable the pre-commit hook (once per clone)
+make fmt                         # gofmt -w . (fix what make check's format check reports)
+make hooks                       # enable the pre-commit hook: runs make check (once per clone)
 ```
 
 The binary entry point is `cmd/skillpack/`. There is no other binary in this repo.
@@ -35,6 +36,7 @@ The binary entry point is `cmd/skillpack/`. There is no other binary in this rep
 - Branch naming follows the existing convention: `feat/issue-<N>-<slug>` for features, `fix/issue-<N>-<slug>` for bug fixes (see `git branch -a` for examples). Use the GitHub issue number when one exists.
 - After committing to the branch, push it with `git push -u origin <branch>`, then open a PR with `gh pr create --base main --head <branch> --title "..." --body "Closes #<N>..."`.
 - If a change is accidentally committed to `main` before pushing, fix it before pushing: create a branch at that commit (`git branch <name> <sha>`), reset `main` back to `origin/main` (`git reset --hard origin/main`), then check out the new branch and push it.
+- Multi-PR issues: write `Part of #<N>` on every PR but the last, and branch each PR from `main` after the previous one merges (squash-merge deletes stacked base branches).
 - Do not merge your own PR unless the user explicitly asks you to.
 
 ## Key Files

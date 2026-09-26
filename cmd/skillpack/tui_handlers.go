@@ -13,7 +13,6 @@ import (
 	"github.com/bmaltais/skillpack/internal/pack"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/skill"
-	"github.com/bmaltais/skillpack/internal/state"
 )
 
 // --- Action Handlers (extracted in Phase 3) ---
@@ -576,10 +575,6 @@ func (m *model) handleSkillToggle() {
 			m.message = fmt.Sprintf("✗ Install failed: %v", err)
 			return
 		}
-		if err := state.Save(m.st); err != nil {
-			m.message = fmt.Sprintf("✗ Save failed: %v", err)
-			return
-		}
 		m.installed[addr][agent] = true
 		m.message = fmt.Sprintf("➕ Installed %s for %s", addr, agent)
 	}
@@ -708,10 +703,6 @@ func (m *model) doAddRepo(name, url string) {
 		m.message = fmt.Sprintf("✗ Add failed: %v", err)
 		return
 	}
-	if err := state.Save(m.st); err != nil {
-		m.message = fmt.Sprintf("✗ Save failed: %v", err)
-		return
-	}
 	m.refreshRepos()
 	m.refreshSkills()
 	if recovered {
@@ -729,11 +720,6 @@ func (m *model) doRemoveRepo() {
 	name := m.repoList[m.repoCursor].name
 	if err := repo.Remove(name, m.st); err != nil {
 		m.message = fmt.Sprintf("✗ Remove failed: %v", err)
-		m.inputMode = modeNormal
-		return
-	}
-	if err := state.Save(m.st); err != nil {
-		m.message = fmt.Sprintf("✗ Save failed: %v", err)
 		m.inputMode = modeNormal
 		return
 	}
@@ -798,12 +784,6 @@ func (m *model) doAdopt() {
 
 	if err := skill.Install(newAddr, entry.agentName, m.cfg, m.st, false); err != nil {
 		m.message = fmt.Sprintf("✗ Install failed: %v", err)
-		m.inputMode = modeNormal
-		return
-	}
-
-	if err := state.Save(m.st); err != nil {
-		m.message = fmt.Sprintf("✗ Save failed: %v", err)
 		m.inputMode = modeNormal
 		return
 	}

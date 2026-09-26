@@ -52,7 +52,7 @@ func TestComputeSkillProblems_HealthySkill(t *testing.T) {
 	cacheDir := makeGitClone(t, filepath.Join(t.TempDir(), "repo-a"))
 	makeSkillDir(t, cacheDir, "coding/debugger")
 
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"repo-a": {URL: "https://example.com/repo-a.git", CachePath: cacheDir},
 		},
@@ -61,7 +61,7 @@ func TestComputeSkillProblems_HealthySkill(t *testing.T) {
 				"copilot": {InstalledAtSHA: "abc", InstalledHash: "def"},
 			},
 		},
-	}
+	})
 
 	discovered := map[string]bool{"repo-a/coding/debugger": true}
 	got := computeSkillProblems(st, discovered)
@@ -79,7 +79,7 @@ func TestComputeSkillProblems_StaleSkill(t *testing.T) {
 	cacheDir := makeGitClone(t, filepath.Join(t.TempDir(), "repo-a"))
 	// Note: the skill directory is NOT created — it's gone from the cache.
 
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"repo-a": {URL: "https://example.com/repo-a.git", CachePath: cacheDir},
 		},
@@ -88,7 +88,7 @@ func TestComputeSkillProblems_StaleSkill(t *testing.T) {
 				"copilot": {InstalledAtSHA: "abc", InstalledHash: "def"},
 			},
 		},
-	}
+	})
 
 	// The skill is NOT in the discovered set (simulates path gone from cache).
 	discovered := map[string]bool{}
@@ -112,7 +112,7 @@ func TestComputeSkillProblems_BrokenUpstream(t *testing.T) {
 	upstreamCacheDir := makeGitClone(t, filepath.Join(t.TempDir(), "upstream-repo"))
 	// upstream skill NOT created — it's been deleted upstream.
 
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"my-repo":       {URL: "git@github.com:me/my-repo.git", CachePath: ownCacheDir},
 			"upstream-repo": {URL: "https://example.com/upstream-repo.git", CachePath: upstreamCacheDir},
@@ -127,7 +127,7 @@ func TestComputeSkillProblems_BrokenUpstream(t *testing.T) {
 				},
 			},
 		},
-	}
+	})
 
 	// Fork itself IS discoverable; its UpstreamAddr is broken.
 	discovered := map[string]bool{"my-repo/coding/debugger": true}
@@ -146,7 +146,7 @@ func TestComputeSkillProblems_UpstreamRepoNotRegistered(t *testing.T) {
 	ownCacheDir := makeGitClone(t, filepath.Join(t.TempDir(), "my-repo"))
 	makeSkillDir(t, ownCacheDir, "coding/debugger")
 
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"my-repo": {URL: "git@github.com:me/my-repo.git", CachePath: ownCacheDir},
 			// "upstream-repo" is NOT registered.
@@ -161,7 +161,7 @@ func TestComputeSkillProblems_UpstreamRepoNotRegistered(t *testing.T) {
 				},
 			},
 		},
-	}
+	})
 
 	discovered := map[string]bool{"my-repo/coding/debugger": true}
 	got := computeSkillProblems(st, discovered)
@@ -182,7 +182,7 @@ func TestComputeSkillProblems_HealthyFork(t *testing.T) {
 	upstreamCacheDir := makeGitClone(t, filepath.Join(t.TempDir(), "upstream-repo"))
 	makeSkillDir(t, upstreamCacheDir, "coding/debugger") // upstream skill still exists
 
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"my-repo":       {URL: "git@github.com:me/my-repo.git", CachePath: ownCacheDir},
 			"upstream-repo": {URL: "https://example.com/upstream-repo.git", CachePath: upstreamCacheDir},
@@ -197,7 +197,7 @@ func TestComputeSkillProblems_HealthyFork(t *testing.T) {
 				},
 			},
 		},
-	}
+	})
 
 	discovered := map[string]bool{"my-repo/coding/debugger": true}
 	got := computeSkillProblems(st, discovered)
@@ -218,7 +218,7 @@ func TestRefreshSkills_StaleAddressAppearsInRows(t *testing.T) {
 	// The skill path is gone from the cache — do NOT create it.
 
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"repo-a": {URL: "https://example.com/repo-a.git", CachePath: cacheDir},
 		},
@@ -227,7 +227,7 @@ func TestRefreshSkills_StaleAddressAppearsInRows(t *testing.T) {
 				"copilot": {InstalledAtSHA: "abc", InstalledHash: "def"},
 			},
 		},
-	}
+	})
 
 	m := initialModel(cfg, st)
 
@@ -259,7 +259,7 @@ func TestRefreshSkills_BrokenUpstreamMarked(t *testing.T) {
 	// upstream skill path is gone — NOT created
 
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"my-repo":       {URL: "git@github.com:me/my-repo.git", CachePath: ownCacheDir},
 			"upstream-repo": {URL: "https://example.com/upstream-repo.git", CachePath: upstreamCacheDir},
@@ -274,7 +274,7 @@ func TestRefreshSkills_BrokenUpstreamMarked(t *testing.T) {
 				},
 			},
 		},
-	}
+	})
 
 	m := initialModel(cfg, st)
 
@@ -301,11 +301,11 @@ func TestRefreshPacks_Empty(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos:           make(map[string]state.RepoRecord),
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
 		InstalledPacks:  make(map[string]state.InstalledPackRecord),
-	}
+	})
 
 	m := initialModel(cfg, st)
 	if len(m.packRows) != 0 {
@@ -318,7 +318,7 @@ func TestRefreshPacks_Complete(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos:           make(map[string]state.RepoRecord),
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
 		InstalledPacks: map[string]state.InstalledPackRecord{
@@ -332,7 +332,7 @@ func TestRefreshPacks_Complete(t *testing.T) {
 				},
 			},
 		},
-	}
+	})
 
 	m := initialModel(cfg, st)
 	if len(m.packRows) != 1 {
@@ -352,7 +352,7 @@ func TestRefreshPacks_Partial(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos:           make(map[string]state.RepoRecord),
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
 		InstalledPacks: map[string]state.InstalledPackRecord{
@@ -369,7 +369,7 @@ func TestRefreshPacks_Partial(t *testing.T) {
 				},
 			},
 		},
-	}
+	})
 
 	m := initialModel(cfg, st)
 	if len(m.packRows) != 1 {
@@ -385,14 +385,14 @@ func TestRefreshPacks_SortedByAddr(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos:           make(map[string]state.RepoRecord),
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
 		InstalledPacks: map[string]state.InstalledPackRecord{
 			"z-repo/packs/z": {PackAddress: "z-repo/packs/z", Skills: map[string]map[string]state.PackSkillStatus{}},
 			"a-repo/packs/a": {PackAddress: "a-repo/packs/a", Skills: map[string]map[string]state.PackSkillStatus{}},
 		},
-	}
+	})
 
 	m := initialModel(cfg, st)
 	if len(m.packRows) != 2 {
@@ -432,7 +432,7 @@ func TestRefreshPacks_MergesAvailableAndInstalled(t *testing.T) {
 	makePackDir(t, cache, "packs/inst", "inst", "an installed pack")
 
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos:           map[string]state.RepoRecord{"my-repo": {URL: "https://example.com/r.git", CachePath: cache}},
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
 		InstalledPacks: map[string]state.InstalledPackRecord{
@@ -444,7 +444,7 @@ func TestRefreshPacks_MergesAvailableAndInstalled(t *testing.T) {
 				},
 			},
 		},
-	}
+	})
 
 	m := initialModel(cfg, st)
 	if len(m.packRows) != 2 {
@@ -470,11 +470,11 @@ func TestRefreshPacks_MergesAvailableAndInstalled(t *testing.T) {
 func TestPackWizard_OpenAndCancel(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos:           make(map[string]state.RepoRecord),
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
 		InstalledPacks:  make(map[string]state.InstalledPackRecord),
-	}
+	})
 	m := initialModel(cfg, st)
 	m.activePanel = panelPacks
 
@@ -499,11 +499,11 @@ func TestPackWizard_OpenAndCancel(t *testing.T) {
 func TestPackWizard_DoneScreenClosesAndReportsResult(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos:           make(map[string]state.RepoRecord),
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
 		InstalledPacks:  make(map[string]state.InstalledPackRecord),
-	}
+	})
 	m := initialModel(cfg, st)
 	m.activePanel = panelPacks
 	w := initialPackCreateModel(cfg, st)
@@ -536,11 +536,11 @@ func TestStartPackInstall_PreselectsDefaultAgent(t *testing.T) {
 			"pi":          {SkillDir: t.TempDir()},
 		},
 	}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos:           map[string]state.RepoRecord{"my-repo": {URL: "https://example.com/r.git", CachePath: cache}},
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
 		InstalledPacks:  make(map[string]state.InstalledPackRecord),
-	}
+	})
 	m := initialModel(cfg, st)
 	m.activePanel = panelPacks
 
@@ -566,7 +566,7 @@ func TestViewPacks_RendersMergedList(t *testing.T) {
 	makePackDir(t, cache, "packs/avail", "avail", "a description here")
 
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos:           map[string]state.RepoRecord{"my-repo": {URL: "https://example.com/r.git", CachePath: cache}},
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
 		InstalledPacks: map[string]state.InstalledPackRecord{
@@ -578,7 +578,7 @@ func TestViewPacks_RendersMergedList(t *testing.T) {
 				},
 			},
 		},
-	}
+	})
 	m := initialModel(cfg, st)
 	m.activePanel = panelPacks
 	out := m.View()
@@ -602,13 +602,13 @@ func TestRefreshDoctor_NoDuplicates(t *testing.T) {
 	makeSkillDir(t, cacheB, "debugger")
 
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"repo-a": {URL: "https://example.com/a.git", CachePath: cacheA},
 			"repo-b": {URL: "https://example.com/b.git", CachePath: cacheB},
 		},
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-	}
+	})
 
 	m := initialModel(cfg, st)
 	if err := m.refreshDoctor(); err != nil {
@@ -629,13 +629,13 @@ func TestRefreshDoctor_FindsDuplicateAcrossRepos(t *testing.T) {
 	makeSkillDir(t, cacheB, "coding/debugger") // same relPath, same content → identical
 
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"repo-a": {URL: "https://example.com/a.git", CachePath: cacheA},
 			"repo-b": {URL: "https://example.com/b.git", CachePath: cacheB},
 		},
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-	}
+	})
 
 	m := initialModel(cfg, st)
 	if err := m.refreshDoctor(); err != nil {
@@ -663,13 +663,13 @@ func TestSwitchPanel_Doctor_RefreshesAndResetsScroll(t *testing.T) {
 	makeSkillDir(t, cacheB, "triage")
 
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"repo-a": {URL: "https://example.com/a.git", CachePath: cacheA},
 			"repo-b": {URL: "https://example.com/b.git", CachePath: cacheB},
 		},
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-	}
+	})
 
 	m := initialModel(cfg, st)
 	m.doctorScroll = 5
@@ -695,13 +695,13 @@ func TestViewDoctor_RendersDuplicateSet(t *testing.T) {
 	makeSkillDir(t, cacheB, "triage")
 
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"repo-a": {URL: "https://example.com/a.git", CachePath: cacheA},
 			"repo-b": {URL: "https://example.com/b.git", CachePath: cacheB},
 		},
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-	}
+	})
 
 	m := initialModel(cfg, st)
 	m.activePanel = panelDoctor
@@ -723,10 +723,10 @@ func TestViewDoctor_NoDuplicatesMessage(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos:           make(map[string]state.RepoRecord),
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-	}
+	})
 
 	m := initialModel(cfg, st)
 	m.activePanel = panelDoctor
@@ -746,12 +746,12 @@ func TestRefreshDoctor_SurfacesScanError(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"broken-repo": {URL: "https://example.com/broken.git", CachePath: filepath.Join(t.TempDir(), "does-not-exist")},
 		},
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-	}
+	})
 
 	m := initialModel(cfg, st)
 	if err := m.refreshDoctor(); err == nil {
@@ -765,12 +765,12 @@ func TestSwitchPanel_Doctor_SurfacesScanError(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
-	st := &state.State{
+	st := memState(&state.State{
 		Repos: map[string]state.RepoRecord{
 			"broken-repo": {URL: "https://example.com/broken.git", CachePath: filepath.Join(t.TempDir(), "does-not-exist")},
 		},
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-	}
+	})
 
 	m := initialModel(cfg, st)
 	m.switchPanel(panelDoctor)

@@ -10,7 +10,7 @@ Manages `~/.skillpack/state.json`: tracks registered repos, installed skills per
 |---------|-------|
 | State struct & JSON load/save | `internal/state/state.go` |
 | Install/remove/rename/hash mutation methods | `internal/state/state.go` |
-| Persistence seam (`Store`, file + `MemoryStore` adapters), `Clone` | `internal/state/store.go` |
+| Persistence seam (`Store` Load/Save, file + `MemoryStore` adapters), `Clone` | `internal/state/store.go` |
 
 ## Local Contracts
 
@@ -25,7 +25,9 @@ Manages `~/.skillpack/state.json`: tracks registered repos, installed skills per
 - `RecordRemove` deletes the agent entry; removes the address map if empty.
 - `RecordRenameAddr` moves all agent entries from oldAddr to newAddr.
 
-- Persistence goes through `State.Save()` / `state.Save(st)`; a State saves via its `Store` (JSON file by default, `NewMemory()` for tests, no temp HOME needed). `Clone()` deep-copies and keeps the store; add new State fields there.
+- Persistence goes through the `Store` seam (`Load`/`Save`). `state.Load()` reads the JSON file store; `State.Save()` / `state.Save(st)` write through the State's store (JSON file by default, `NewMemory()` / `NewMemoryFrom(seed)` for tests: no temp HOME, `MemoryStore.Saves()`/`Last()` to assert). `MemoryStore.Load` returns a clone of the last saved snapshot.
+- `Clone()` is a JSON round-trip deep copy that keeps the store and leaves the three top-level maps non-nil; new exported fields with json tags are covered automatically (no per-field copy code).
+- Callers outside `internal/*` never call Save: each internal operation (install, remove, update, repo add/remove/rename, pack ops, ...) mutates and saves once itself.
 
 ## Work Guidance
 

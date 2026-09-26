@@ -1,9 +1,7 @@
 package state
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -57,35 +55,9 @@ type InstalledSkillRecord struct {
 	UpstreamSHA string `json:"upstream_sha,omitempty"`
 }
 
-// Load reads state from ~/.skillpack/state.json.
+// Load reads state through the file store (~/.skillpack/state.json).
 // Returns an empty State (no error) if the file does not exist yet.
-func Load() (*State, error) {
-	p, err := statePath()
-	if err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(p)
-	if os.IsNotExist(err) {
-		return empty(), nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("reading state: %w", err)
-	}
-	var st State
-	if err := json.Unmarshal(data, &st); err != nil {
-		return nil, fmt.Errorf("parsing state: %w", err)
-	}
-	if st.Repos == nil {
-		st.Repos = make(map[string]RepoRecord)
-	}
-	if st.InstalledSkills == nil {
-		st.InstalledSkills = make(map[string]map[string]InstalledSkillRecord)
-	}
-	if st.InstalledPacks == nil {
-		st.InstalledPacks = make(map[string]InstalledPackRecord)
-	}
-	return &st, nil
-}
+func Load() (*State, error) { return fileStore{}.Load() }
 
 // Save persists st through its store (the JSON file unless st came from NewMemory).
 func Save(st *State) error { return st.Save() }

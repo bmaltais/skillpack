@@ -8,10 +8,8 @@ import (
 )
 
 func emptyState() *state.State {
-	return &state.State{
-		Repos:           map[string]state.RepoRecord{},
-		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{},
-	}
+	st, _ := state.NewMemory()
+	return st
 }
 
 func rec(sha, hash, path string) state.InstalledSkillRecord {
@@ -186,11 +184,9 @@ func TestRecordRenameAddr_EmptyNewAddrError(t *testing.T) {
 // ─── InstalledPacks round-trip ────────────────────────────────────────────────
 
 func TestInstalledPacks_RoundTrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
 	now := time.Now().UTC().Truncate(time.Second) // truncate to survive JSON round-trip
 
-	st := emptyState()
+	st, mem := state.NewMemory()
 	st.InstalledPacks = make(map[string]state.InstalledPackRecord)
 	st.InstalledPacks["awesome-skills/packs/go-dev"] = state.InstalledPackRecord{
 		PackAddress: "awesome-skills/packs/go-dev",
@@ -206,11 +202,11 @@ func TestInstalledPacks_RoundTrip(t *testing.T) {
 		},
 	}
 
-	if err := state.Save(st); err != nil {
+	if err := st.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
-	loaded, err := state.Load()
+	loaded, err := mem.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}

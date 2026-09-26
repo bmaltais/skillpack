@@ -14,7 +14,6 @@ import (
 	"github.com/bmaltais/skillpack/internal/pack"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/skill"
-	"github.com/bmaltais/skillpack/internal/state"
 )
 
 // --- Async Command Factories (extracted in Phase 4) ---
@@ -192,10 +191,6 @@ func (m *model) cmdSync() tea.Cmd {
 			case r.Action == skill.SyncAlreadyCurrent:
 				current++
 			}
-		}
-
-		if updated > 0 || published > 0 {
-			_ = state.Save(stCopy)
 		}
 
 		parts := []string{}

@@ -3,6 +3,7 @@ package testutil
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -13,7 +14,17 @@ import (
 //
 // This guarantees no test in the package can write to the developer's real
 // ~/.skillpack, even if the test forgets to call t.Setenv("HOME", ...).
+//
+// It also clears every GIT_* variable. Git exports GIT_DIR, GIT_INDEX_FILE and
+// friends to hooks, so under the pre-commit hook a test's git commands would
+// otherwise act on the real repository instead of the temp fixture.
 func RunWithTempHome(m *testing.M) int {
+	for _, kv := range os.Environ() {
+		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(name, "GIT_") {
+			os.Unsetenv(name)
+		}
+	}
+
 	tmp, err := os.MkdirTemp("", "skillpack-test-*")
 	if err != nil {
 		panic("failed to create test home dir: " + err.Error())

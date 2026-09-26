@@ -13,7 +13,7 @@ Shared test helpers. Provides `RunWithTempHome` to isolate tests from the develo
 
 ## Local Contracts
 
-- `RunWithTempHome` sets `HOME` to a fresh `/tmp` dir, runs the test suite, then removes the temp dir.
+- `RunWithTempHome` sets `HOME` to a fresh `/tmp` dir, clears every `GIT_*` variable (git exports `GIT_DIR`/`GIT_INDEX_FILE` to hooks, which would point test git commands at the real repo), runs the test suite, then removes the temp dir.
 - Every `TestMain` should use: `func TestMain(m *testing.M) { os.Exit(testutil.RunWithTempHome(m)) }`
 - Prevents tests from writing to the developer's real config/state.
 

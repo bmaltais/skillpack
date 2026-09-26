@@ -200,8 +200,8 @@ them as a named unit in state.
 | `skillpack pack install <addr> --all-agents` | Install for every configured agent |
 | `skillpack pack install <url>` | Fetch a raw `pack.yaml` from an HTTPS URL, register its repos, install |
 | `skillpack pack install <path>` | Read a local `pack.yaml`, register its repos, install |
-| `skillpack pack remove <addr>` | Remove all member skills and the pack record |
-| `skillpack pack update <addr>` | Pull latest repo content and reinstall changed skills |
+| `skillpack pack remove <addr>` | Remove member skills and the pack record; skills with local modifications are kept unless `--force` |
+| `skillpack pack update <addr>` | Pull latest repo content and update changed skills; skills in conflict (local edits + upstream change) are reported, not overwritten |
 | `skillpack pack status <addr>` | Show per-skill, per-agent install status |
 | `skillpack pack list` | List installed packs with complete/partial status |
 | `skillpack pack list --available` | Browse packs available in registered repos |

@@ -13,31 +13,6 @@ import (
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
-// ─── removeStrings ────────────────────────────────────────────────────────────
-
-func TestRemoveStrings_RemovesSome(t *testing.T) {
-	got := removeStrings([]string{"a", "b", "c"}, []string{"b"})
-	want := []string{"a", "c"}
-	sort.Strings(got)
-	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Errorf("removeStrings = %v, want %v", got, want)
-	}
-}
-
-func TestRemoveStrings_RemovesAll(t *testing.T) {
-	got := removeStrings([]string{"a", "b"}, []string{"a", "b"})
-	if len(got) != 0 {
-		t.Errorf("expected empty, got %v", got)
-	}
-}
-
-func TestRemoveStrings_NothingToRemove(t *testing.T) {
-	got := removeStrings([]string{"a", "b"}, []string{"c"})
-	if len(got) != 2 {
-		t.Errorf("expected 2 elements, got %v", got)
-	}
-}
-
 // ─── skillsInPack ─────────────────────────────────────────────────────────────
 
 func TestSkillsInPack_SortedOutput(t *testing.T) {

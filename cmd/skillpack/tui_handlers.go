@@ -1028,7 +1028,7 @@ func (m *model) startPackRemove() {
 		return
 	}
 	packAddr := m.packRows[m.packCursor].packAddr
-	m.message = fmt.Sprintf("Remove pack %q? (y/N)", packAddr)
+	m.message = fmt.Sprintf("Remove pack %q? Locally modified skills are kept. (y/N)", packAddr)
 	m.inputMode = modePackConfirmRemove
 }
 
@@ -1038,37 +1038,11 @@ func (m *model) doPackRemove() {
 		return
 	}
 	packAddr := m.packRows[m.packCursor].packAddr
-	rec, ok := m.st.InstalledPacks[packAddr]
-	if !ok {
-		m.message = fmt.Sprintf("✗ Pack %q not found in state", packAddr)
-		m.inputMode = modeNormal
-		return
-	}
 
-	// Remove all skills for all agents in the pack; count failures for user feedback.
-	removeFailures := 0
-	for skillAddr, agStatuses := range rec.Skills {
-		for ag, agStatus := range agStatuses {
-			if !agStatus.Installed {
-				continue
-			}
-			is, err := skill.Open(skillAddr, ag, m.cfg, m.st)
-			if err != nil {
-				continue // skill not installed — nothing to remove
-			}
-			if err := is.Remove(true); err != nil {
-				removeFailures++
-			}
-		}
-	}
-
-	if err := m.st.RecordPackRemove(packAddr); err != nil {
+	// Remove skills for all the pack's agents. Locally modified skills are kept.
+	res, err := pack.Remove(m.cfg, m.st, packAddr, nil, pack.RemoveOptions{})
+	if err != nil {
 		m.message = fmt.Sprintf("✗ Remove failed: %v", err)
-		m.inputMode = modeNormal
-		return
-	}
-	if err := state.Save(m.st); err != nil {
-		m.message = fmt.Sprintf("✗ Save failed: %v", err)
 		m.inputMode = modeNormal
 		return
 	}
@@ -1079,9 +1053,12 @@ func (m *model) doPackRemove() {
 	if m.packCursor >= len(m.packRows) && m.packCursor > 0 {
 		m.packCursor--
 	}
-	if removeFailures > 0 {
-		m.message = fmt.Sprintf("⚠ Removed pack %s (%d skill file(s) could not be deleted — check manually)", packAddr, removeFailures)
-	} else {
+	switch {
+	case res.Failed > 0:
+		m.message = fmt.Sprintf("⚠ Removed pack %s (%d skill file(s) could not be deleted — check manually)", packAddr, res.Failed)
+	case res.Kept > 0:
+		m.message = fmt.Sprintf("➖ Removed pack %s (%d locally modified skill(s) kept)", packAddr, res.Kept)
+	default:
 		m.message = fmt.Sprintf("➖ Removed pack %s", packAddr)
 	}
 	m.inputMode = modeNormal

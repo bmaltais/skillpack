@@ -16,22 +16,33 @@ import (
 type EventKind int
 
 const (
-	RepoRegistering EventKind = iota // a missing repo is being registered
-	RepoFailed                       // registering a repo failed (Err is set)
-	SkillInstalling                  // a skill install is starting
-	SkillInstalled                   // a skill install succeeded
-	SkillFailed                      // a skill install failed (Err is set)
-	SkillSkipped                     // a skill was skipped because its repo is unavailable (Err is set)
+	RepoRegistering   EventKind = iota // a missing repo is being registered
+	RepoFailed                         // registering a repo failed (Err is set)
+	SkillInstalling                    // a skill install is starting
+	SkillInstalled                     // a skill install succeeded
+	SkillFailed                        // a skill install failed (Err is set)
+	SkillSkipped                       // a skill was skipped because its repo is unavailable (Err is set)
+	RepoPulling                        // Update: a repo is being pulled
+	RepoPullFailed                     // Update: pulling a repo failed (Err is set)
+	RepoPullWarning                    // Update: pulling a repo produced a warning (Message is set)
+	SkillUpdating                      // Update: a skill update is starting
+	SkillUpdated                       // Update: a skill was updated
+	SkillBlocked                       // Update: a skill was not updated (Err says why)
+	SkillRemoving                      // Remove: a skill removal is starting
+	SkillRemoved                       // Remove: a skill was removed
+	SkillKept                          // Remove: a skill was kept because of local modifications
+	SkillNotInstalled                  // Remove: a skill was not installed for the agent (Err is set)
 )
 
 // Event is one progress notification from a deployment operation.
 type Event struct {
-	Kind  EventKind
-	Repo  string
-	URL   string // RepoRegistering only
-	Skill string
-	Agent string
-	Err   error
+	Kind    EventKind
+	Repo    string
+	URL     string // RepoRegistering only
+	Skill   string
+	Agent   string
+	Err     error
+	Message string // RepoPullWarning only
 }
 
 // Options tunes a deployment operation.
@@ -46,11 +57,27 @@ func (o Options) emit(e Event) {
 	}
 }
 
+// OutcomeKind classifies what an operation did for one skill × agent pair.
+type OutcomeKind int
+
+const (
+	OutcomeInstalled OutcomeKind = iota
+	OutcomeUpdated
+	OutcomeRemoved
+	OutcomeFailed  // install, update or removal failed
+	OutcomeBlocked // update not applied because of a Conflict
+	OutcomeKept    // removal skipped because of a Local Modification
+)
+
 // Outcome is the result for one skill × agent pair.
 type Outcome struct {
-	Skill  string
-	Agent  string
+	Skill string
+	Agent string
+	Kind  OutcomeKind
+	// Status is the pack-record status after the operation.
 	Status state.PackSkillStatus
+	// Message explains a Failed, Blocked or Kept outcome.
+	Message string
 }
 
 // Result describes a finished deployment operation.
@@ -60,9 +87,17 @@ type Result struct {
 	Record state.InstalledPackRecord
 	// Outcomes lists every skill × agent attempted by this operation, in order.
 	Outcomes []Outcome
-	// Installed and Failed count skill × agent installs (not unique skills).
+	// Counts of skill × agent outcomes by kind (not unique skills).
 	Installed int
+	Updated   int
+	Removed   int
 	Failed    int
+	Blocked   int
+	Kept      int
+	// Remove only: PackRemoved is true when the pack record was dropped;
+	// otherwise RemainingAgents lists the agents it is still deployed for.
+	PackRemoved     bool
+	RemainingAgents []string
 }
 
 // Partial reports whether the persisted deployment is a Partial Pack Deployment.
@@ -125,18 +160,8 @@ func Complete(cfg *config.Config, st *state.State, packAddr string, opts Options
 	}
 
 	res := &Result{Address: packAddr, Record: rec}
-	skillAddrs := make([]string, 0, len(rec.Skills))
-	for skillAddr := range rec.Skills {
-		skillAddrs = append(skillAddrs, skillAddr)
-	}
-	sort.Strings(skillAddrs)
-	for _, skillAddr := range skillAddrs {
-		agents := make([]string, 0, len(rec.Skills[skillAddr]))
-		for ag := range rec.Skills[skillAddr] {
-			agents = append(agents, ag)
-		}
-		sort.Strings(agents)
-		for _, ag := range agents {
+	for _, skillAddr := range sortedKeys(rec.Skills) {
+		for _, ag := range sortedKeys(rec.Skills[skillAddr]) {
 			if rec.Skills[skillAddr][ag].Installed {
 				continue
 			}
@@ -150,17 +175,40 @@ func Complete(cfg *config.Config, st *state.State, packAddr string, opts Options
 	return res, nil
 }
 
-// add records one outcome in the result and its pack record.
+// add records an install outcome in the result and its pack record.
 func (r *Result) add(skillAddr, agent string, status state.PackSkillStatus) {
+	r.setStatus(skillAddr, agent, status)
+	kind := OutcomeInstalled
+	if !status.Installed {
+		kind = OutcomeFailed
+	}
+	r.report(Outcome{Skill: skillAddr, Agent: agent, Kind: kind, Status: status, Message: status.Error})
+}
+
+// setStatus writes one skill × agent status into the pack record.
+func (r *Result) setStatus(skillAddr, agent string, status state.PackSkillStatus) {
 	if r.Record.Skills[skillAddr] == nil {
 		r.Record.Skills[skillAddr] = make(map[string]state.PackSkillStatus)
 	}
 	r.Record.Skills[skillAddr][agent] = status
-	r.Outcomes = append(r.Outcomes, Outcome{Skill: skillAddr, Agent: agent, Status: status})
-	if status.Installed {
+}
+
+// report appends an outcome and counts it. It does not touch the pack record.
+func (r *Result) report(o Outcome) {
+	r.Outcomes = append(r.Outcomes, o)
+	switch o.Kind {
+	case OutcomeInstalled:
 		r.Installed++
-	} else {
+	case OutcomeUpdated:
+		r.Updated++
+	case OutcomeRemoved:
+		r.Removed++
+	case OutcomeFailed:
 		r.Failed++
+	case OutcomeBlocked:
+		r.Blocked++
+	case OutcomeKept:
+		r.Kept++
 	}
 }
 
@@ -208,4 +256,14 @@ func ensureRepos(pk *Pack, cfg *config.Config, st *state.State, opts Options) ma
 func repoNameFromAddr(addr string) string {
 	name, _, _ := strings.Cut(addr, "/")
 	return name
+}
+
+// sortedKeys returns the keys of m in sorted order.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

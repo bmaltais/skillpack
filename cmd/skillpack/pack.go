@@ -14,7 +14,6 @@ import (
 	"github.com/bmaltais/skillpack/internal/config"
 	"github.com/bmaltais/skillpack/internal/pack"
 	"github.com/bmaltais/skillpack/internal/repo"
-	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
@@ -201,6 +200,26 @@ func printPackProgress(e pack.Event) {
 		fmt.Printf("    installed\n")
 	case pack.SkillFailed:
 		fmt.Printf("    %s\n", yellow("warning: "+e.Err.Error()))
+	case pack.RepoPulling:
+		fmt.Printf("  pulling repo %q ...\n", e.Repo)
+	case pack.RepoPullFailed:
+		fmt.Printf("  %s\n", yellow(fmt.Sprintf("warning: %v", e.Err)))
+	case pack.RepoPullWarning:
+		fmt.Printf("  %s\n", yellow(e.Message))
+	case pack.SkillUpdating:
+		fmt.Printf("  updating %s [%s] ...\n", e.Skill, e.Agent)
+	case pack.SkillUpdated:
+		fmt.Printf("    updated\n")
+	case pack.SkillBlocked:
+		fmt.Printf("  %s [%s]  %s\n", e.Skill, e.Agent, yellow("not updated — "+e.Err.Error()))
+	case pack.SkillRemoving:
+		fmt.Printf("  removing %s [%s] ...\n", e.Skill, e.Agent)
+	case pack.SkillRemoved:
+		fmt.Printf("    removed\n")
+	case pack.SkillKept:
+		fmt.Printf("    %s\n", yellow(e.Err.Error()))
+	case pack.SkillNotInstalled:
+		fmt.Printf("  skipping %s [%s]: %v\n", e.Skill, e.Agent, e.Err)
 	}
 }
 
@@ -294,54 +313,21 @@ var packRemoveCmd = &cobra.Command{
 
 		fmt.Printf("Removing pack %q from agents: %s\n", packAddr, strings.Join(agents, ", "))
 
-		for _, skillAddr := range skillsInPack(rec) {
-			for _, ag := range agents {
-				// Only remove if actually installed for this agent.
-				if agSt, ok := rec.Skills[skillAddr]; ok {
-					if agStatus, ok := agSt[ag]; !ok || !agStatus.Installed {
-						continue
-					}
-				}
-				is, err := skill.Open(skillAddr, ag, app.Cfg, app.St)
-				if err != nil {
-					fmt.Printf("  skipping %s [%s]: %v\n", skillAddr, ag, err)
-					continue
-				}
-				fmt.Printf("  removing %s [%s] ...\n", skillAddr, ag)
-				if err := is.Remove(force); err != nil {
-					fmt.Printf("    %s\n", yellow("warning: "+err.Error()))
-				} else {
-					fmt.Printf("    removed\n")
-				}
-			}
+		res, err := pack.Remove(app.Cfg, app.St, packAddr, agents, pack.RemoveOptions{Force: force, Progress: printPackProgress})
+		if err != nil {
+			return err
 		}
 
-		// Remove the pack record entirely when all agents are removed;
-		// update the agents list when only some are removed.
-		remainingAgents := removeStrings(rec.Agents, agents)
-		if len(remainingAgents) == 0 {
-			if err := app.St.RecordPackRemove(packAddr); err != nil {
-				return err
-			}
+		if res.PackRemoved {
 			fmt.Printf("\nPack %q removed.\n", packAddr)
 		} else {
-			rec.Agents = remainingAgents
-			// Prune skill statuses for removed agents.
-			for skillAddr, agStatuses := range rec.Skills {
-				for _, ag := range agents {
-					delete(agStatuses, ag)
-				}
-				if len(agStatuses) == 0 {
-					delete(rec.Skills, skillAddr)
-				}
-			}
-			if err := app.St.RecordPackInstall(packAddr, rec); err != nil {
-				return err
-			}
 			fmt.Printf("\nPack %q updated (removed from agents: %s; still installed for: %s).\n",
-				packAddr, strings.Join(agents, ", "), strings.Join(remainingAgents, ", "))
+				packAddr, strings.Join(agents, ", "), strings.Join(res.RemainingAgents, ", "))
 		}
-		return state.Save(app.St)
+		if res.Kept > 0 {
+			fmt.Printf("%d skill(s) with local modifications were kept as ordinary installed skills.\n", res.Kept)
+		}
+		return nil
 	},
 }
 
@@ -369,21 +355,6 @@ func skillsInPack(rec state.InstalledPackRecord) []string {
 	return addrs
 }
 
-// removeStrings returns a copy of slice with all elements in remove deleted.
-func removeStrings(slice, remove []string) []string {
-	removed := make(map[string]bool, len(remove))
-	for _, s := range remove {
-		removed[s] = true
-	}
-	var result []string
-	for _, s := range slice {
-		if !removed[s] {
-			result = append(result, s)
-		}
-	}
-	return result
-}
-
 // ─── pack update ──────────────────────────────────────────────────────────────
 
 var packUpdateCmd = &cobra.Command{
@@ -399,110 +370,21 @@ var packUpdateCmd = &cobra.Command{
 			return fmt.Errorf("configuration not available")
 		}
 
-		rec, ok := app.St.InstalledPacks[packAddr]
-		if !ok {
-			return fmt.Errorf("pack %q is not installed", packAddr)
-		}
-
-		// Load the pack definition from the repo cache.
-		def, err := pack.Resolve(packAddr, app.St)
+		fmt.Printf("Updating pack %q ...\n", packAddr)
+		res, err := pack.Update(app.Cfg, app.St, packAddr, pack.Options{Progress: printPackProgress})
 		if err != nil {
 			return err
 		}
-		pk := def.Pack
 
-		// Pull all repos referenced by the pack.
-		fmt.Printf("Updating pack %q ...\n", packAddr)
-		repoErrors := make(map[string]error)
-		seen := make(map[string]bool)
-		for _, r := range pk.Repos {
-			if seen[r.Name] {
-				continue
-			}
-			seen[r.Name] = true
-			token := app.Cfg.TokenForRepo(r.Name)
-			fmt.Printf("  pulling repo %q ...\n", r.Name)
-			if warning, err := repo.Update(r.Name, token, app.St); err != nil {
-				fmt.Printf("  %s\n", yellow(fmt.Sprintf("warning: %v", err)))
-				repoErrors[r.Name] = err
-			} else if warning != "" {
-				fmt.Printf("  %s\n", yellow(warning))
-			}
-		}
-
-		// Reinstall skills that have changed.
-		changed := 0
-		for _, skillAddr := range pk.Skills {
-			repoName := repoNameFromAddr(skillAddr)
-			// Ensure the per-skill inner map exists before any write.
-			if rec.Skills[skillAddr] == nil {
-				rec.Skills[skillAddr] = make(map[string]state.PackSkillStatus)
-			}
-			for _, ag := range rec.Agents {
-				if repoErr, failed := repoErrors[repoName]; failed {
-					rec.Skills[skillAddr][ag] = state.PackSkillStatus{
-						Installed: false,
-						Error:     fmt.Sprintf("repo unavailable: %v", repoErr),
-					}
-					continue
-				}
-
-				is, openErr := skill.Open(skillAddr, ag, app.Cfg, app.St)
-				if openErr != nil {
-					// Skill not installed for this agent — try to install it.
-					fmt.Printf("  installing missing %s [%s] ...\n", skillAddr, ag)
-					installErr := skill.Install(skillAddr, ag, app.Cfg, app.St, false)
-					if installErr != nil {
-						rec.Skills[skillAddr][ag] = state.PackSkillStatus{
-							Installed: false,
-							Error:     installErr.Error(),
-						}
-						fmt.Printf("    %s\n", yellow("warning: "+installErr.Error()))
-					} else {
-						rec.Skills[skillAddr][ag] = state.PackSkillStatus{Installed: true}
-						fmt.Printf("    installed\n")
-						changed++
-					}
-					continue
-				}
-
-				status, err := is.Status()
-				if err != nil {
-					fmt.Printf("  %s checking %s [%s]: %v\n", yellow("warning:"), skillAddr, ag, err)
-					continue
-				}
-				if !status.HasUpstream {
-					continue
-				}
-				fmt.Printf("  updating %s [%s] ...\n", skillAddr, ag)
-				token := app.Cfg.TokenForRepo(repoName)
-				if updateErr := is.Update(token); updateErr != nil {
-					rec.Skills[skillAddr][ag] = state.PackSkillStatus{
-						Installed: false,
-						Error:     updateErr.Error(),
-					}
-					fmt.Printf("    %s\n", yellow("warning: "+updateErr.Error()))
-				} else {
-					rec.Skills[skillAddr][ag] = state.PackSkillStatus{Installed: true}
-					fmt.Printf("    updated\n")
-					changed++
-				}
-			}
-		}
-
-		if err := app.St.RecordPackInstall(packAddr, rec); err != nil {
-			return err
-		}
-		if err := state.Save(app.St); err != nil {
-			return err
-		}
-
-		if changed == 0 {
+		if changed := res.Installed + res.Updated; changed == 0 {
 			fmt.Printf("\nPack %q is already up to date.\n", packAddr)
 		} else {
 			fmt.Printf("\nPack %q updated (%d skill(s) changed).\n", packAddr, changed)
 		}
-		if pack.IsPartial(rec) {
+		if res.Blocked > 0 {
+			fmt.Printf("%s %d skill(s) were not updated because of conflicts.\n", yellow("warning:"), res.Blocked)
+		}
+		if res.Partial() {
 			fmt.Printf("Pack is %s — run `skillpack pack status %s` for details.\n", yellow("partial"), packAddr)
 		}
 		return nil

@@ -16,7 +16,7 @@ Owns the Cobra CLI surface: commands, flags, TUI, and re-exec plumbing. Translat
 
 ## Local Contracts
 
-- All domain logic lives in `internal/*`. The CLI only calls into `config`, `state`, `repo`, `skill`, `pack`, and `gitops`. Pack install and complete run through `internal/pack`; the CLI and TUI only render its result.
+- All domain logic lives in `internal/*`. The CLI only calls into `config`, `state`, `repo`, `skill`, `pack`, and `gitops`. Pack install, complete, update and remove run through `internal/pack`; the CLI and TUI only render its result.
 - Commands share `App{Cfg, St}` via Cobra context (set in `PersistentPreRunE`).
 - `self-update` and `tui` bypass `ensureConfig()` — they run before config exists.
 - Re-exec spawns a fresh binary process to avoid TUI signal-handling conflicts with the parent.

@@ -1,7 +1,7 @@
 # AGENTS.md — Coding Agent Guide for SkillPack
 
 This file is for AI coding agents (Claude Code, OpenCode, Codex, etc.) working on this codebase.
-Read `CONTEXT.md` for the domain glossary. Read `plan.md` for the full design specification.
+Read `CONTEXT.md` for the domain glossary. Read `CODING_STANDARDS.md` for code conventions. Read `plan.md` for the full design specification.
 
 ## Agent skills
 
@@ -23,6 +23,8 @@ Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/do
 go build ./cmd/skillpack/        # build the binary
 go test ./...                    # run all tests
 go vet ./...                     # static analysis
+make check                       # vet + test (what CI runs)
+make hooks                       # enable the pre-commit hook (once per clone)
 ```
 
 The binary entry point is `cmd/skillpack/`. There is no other binary in this repo.
@@ -42,87 +44,28 @@ The binary entry point is `cmd/skillpack/`. There is no other binary in this rep
 | `docs/adr/` | Architecture Decision Records |
 | `docs/adr/0001-packs-feature-design.md` | Packs feature design decisions |
 | `CONTEXT.md` | Canonical domain glossary — read this first |
+| `CODING_STANDARDS.md` | Code conventions; the Standards source for `/code-review` |
 | `plan.md` | Full design spec with resolved decisions |
-| `internal/config/config.go` | Config loading (`~/.skillpack/config.yaml`) |
-| `internal/state/state.go` | State management (`~/.skillpack/state.json`) |
+| `internal/config/config.go` | Config schema, `DefaultAgents`, loading (`~/.skillpack/config.yaml`) |
+| `internal/state/state.go` | State schema and management (`~/.skillpack/state.json`) |
 | `internal/repo/repo.go` | Repo management + skill discovery |
 | `internal/skill/skill.go` | Install, remove, hash, conflict detection |
 | `internal/pack/pack.go` | Pack schema: `pack.yaml` parsing and validation |
 
-## Architecture Constraints — Do Not Violate
+## Architecture Constraints
 
-These decisions were made deliberately. Do not reverse them without discussing first.
+Deliberate decisions. Discuss with the user before reversing one.
 
-1. **No per-agent adapter files.** Agents are config-only (`name` + `skill_dir`). Do not create `internal/agent/claude.go` or similar. If agent-specific behaviour is ever needed, add it as a named field in the config struct.
-
-2. **No format conversion.** Install is a verbatim directory copy. Do not create or restore `pkg/convert/`. Skills are copied as-is regardless of agent.
-
-3. **No `SKILL.md.sig` generation or verification.** Signing is out of scope for v1.
-
-4. **State key structure is `skill-path → agent-name → record`.** Do not flatten it to a compound string key or a list.
-
-5. **Single binary: `skillpack`.** Do not add additional binaries under `cmd/`.
-
-6. **Everything lives under `~/.skillpack/`.** Do not write config or state to XDG paths or per-project directories.
-
-## State Schema
-
-```go
-// ~/.skillpack/state.json
-type State struct {
-    Repos           map[string]RepoRecord                       `json:"repos"`
-    InstalledSkills map[string]map[string]InstalledSkillRecord  `json:"installed_skills"`
-    // key: skill address (e.g. "awesome-skills/coding/debugger")
-    // inner key: agent name (e.g. "claude-code")
-}
-
-type RepoRecord struct {
-    URL         string    `json:"url"`
-    CachePath   string    `json:"cache_path"`
-    LastUpdated time.Time `json:"last_updated"`
-}
-
-type InstalledSkillRecord struct {
-    InstalledAtSHA string `json:"installed_at_sha"`
-    InstalledHash  string `json:"installed_hash"`   // SHA-256 of installed dir contents
-    LocalPath      string `json:"local_path"`
-}
-```
-
-## Config Schema
-
-```go
-// ~/.skillpack/config.yaml
-type Config struct {
-    DefaultAgent string                 `yaml:"default_agent"`
-    Agents       map[string]AgentConfig `yaml:"agents"`
-}
-
-type AgentConfig struct {
-    SkillDir string `yaml:"skill_dir"`
-}
-```
-
-## Default Agents (bundled in binary)
-
-The first-run wizard uses this list to auto-detect installed agents:
-
-| Agent name | Expected `skill_dir` | Verified |
-|------------|----------------------|---------|
-| `claude-code` | `~/.claude/skills` | ✓ |
-| `copilot` | `~/.copilot/skills` | ✓ |
-| `grok` | `~/.grok/skills` | ✓ |
-| `hermes` | `~/.hermes/skills` | ✓ |
-| `opencode` | `~/.config/opencode/skills` | TODO |
-| `openclaw` | `~/.openclaw/skills` | TODO |
-| `pi` | `~/.pi/agent/skills` | ✓ |
-
-Detection logic: expand `~`, check if the directory exists on disk. If it does, offer to add it to config.
+1. **Agents are config-only** (`name` + `skill_dir`). Agent-specific behaviour becomes a named field in the config struct.
+2. **Install is a verbatim directory copy**, regardless of agent. Format conversion stays out of scope.
+3. **Signing is out of scope for v1**: no `SKILL.md.sig` generation or verification.
+4. **State key structure is `skill-path → agent-name → record`** (nested maps).
+5. **Single binary**: `skillpack` under `cmd/skillpack/`.
+6. **Everything lives under `~/.skillpack/`**: config and state, no XDG or per-project paths.
 
 ## Cross-Platform Rules
 
-- Use `os.UserHomeDir()` to resolve home directory. **Never hardcode `~` or use `os.Expand` with `~`.**
-- Use `filepath.Join()` for all path construction. Never concatenate paths with `/`.
+- Resolve home with `os.UserHomeDir()`; build filesystem paths with `filepath.Join()` (see `CODING_STANDARDS.md`).
 - HTTPS auth on Windows relies on the system git credential store — go-git handles this transparently.
 - SSH push on Windows is not supported in v1.
 
@@ -140,8 +83,7 @@ A skill is any directory inside a repo clone that contains a `SKILL.md` file. Di
 
 # DOX framework
 
-- DOX is highly performant AGENTS.md hierarchy installed here
-- Agent must follow DOX instructions across any edits
+DOX is the AGENTS.md hierarchy installed here; follow it across any edits. Hierarchy, child doc shape, style, and closeout: `docs/agents/dox.md`.
 
 ## Core Contract
 
@@ -158,7 +100,7 @@ A skill is any directory inside a repo clone that contains a `SKILL.md` file. Di
 6. Use the nearest AGENTS.md as the local contract and parent docs for repo-wide rules
 7. If docs conflict, the closer doc controls local work details, but no child doc may weaken DOX
 
-Do not rely on memory. Re-read the applicable DOX chain in the current session before editing.
+Re-read the applicable DOX chain in the current session before editing.
 
 ## Update After Editing
 
@@ -174,51 +116,13 @@ Update the closest owning AGENTS.md when a change affects:
 
 Update parent docs when parent-level structure, ownership, workflow, or child index changes. Update child docs when parent changes alter local rules. Remove stale or contradictory text immediately. Small edits that do not change behavior or contracts may leave docs unchanged, but the DOX pass still must happen.
 
-## Hierarchy
-
-- Root AGENTS.md is the DOX rail: project-wide instructions, global preferences, durable workflow rules, and the top-level Child DOX Index
-- Child AGENTS.md files own domain-specific instructions and their own Child DOX Index
-- Each parent explains what its direct children cover and what stays owned by the parent
-- The closer a doc is to the work, the more specific and practical it must be
-
-## Child Doc Shape
-
-- Create a child AGENTS.md when a folder becomes a durable boundary with its own purpose, rules, responsibilities, workflow, materials, or quality standards
-- Work Guidance must reflect the current standards of the project or user instructions; if there are no specific standards or instructions yet, leave it empty
-- Verification must reflect an existing check; if no verification framework exists yet, leave it empty and update it when one exists
-
-Default section order:
-- Purpose
-- Ownership
-- Local Contracts
-- Work Guidance
-- Verification
-- Child DOX Index
-
-## Style
-
-- Keep docs concise, current, and operational
-- Document stable contracts, not diary entries
-- Put broad rules in parent docs and concrete details in child docs
-- Prefer direct bullets with explicit names
-- Do not duplicate rules across many files unless each scope needs a local version
-- Delete stale notes instead of explaining history
-- Trim obvious statements, repeated rules, misplaced detail, and warnings for risks that no longer exist
-
-## Closeout
-
-1. Re-check changed paths against the DOX chain
-2. Update nearest owning docs and any affected parents or children
-3. Refresh every affected Child DOX Index
-4. Remove stale or contradictory text
-5. Run existing verification when relevant
-6. Report any docs intentionally left unchanged and why
-
 ## User Preferences
 
-When the user requests a durable behavior change, record it here or in the relevant child AGENTS.md
+When the user requests a durable behavior change, record it here or in the relevant child AGENTS.md.
 
-- Never commit directly to `main`; always work on a branch and open a PR (see Git Workflow above).
+## Coding Standards Upkeep
+
+When a review or user correction establishes a convention no check enforces, add it to `CODING_STANDARDS.md` in the same branch.
 
 ## Child DOX Index
 

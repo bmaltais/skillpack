@@ -1,4 +1,4 @@
-.PHONY: build install test vet check
+.PHONY: build install test vet check hooks
 
 BINARY := skillpack
 INSTALL_DIR := $(HOME)/.local/bin
@@ -18,3 +18,6 @@ vet:
 	go vet ./...
 
 check: vet test
+
+hooks:
+	git config core.hooksPath .githooks

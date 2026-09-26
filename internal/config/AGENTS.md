@@ -24,7 +24,7 @@ Manages `~/.skillpack/config.yaml`: agent definitions, credential storage, and f
 
 ## Work Guidance
 
-- Adding a new known agent: extend `DefaultAgents` slice. The detection loop handles the rest.
+- Adding a new known agent: extend `DefaultAgents` slice. The detection loop handles the rest. The `opencode` and `openclaw` `skill_dir` values are unverified.
 - Adding a new credential source: update `TokenForRepo` and document the priority.
 - Config schema changes require a migration note in `plan.md`.
 - `AddAgent` is the only writer for manually-registered agents (CLI `agent add`, TUI Add Agent dialog) — validates non-empty name/dir, rejects duplicates, and mutates the in-memory config only after saving succeeds.

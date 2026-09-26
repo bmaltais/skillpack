@@ -16,7 +16,7 @@ var removeCmd = &cobra.Command{
   skillpack remove my-repo/coding/debugger --agent claude-code
   skillpack remove my-repo/coding/debugger --all-agents
   skillpack remove my-repo/coding/debugger --force`,
-	Args:  cobra.ExactArgs(1),
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		addr := args[0]
 		agentName, _ := cmd.Flags().GetString("agent")

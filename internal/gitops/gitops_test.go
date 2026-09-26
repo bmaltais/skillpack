@@ -337,4 +337,3 @@ func TestSystemGitClonePushFetch(t *testing.T) {
 		t.Errorf("SystemGitFetch did not bring down pushed commit %s", pushedHash)
 	}
 }
-

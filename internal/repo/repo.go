@@ -489,4 +489,3 @@ func walkPacks(repoName, cachePath string) ([]PackInfo, error) {
 	})
 	return packs, err
 }
-

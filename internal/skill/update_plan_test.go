@@ -99,8 +99,8 @@ func TestPlanUpdate_MultipleSkills(t *testing.T) {
 			"repo": {CachePath: t.TempDir()},
 		},
 		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
-			"repo/a": {"ag": {InstalledAtSHA: "sha1", InstalledHash: hashA, LocalPath: installA}},       // already current
-			"repo/b": {"ag": {InstalledAtSHA: "sha-old", InstalledHash: hashB, LocalPath: installB}},    // needs update
+			"repo/a": {"ag": {InstalledAtSHA: "sha1", InstalledHash: hashA, LocalPath: installA}},          // already current
+			"repo/b": {"ag": {InstalledAtSHA: "sha-old", InstalledHash: hashB, LocalPath: installB}},       // needs update
 			"repo/c": {"ag": {InstalledAtSHA: "sha1", InstalledHash: "sha256:stale", LocalPath: installC}}, // needs publish
 			"repo/d": {"ag": {InstalledAtSHA: "sha-old", InstalledHash: hashD + "x", LocalPath: installD}}, // conflict
 		},

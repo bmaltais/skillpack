@@ -171,8 +171,8 @@ func isInteractive() bool {
 // for the default agent. Called from the first-run wizard when the user opts in.
 func bootstrapSkillpackRepo(cfg *config.Config) error {
 	const (
-		repoName = "skillpack"
-		repoURL  = "https://github.com/bmaltais/skillpack.git"
+		repoName  = "skillpack"
+		repoURL   = "https://github.com/bmaltais/skillpack.git"
 		skillAddr = "skillpack/skillpack"
 	)
 

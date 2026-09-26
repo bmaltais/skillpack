@@ -373,4 +373,3 @@ func TestDetectDuplicateSets_CRLFFrontmatter(t *testing.T) {
 		t.Fatalf("expected CRLF frontmatter to still be parsed and matched, got %d sets", len(sets))
 	}
 }
-

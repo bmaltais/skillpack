@@ -497,5 +497,3 @@ func writeStringToFile(path, content string) error {
 	}
 	return os.WriteFile(path, []byte(content), 0600)
 }
-
-

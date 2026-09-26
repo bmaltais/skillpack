@@ -218,5 +218,3 @@ func TestDetectForkCandidates_SkipsOwnRepo(t *testing.T) {
 		t.Errorf("expected no candidates when only own repo has the skill, got %v", candidates)
 	}
 }
-
-

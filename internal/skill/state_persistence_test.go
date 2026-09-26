@@ -93,7 +93,7 @@ func TestRemove_PersistsStateToDisk(t *testing.T) {
 
 	addr := "test-repo/my-skill"
 	st := &state.State{
-		Repos:           map[string]state.RepoRecord{},
+		Repos: map[string]state.RepoRecord{},
 		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
 			addr: {
 				"test-agent": {

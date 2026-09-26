@@ -164,8 +164,8 @@ func TestReconcilePlan_MultipleSkills(t *testing.T) {
 			"repo": {CachePath: t.TempDir()},
 		},
 		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
-			"repo/a": {"ag": {InstalledAtSHA: "sha1", InstalledHash: hashA, LocalPath: installA}},       // already current
-			"repo/b": {"ag": {InstalledAtSHA: "sha-old", InstalledHash: hashB, LocalPath: installB}},   // needs update (HEAD advanced, no edits)
+			"repo/a": {"ag": {InstalledAtSHA: "sha1", InstalledHash: hashA, LocalPath: installA}},          // already current
+			"repo/b": {"ag": {InstalledAtSHA: "sha-old", InstalledHash: hashB, LocalPath: installB}},       // needs update (HEAD advanced, no edits)
 			"repo/c": {"ag": {InstalledAtSHA: "sha1", InstalledHash: "sha256:stale", LocalPath: installC}}, // needs publish (edits, HEAD same)
 			"repo/d": {"ag": {InstalledAtSHA: "sha-old", InstalledHash: hashD + "x", LocalPath: installD}}, // conflict
 		},
@@ -348,8 +348,8 @@ func TestReconcilePlan_Fork_AlreadyCurrent(t *testing.T) {
 		"",
 	)
 	repoHeads := map[string]string{
-		"my-skills":        "fork-repo-sha-abc",
-		"upstream-skills":  "upstream-sha-current", // upstream unchanged
+		"my-skills":       "fork-repo-sha-abc",
+		"upstream-skills": "upstream-sha-current", // upstream unchanged
 	}
 
 	plan := skill.ReconcilePlan(st, repoHeads)
@@ -854,8 +854,8 @@ func TestReconcilePlan_Fork_UpstreamPathMissing(t *testing.T) {
 
 	st := &state.State{
 		Repos: map[string]state.RepoRecord{
-			"my-skills":        {CachePath: forkCacheRoot},
-			"upstream-skills":  {CachePath: upstreamCacheRoot},
+			"my-skills":       {CachePath: forkCacheRoot},
+			"upstream-skills": {CachePath: upstreamCacheRoot},
 		},
 		InstalledSkills: map[string]map[string]state.InstalledSkillRecord{
 			forkAddr: {

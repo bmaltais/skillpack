@@ -1,4 +1,4 @@
-.PHONY: build install test vet fmt-check check hooks
+.PHONY: build install test vet fmt fmt-check check hooks
 
 BINARY := skillpack
 INSTALL_DIR := $(HOME)/.local/bin
@@ -16,6 +16,9 @@ test:
 
 vet:
 	go vet ./...
+
+fmt:
+	gofmt -w .
 
 fmt-check:
 	@files="$$(gofmt -l .)"; if [ -n "$$files" ]; then echo "gofmt needed (run: gofmt -w .):"; echo "$$files"; exit 1; fi

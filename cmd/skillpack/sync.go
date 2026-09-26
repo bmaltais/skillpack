@@ -258,7 +258,7 @@ func syncOne(cmd *cobra.Command, addr string, dryRun, forceRemote, forceLocal, d
 			sum.Record(skill.SyncResult{Err: p.Err})
 			continue
 		}
-		res := skill.SyncResult{Addr: p.Addr, AgentName: p.AgentName, Action: p.Action, UpstreamPathBroken: p.UpstreamPathBroken}
+		res := p.Result()
 		switch p.Action {
 		case skill.SyncAlreadyCurrent, skill.SyncStaleAddress:
 			sum.Record(res)
@@ -284,12 +284,12 @@ func syncOne(cmd *cobra.Command, addr string, dryRun, forceRemote, forceLocal, d
 				sum.Record(res)
 			}
 		case skill.SyncConflict:
-			sum.Record(res) // broken-upstream bookkeeping only; conflicts are counted below
 			switch {
 			case dryRun:
 				fmt.Printf("  %-*s  %-*s  [dry-run] CONFLICT — would need resolution\n", addrW, p.Addr, agentW, p.AgentName)
-				sum.Conflicts++
+				sum.RecordConflict(res)
 			case forceRemote:
+				sum.Record(res) // resolved inline: not a conflict, but keep broken-upstream rows
 				is, openErr := skill.Open(p.Addr, p.AgentName, app.Cfg, app.St)
 				if openErr != nil {
 					fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, p.Addr, agentW, p.AgentName, openErr)
@@ -301,6 +301,7 @@ func syncOne(cmd *cobra.Command, addr string, dryRun, forceRemote, forceLocal, d
 				}
 				fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, green("force-remote applied"))
 			case forceLocal:
+				sum.Record(res)
 				is, openErr := skill.Open(p.Addr, p.AgentName, app.Cfg, app.St)
 				if openErr != nil {
 					fmt.Printf("  %-*s  %-*s  error: %v\n", addrW, p.Addr, agentW, p.AgentName, openErr)
@@ -312,13 +313,14 @@ func syncOne(cmd *cobra.Command, addr string, dryRun, forceRemote, forceLocal, d
 				}
 				fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, green("force-local applied (pushed to remote)"))
 			case doMerge:
+				sum.Record(res)
 				_, hadErr := applyMerge(p.Addr, p.AgentName, llmAgent, token, app, addrW, agentW)
 				if hadErr {
 					sum.Errors++
 				}
 			default:
 				fmt.Printf("  %-*s  %-*s  %s\n", addrW, p.Addr, agentW, p.AgentName, red("CONFLICT — resolve with --force-remote, --force-local, or --merge"))
-				sum.Conflicts++
+				sum.RecordConflict(res)
 			}
 		}
 		if p.Warning != "" {
@@ -327,10 +329,8 @@ func syncOne(cmd *cobra.Command, addr string, dryRun, forceRemote, forceLocal, d
 	}
 
 	printSyncSummary(sum, addrW, agentW, app.St)
-	conflictCount := sum.Conflicts
-
-	if conflictCount > 0 {
-		return fmt.Errorf("%d conflict(s) skipped — resolve with: skillpack sync --force-remote|--force-local|--merge %s", conflictCount, addr)
+	if sum.Conflicts > 0 {
+		return fmt.Errorf("%d conflict(s) skipped — resolve with: skillpack sync --force-remote|--force-local|--merge %s", sum.Conflicts, addr)
 	}
 	return nil
 }

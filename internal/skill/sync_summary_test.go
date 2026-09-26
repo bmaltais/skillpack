@@ -36,13 +36,16 @@ func TestSummarize_ClassifiesResults(t *testing.T) {
 func TestSummarizePlan_SplitsConflicts(t *testing.T) {
 	plan := []SyncPlanItem{
 		{Addr: "r/a", AgentName: "x", Action: SyncUpdated},
-		{Addr: "r/b", AgentName: "x", Action: SyncConflict},
+		{Addr: "r/b", AgentName: "x", Action: SyncConflict, UpstreamPathBroken: true},
 		{Addr: "r/c", AgentName: "x", Err: errors.New("no repo")},
 		{Addr: "r/d", AgentName: "x", Action: SyncStaleAddress},
 	}
 	s := SummarizePlan(plan)
 	if s.Updated != 1 || s.Conflicts != 1 || s.Errors != 1 || len(s.Stale) != 1 {
 		t.Errorf("summary = %+v", s)
+	}
+	if len(s.BrokenUpstream) != 1 || s.BrokenUpstream[0] != (SyncKey{"r/b", "x"}) {
+		t.Errorf("conflicting item lost from BrokenUpstream: %v", s.BrokenUpstream)
 	}
 }
 

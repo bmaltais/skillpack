@@ -25,7 +25,6 @@ type SyncSummary struct {
 // counted here: Sync returns conflicts in a separate slice (see Summarize), and
 // callers that resolve a conflict inline decide themselves whether it stays one.
 func (s *SyncSummary) Record(r SyncResult) {
-	key := SyncKey{r.Addr, r.AgentName}
 	switch {
 	case r.Err != nil:
 		s.Errors++
@@ -36,10 +35,20 @@ func (s *SyncSummary) Record(r SyncResult) {
 	case r.Action == SyncAlreadyCurrent:
 		s.Current++
 	case r.Action == SyncStaleAddress:
-		s.Stale = append(s.Stale, key)
+		s.Stale = append(s.Stale, SyncKey{r.Addr, r.AgentName})
 	}
+	s.noteBroken(r)
+}
+
+// RecordConflict counts r as an unresolved conflict.
+func (s *SyncSummary) RecordConflict(r SyncResult) {
+	s.Conflicts++
+	s.noteBroken(r)
+}
+
+func (s *SyncSummary) noteBroken(r SyncResult) {
 	if r.UpstreamPathBroken {
-		s.BrokenUpstream = append(s.BrokenUpstream, key)
+		s.BrokenUpstream = append(s.BrokenUpstream, SyncKey{r.Addr, r.AgentName})
 	}
 }
 
@@ -59,14 +68,20 @@ func Summarize(results, conflicts []SyncResult) SyncSummary {
 func SummarizePlan(plan []SyncPlanItem) SyncSummary {
 	var s SyncSummary
 	for _, p := range plan {
+		r := p.Result()
 		if p.Action == SyncConflict && p.Err == nil {
-			s.Conflicts++
+			s.RecordConflict(r)
 			continue
 		}
-		s.Record(SyncResult{
-			Addr: p.Addr, AgentName: p.AgentName, Action: p.Action, Err: p.Err,
-			Warning: p.Warning, UpstreamPathBroken: p.UpstreamPathBroken,
-		})
+		s.Record(r)
 	}
 	return s
+}
+
+// Result converts a plan item to the result it would produce if applied successfully.
+func (p SyncPlanItem) Result() SyncResult {
+	return SyncResult{
+		Addr: p.Addr, AgentName: p.AgentName, Action: p.Action, Err: p.Err,
+		Warning: p.Warning, UpstreamPathBroken: p.UpstreamPathBroken,
+	}
 }

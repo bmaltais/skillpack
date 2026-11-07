@@ -320,3 +320,15 @@ func TestAppMenus_NoPanicOnEmptyModel(t *testing.T) {
 		}
 	}
 }
+
+func TestScrollOffset_CentersThenPins(t *testing.T) {
+	// 10 visible rows, 30 items: top pins, middle centers, bottom pins.
+	for cursor, want := range map[int]int{0: 0, 5: 0, 12: 7, 25: 20, 29: 20} {
+		if got := scrollOffset(cursor, 10, 30); got != want {
+			t.Errorf("scrollOffset(%d) = %d, want %d", cursor, got, want)
+		}
+	}
+	if got := scrollOffset(3, 10, 4); got != 0 {
+		t.Errorf("short list offset = %d, want 0", got)
+	}
+}

@@ -281,8 +281,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 		case tea.KeyUp:
+			m.filterActive = false // arrows hand keyboard focus from the filter box to the list
 			m.handleUp()
 		case tea.KeyDown:
+			m.filterActive = false
 			m.handleDown()
 		case tea.KeyLeft:
 			if m.activePanel == panelSkills && m.cursorCol > 0 {

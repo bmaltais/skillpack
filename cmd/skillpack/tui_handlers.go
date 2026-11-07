@@ -410,21 +410,25 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 		case tea.KeyEsc:
 			m.inputMode = modeNormal
 			m.message = ""
+		case tea.KeyLeft, tea.KeyRight, tea.KeyUp, tea.KeyDown, tea.KeyTab:
+			m.packConfirmYes = !m.packConfirmYes
 		case tea.KeyRunes:
-			ch := msg.String()
-			if ch == "y" || ch == "Y" {
+			switch msg.String() {
+			case "y", "Y":
+				m.doPackRemove()
+			case "n", "N":
+				m.inputMode = modeNormal
+				m.message = ""
+			}
+		case tea.KeyEnter:
+			if m.packConfirmYes {
 				m.doPackRemove()
 			} else {
 				m.inputMode = modeNormal
 				m.message = ""
 			}
-		case tea.KeyEnter:
-			m.doPackRemove()
 		case tea.KeyCtrlC:
 			return *m, tea.Quit
-		default:
-			m.inputMode = modeNormal
-			m.message = ""
 		}
 
 	case modeHelp:
@@ -1007,8 +1011,8 @@ func (m *model) startPackRemove() {
 		m.message = "Pack is not installed — press i to install"
 		return
 	}
-	packAddr := m.packRows[m.packCursor].packAddr
-	m.message = fmt.Sprintf("Remove pack %q? Locally modified skills are kept. (y/N)", packAddr)
+	m.message = ""
+	m.packConfirmYes = false // default to No
 	m.inputMode = modePackConfirmRemove
 }
 

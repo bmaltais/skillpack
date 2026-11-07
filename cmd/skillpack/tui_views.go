@@ -328,10 +328,7 @@ func (m model) viewSkills(b *strings.Builder) {
 			break
 		}
 	}
-	offset := 0
-	if curVisIdx >= maxRows {
-		offset = curVisIdx - maxRows + 1
-	}
+	offset := scrollOffset(curVisIdx, maxRows, len(vis))
 
 	// Render visible rows
 	displayed := 0
@@ -610,10 +607,7 @@ func (m model) viewStatus(b *strings.Builder) {
 			maxRows = 5
 		}
 
-		offset := 0
-		if m.statusCursor >= maxRows {
-			offset = m.statusCursor - maxRows + 1
-		}
+		offset := scrollOffset(m.statusCursor, maxRows, len(m.statusRows))
 
 		displayed := 0
 		for i := offset; i < len(m.statusRows) && displayed < maxRows; i++ {
@@ -880,10 +874,7 @@ func (m model) viewRepos(b *strings.Builder) {
 	}
 
 	// Scroll offset: keep cursor within viewport
-	offset := 0
-	if m.repoCursor >= maxRows {
-		offset = m.repoCursor - maxRows + 1
-	}
+	offset := scrollOffset(m.repoCursor, maxRows, len(m.repoList))
 
 	displayed := 0
 	for i := offset; i < len(m.repoList) && displayed < maxRows; i++ {
@@ -976,10 +967,7 @@ func (m model) viewUnmanaged(b *strings.Builder) {
 		}
 
 		// Scroll offset: keep cursor within viewport
-		offset := 0
-		if m.unmanagedCursor >= maxRows {
-			offset = m.unmanagedCursor - maxRows + 1
-		}
+		offset := scrollOffset(m.unmanagedCursor, maxRows, len(m.unmanagedEntries))
 
 		displayed := 0
 		for i := offset; i < len(m.unmanagedEntries) && displayed < maxRows; i++ {
@@ -1180,10 +1168,7 @@ func (m model) viewPacks(b *strings.Builder) {
 			maxRows = 3
 		}
 
-		offset := 0
-		if m.packCursor >= maxRows {
-			offset = m.packCursor - maxRows + 1
-		}
+		offset := scrollOffset(m.packCursor, maxRows, len(m.packRows))
 
 		displayed := 0
 		for i := offset; i < len(m.packRows) && displayed < maxRows; i++ {
@@ -1405,4 +1390,18 @@ func safeRepeat(s string, n int) string {
 		return ""
 	}
 	return strings.Repeat(s, n)
+}
+
+// scrollOffset returns the first row to render so the cursor stays put at the
+// viewport's middle while scrolling, and the list pins to the top/bottom at
+// its ends instead of scrolling the cursor to an edge.
+func scrollOffset(cursor, maxRows, total int) int {
+	off := cursor - maxRows/2
+	if off > total-maxRows {
+		off = total - maxRows
+	}
+	if off < 0 {
+		off = 0
+	}
+	return off
 }

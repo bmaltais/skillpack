@@ -357,54 +357,6 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 			return *m, tea.Quit
 		}
 
-	case modePackInstallAgents:
-		switch msg.Type {
-		case tea.KeyEsc:
-			m.inputMode = modeNormal
-			m.message = ""
-		case tea.KeyUp:
-			if m.packAgentCursor > 0 {
-				m.packAgentCursor--
-			}
-		case tea.KeyDown:
-			if m.packAgentCursor < len(m.agents)-1 {
-				m.packAgentCursor++
-			}
-		case tea.KeySpace:
-			m.packAgentSel[m.packAgentCursor] = !m.packAgentSel[m.packAgentCursor]
-		case tea.KeyRunes:
-			if msg.String() == "a" {
-				// Toggle all: select all unless everything is already selected.
-				all := true
-				for i := range m.agents {
-					if !m.packAgentSel[i] {
-						all = false
-						break
-					}
-				}
-				for i := range m.agents {
-					m.packAgentSel[i] = !all
-				}
-			}
-		case tea.KeyEnter:
-			var agents []string
-			for i, name := range m.agents {
-				if m.packAgentSel[i] {
-					agents = append(agents, name)
-				}
-			}
-			if len(agents) == 0 {
-				m.message = "Select at least one agent (Space to toggle)"
-				return *m, nil
-			}
-			m.inputMode = modeNormal
-			m.busy = fmt.Sprintf("Installing pack %s...", m.packInstallAddr)
-			m.message = ""
-			return *m, m.cmdPackInstall(m.packInstallAddr, agents)
-		case tea.KeyCtrlC:
-			return *m, tea.Quit
-		}
-
 	case modePackConfirmRemove:
 		switch msg.Type {
 		case tea.KeyEsc:
@@ -463,6 +415,10 @@ func (m *model) handleUp() {
 		if m.unmanagedCursor > 0 {
 			m.unmanagedCursor--
 		}
+	case panelPackRemove:
+		if m.removeCursor > 0 {
+			m.removeCursor--
+		}
 	case panelPacks:
 		if m.packCursor > 0 {
 			m.packCursor--
@@ -492,6 +448,10 @@ func (m *model) handleDown() {
 	case panelUnmanaged:
 		if m.unmanagedCursor < len(m.unmanagedEntries)-1 {
 			m.unmanagedCursor++
+		}
+	case panelPackRemove:
+		if m.removeCursor < len(m.removeAddrs)-1 {
+			m.removeCursor++
 		}
 	case panelPacks:
 		if m.packCursor < len(m.packRows)-1 {
@@ -619,7 +579,7 @@ func (m *model) switchPanel(p panel) tea.Cmd {
 	switch p {
 	case panelUnmanaged:
 		m.refreshUnmanaged()
-	case panelPacks:
+	case panelPacks, panelPackRemove:
 		m.refreshPacks()
 	case panelDoctor:
 		if err := m.refreshDoctor(); err != nil {
@@ -964,51 +924,34 @@ func (m *model) loadPackDetail(packAddr string) {
 	m.packDetailDef, m.packDetailErr = pack.ParseFile(filepath.Join(info.FullPath, "pack.yaml"))
 }
 
-// startPackInstall opens the agent-selection overlay for the selected pack.
-func (m *model) startPackInstall() {
-	if len(m.packRows) == 0 || m.packCursor >= len(m.packRows) {
-		return
-	}
-	row := m.packRows[m.packCursor]
-	if row.installed {
-		// Re-installing would replace the pack record and lose per-skill
-		// status; partial packs are completed with 'c' instead.
-		if row.isPartial {
-			m.message = "Pack is already installed — press c to complete the partial deployment"
-		} else {
-			m.message = "Pack is already installed"
-		}
-		return
+// togglePackAgent enables the selected pack for the selected agent, or
+// disables it when it is already fully deployed there. A partial cell
+// re-enables, which retries the missing skills.
+func (m *model) togglePackAgent() tea.Cmd {
+	if m.packCursor >= len(m.packRows) {
+		return nil
 	}
 	if len(m.agents) == 0 {
-		m.message = "✗ No agents configured — add one to ~/.skillpack/config.yaml"
-		return
+		m.message = "✗ No agents configured — add one with File → Add Agent"
+		return nil
 	}
-	m.packInstallAddr = row.packAddr
-	m.packAgentCursor = 0
-	m.packAgentSel = make(map[int]bool)
-	// Preselect the default agent (or the only one).
-	for i, name := range m.agents {
-		if name == m.cfg.DefaultAgent || len(m.agents) == 1 {
-			m.packAgentSel[i] = true
-			m.packAgentCursor = i
-			break
-		}
+	row := m.packRows[m.packCursor]
+	agent := m.agents[m.packCol]
+	enable := row.cells[agent] != packCellOn
+	verb := "Disabling"
+	if enable {
+		verb = "Enabling"
 	}
-	m.inputMode = modePackInstallAgents
+	m.busy = fmt.Sprintf("%s %s for %s...", verb, row.packAddr, agent)
 	m.message = ""
+	return m.cmdPackToggle(row.packAddr, agent, enable)
 }
 
+// startPackRemove opens the confirm dialog for the checked packs (or the
+// highlighted one) in the Remove Packs panel.
 func (m *model) startPackRemove() {
-	if len(m.packRows) == 0 {
-		m.message = "No packs to remove"
-		return
-	}
-	if m.packCursor >= len(m.packRows) {
-		return
-	}
-	if !m.packRows[m.packCursor].installed {
-		m.message = "Pack is not installed — press i to install"
+	if len(m.removeAddrs) == 0 {
+		m.message = "No installed packs to remove"
 		return
 	}
 	m.message = ""
@@ -1017,33 +960,59 @@ func (m *model) startPackRemove() {
 }
 
 func (m *model) doPackRemove() {
-	if m.packCursor >= len(m.packRows) {
-		m.inputMode = modeNormal
-		return
+	m.inputMode = modeNormal
+	removed, kept, failed := 0, 0, 0
+	var errs []string
+	for _, addr := range m.packRemoveTargets() {
+		// Remove skills for all the pack's agents. Locally modified skills are kept.
+		res, err := pack.Remove(m.cfg, m.st, addr, nil, pack.RemoveOptions{})
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", addr, err))
+			continue
+		}
+		removed++
+		kept += res.Kept
+		failed += res.Failed
 	}
-	packAddr := m.packRows[m.packCursor].packAddr
-
-	// Remove skills for all the pack's agents. Locally modified skills are kept.
-	res, err := pack.Remove(m.cfg, m.st, packAddr, nil, pack.RemoveOptions{})
-	if err != nil {
-		m.message = fmt.Sprintf("✗ Remove failed: %v", err)
-		m.inputMode = modeNormal
-		return
-	}
-
+	m.removeSel = nil
 	m.refreshPacks()
 	m.refreshSkills()
 	m.packDetailOpen = false
-	if m.packCursor >= len(m.packRows) && m.packCursor > 0 {
-		m.packCursor--
-	}
 	switch {
-	case res.Failed > 0:
-		m.message = fmt.Sprintf("⚠ Removed pack %s (%d skill file(s) could not be deleted — check manually)", packAddr, res.Failed)
-	case res.Kept > 0:
-		m.message = fmt.Sprintf("➖ Removed pack %s (%d locally modified skill(s) kept)", packAddr, res.Kept)
+	case len(errs) > 0:
+		m.message = "✗ Remove failed: " + strings.Join(errs, "; ")
+	case failed > 0:
+		m.message = fmt.Sprintf("⚠ Removed %d pack(s) (%d skill file(s) could not be deleted — check manually)", removed, failed)
+	case kept > 0:
+		m.message = fmt.Sprintf("➖ Removed %d pack(s) (%d locally modified skill(s) kept)", removed, kept)
 	default:
-		m.message = fmt.Sprintf("➖ Removed pack %s", packAddr)
+		m.message = fmt.Sprintf("➖ Removed %d pack(s)", removed)
 	}
-	m.inputMode = modeNormal
+}
+
+// toggleRemoveSel checks or unchecks the highlighted pack in the Remove Packs panel.
+func (m *model) toggleRemoveSel() {
+	if m.removeCursor >= len(m.removeAddrs) {
+		return
+	}
+	addr := m.removeAddrs[m.removeCursor]
+	if m.removeSel == nil {
+		m.removeSel = make(map[string]bool)
+	}
+	m.removeSel[addr] = !m.removeSel[addr]
+	if !m.removeSel[addr] {
+		delete(m.removeSel, addr)
+	}
+}
+
+// selectAllRemovable checks every pack, or clears the selection when all are already checked.
+func (m *model) selectAllRemovable() {
+	if len(m.removeSel) == len(m.removeAddrs) {
+		m.removeSel = nil
+		return
+	}
+	m.removeSel = make(map[string]bool, len(m.removeAddrs))
+	for _, addr := range m.removeAddrs {
+		m.removeSel[addr] = true
+	}
 }

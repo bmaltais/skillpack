@@ -54,6 +54,7 @@ const (
 	panelUnmanaged
 	panelPacks
 	panelDoctor
+	panelPackRemove // multi-select list of installed packs to remove
 )
 
 // --- Input mode ---
@@ -76,7 +77,6 @@ const (
 	modeRelinkBrokenChoice   // broken-upstream repair: choose set-upstream (1) or clear (2)
 	modeRelinkBrokenSetInput // broken-upstream repair: user types new upstream address
 	modePackConfirmRemove    // packs panel: confirm pack removal
-	modePackInstallAgents    // packs panel: select agents to install a pack for
 	modeHelp                 // Help→Keys / F1: scrollable key-binding reference
 )
 
@@ -169,11 +169,14 @@ type model struct {
 	// active panel until it finishes or is cancelled.
 	packWizard *packCreateModel
 
-	// Pack install flow (agent multi-select overlay)
-	packInstallAddr string       // pack address being installed
-	packAgentCursor int          // cursor within m.agents
-	packAgentSel    map[int]bool // m.agents index → selected
-	packConfirmYes  bool         // remove-confirm dialog: Yes button focused
+	// Remove Packs panel: installed pack addresses, with a multi-selection.
+	removeAddrs  []string
+	removeCursor int
+	removeSel    map[string]bool
+
+	// packCol is the agent column index in the packs matrix.
+	packCol        int
+	packConfirmYes bool // remove-confirm dialog: Yes button focused
 
 	// Config/state refs
 	cfg *config.Config
@@ -195,10 +198,20 @@ type repoEntry struct {
 type packRow struct {
 	packAddr  string
 	installed bool
-	isPartial bool     // only meaningful when installed
-	agents    []string // only set when installed
-	desc      string   // pack.yaml description (available packs)
+	isPartial bool                // only meaningful when installed
+	agents    []string            // only set when installed
+	desc      string              // pack.yaml description (available packs)
+	cells     map[string]packCell // agent → deployment state; absent means packCellOff
 }
+
+// packCell is the deployment state of one pack for one agent.
+type packCell int
+
+const (
+	packCellOff     packCell = iota // pack not deployed for the agent
+	packCellOn                      // every skill installed
+	packCellPartial                 // some skills missing or failed
+)
 
 type unmanagedEntry struct {
 	agentName string
@@ -462,6 +475,7 @@ func (m *model) refreshPacks() {
 		row.installed = true
 		row.isPartial = partial
 		row.agents = agents
+		row.cells = packCells(rec)
 		rows[addr] = row
 	}
 
@@ -481,6 +495,65 @@ func (m *model) refreshPacks() {
 	if m.packCursor >= len(m.packRows) {
 		m.packCursor = 0
 	}
+	m.refreshPackRemove()
+}
+
+// refreshPackRemove rebuilds the Remove Packs list from state and drops
+// selections of packs that are no longer installed.
+func (m *model) refreshPackRemove() {
+	m.removeAddrs = m.removeAddrs[:0]
+	for addr := range m.st.InstalledPacks {
+		m.removeAddrs = append(m.removeAddrs, addr)
+	}
+	sort.Strings(m.removeAddrs)
+	sel := make(map[string]bool)
+	for _, addr := range m.removeAddrs {
+		if m.removeSel[addr] {
+			sel[addr] = true
+		}
+	}
+	m.removeSel = sel
+	if m.removeCursor >= len(m.removeAddrs) {
+		m.removeCursor = max(len(m.removeAddrs)-1, 0)
+	}
+}
+
+// packRemoveTargets returns the packs a remove would act on: the checked
+// ones, or the highlighted one when nothing is checked.
+func (m *model) packRemoveTargets() []string {
+	var targets []string
+	for _, addr := range m.removeAddrs {
+		if m.removeSel[addr] {
+			targets = append(targets, addr)
+		}
+	}
+	if len(targets) == 0 && m.removeCursor < len(m.removeAddrs) {
+		targets = append(targets, m.removeAddrs[m.removeCursor])
+	}
+	return targets
+}
+
+// packCells derives each deployed agent's cell state from a pack record.
+func packCells(rec state.InstalledPackRecord) map[string]packCell {
+	total, ok := map[string]int{}, map[string]int{}
+	for _, statuses := range rec.Skills {
+		for ag, s := range statuses {
+			total[ag]++
+			if s.Installed {
+				ok[ag]++
+			}
+		}
+	}
+	cells := make(map[string]packCell)
+	for _, ag := range rec.Agents {
+		switch {
+		case ok[ag] == total[ag]:
+			cells[ag] = packCellOn
+		default:
+			cells[ag] = packCellPartial
+		}
+	}
+	return cells
 }
 
 // packMatches reports whether a pack's address or description contains

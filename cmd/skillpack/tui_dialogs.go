@@ -209,30 +209,22 @@ func dialogContent(m model) (title string, lines []string, ok bool) {
 			dimStyle.Render("Enter to confirm • Esc to cancel"),
 		}, true
 
-	case modePackInstallAgents:
-		lines := []string{fmt.Sprintf("Install pack %q for which agents?", m.packInstallAddr), ""}
-		for i, name := range m.agents {
-			check := "[ ]"
-			if m.packAgentSel[i] {
-				check = "[✓]"
-			}
-			lines = append(lines, listLine(m, check+" "+name, i == m.packAgentCursor))
-		}
-		lines = append(lines, "", dimStyle.Render("↑↓ move • Space toggle • a all • Enter install • Esc cancel"))
-		return "Install Pack", lines, true
-
 	case modePackConfirmRemove:
-		addr := ""
-		if m.packCursor < len(m.packRows) {
-			addr = m.packRows[m.packCursor].packAddr
+		targets := m.packRemoveTargets()
+		lines := []string{fmt.Sprintf("Remove %d pack(s) and their skills?", len(targets)), ""}
+		for i, addr := range targets {
+			if i == 6 {
+				lines = append(lines, dimStyle.Render(fmt.Sprintf("  …and %d more", len(targets)-i)))
+				break
+			}
+			lines = append(lines, "  • "+addr)
 		}
-		return "Remove Pack", []string{
-			fmt.Sprintf("Remove pack %q?", addr),
+		return "Remove Packs", append(lines,
 			"",
-			"[ Yes ]  [ No ]",
+			confirmButtons(m.packConfirmYes),
 			"",
-			dimStyle.Render("y/Enter to confirm • n/Esc to cancel"),
-		}, true
+			dimStyle.Render("←→ choose • Enter select • y/n shortcut • Esc cancel"),
+		), true
 
 	case modeHelp:
 		return "Keys", helpLines(m), true

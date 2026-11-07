@@ -241,3 +241,63 @@ func TestRemove_UnknownPack(t *testing.T) {
 		t.Error("expected error for a pack that is not installed")
 	}
 }
+
+// deployFor installs the fixture pack for only the first of agents, so the
+// others can be added afterwards.
+func deployFor(t *testing.T, first string, agents ...string) *deployment {
+	t.Helper()
+	d := deploy(t, append([]string{first}, agents...)...)
+	if _, err := pack.Remove(d.cfg, d.st, registeredPack, agents, pack.RemoveOptions{}); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	return d
+}
+
+func TestAddAgent_AddsToInstalledPack(t *testing.T) {
+	d := deployFor(t, "claude-code", "copilot")
+
+	res, err := pack.AddAgent(d.cfg, d.st, registeredPack, "copilot", pack.Options{})
+	if err != nil {
+		t.Fatalf("AddAgent: %v", err)
+	}
+	if res.Installed != 1 || res.Failed != 0 {
+		t.Errorf("installed %d, failed %d; want 1, 0", res.Installed, res.Failed)
+	}
+	rec := d.st.InstalledPacks[registeredPack]
+	if len(rec.Agents) != 2 {
+		t.Errorf("agents = %v, want both", rec.Agents)
+	}
+	if !rec.Skills[debuggerAddr]["copilot"].Installed || !rec.Skills[debuggerAddr]["claude-code"].Installed {
+		t.Errorf("statuses = %+v", rec.Skills[debuggerAddr])
+	}
+	if _, ok := d.st.InstalledSkills[debuggerAddr]["copilot"]; !ok {
+		t.Error("skill not installed for the added agent")
+	}
+}
+
+func TestAddAgent_InstallsAvailablePack(t *testing.T) {
+	d := deploy(t, "claude-code")
+	if _, err := pack.Remove(d.cfg, d.st, registeredPack, nil, pack.RemoveOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := pack.AddAgent(d.cfg, d.st, registeredPack, "claude-code", pack.Options{}); err != nil {
+		t.Fatalf("AddAgent: %v", err)
+	}
+	rec, ok := d.st.InstalledPacks[registeredPack]
+	if !ok || len(rec.Agents) != 1 || !rec.Skills[debuggerAddr]["claude-code"].Installed {
+		t.Errorf("record = %+v (ok=%v)", rec, ok)
+	}
+}
+
+func TestAddAgent_Idempotent(t *testing.T) {
+	d := deployFor(t, "claude-code", "copilot")
+	for i := 0; i < 2; i++ {
+		if _, err := pack.AddAgent(d.cfg, d.st, registeredPack, "copilot", pack.Options{}); err != nil {
+			t.Fatalf("AddAgent #%d: %v", i, err)
+		}
+	}
+	if agents := d.st.InstalledPacks[registeredPack].Agents; len(agents) != 2 {
+		t.Errorf("agents = %v, want no duplicates", agents)
+	}
+}

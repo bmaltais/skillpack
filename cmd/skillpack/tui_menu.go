@@ -56,6 +56,7 @@ var appMenus = []menuDef{
 			{"Unmanaged", "F5", alwaysEnabled, func(m *model) tea.Cmd { return m.switchPanel(panelUnmanaged) }},
 			{"Packs", "F6", alwaysEnabled, func(m *model) tea.Cmd { return m.switchPanel(panelPacks) }},
 			{"Doctor", "F7", alwaysEnabled, func(m *model) tea.Cmd { return m.switchPanel(panelDoctor) }},
+			{"Remove Packs", "F8", alwaysEnabled, func(m *model) tea.Cmd { return m.switchPanel(panelPackRemove) }},
 			{"Refresh Status", "r", alwaysEnabled, func(m *model) tea.Cmd {
 				m.busy = "Refreshing status..."
 				m.message = ""
@@ -95,8 +96,8 @@ var appMenus = []menuDef{
 		items: []menuItem{
 			{"Create Pack", "n", alwaysEnabled, func(m *model) tea.Cmd { m.startPackCreate(); return nil }},
 			{"Edit Pack", "e", func(m *model) bool { return m.packCursor < len(m.packRows) }, func(m *model) tea.Cmd { m.startPackEdit(); return nil }},
-			{"Install Pack", "i", alwaysEnabled, func(m *model) tea.Cmd { return m.packAction(m.startPackInstall, "install") }},
-			{"Remove Pack", "d", alwaysEnabled, func(m *model) tea.Cmd { return m.packAction(m.startPackRemove, "remove") }},
+			{"Toggle Agent", "Space", func(m *model) bool { return m.activePanel == panelPacks && m.packCursor < len(m.packRows) }, func(m *model) tea.Cmd { return m.togglePackAgent() }},
+			{"Remove Packs...", "F8", alwaysEnabled, func(m *model) tea.Cmd { return m.switchPanel(panelPackRemove) }},
 		},
 	},
 	{
@@ -164,6 +165,8 @@ func (m *model) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return m.switchPanel(panelPacks), true
 	case "f7":
 		return m.switchPanel(panelDoctor), true
+	case "f8":
+		return m.switchPanel(panelPackRemove), true
 	}
 	return nil, false
 }
@@ -285,16 +288,4 @@ func overlayDropdown(m model, body string) string {
 		lines[row] = prefix + boxLine
 	}
 	return strings.Join(lines, "\n")
-}
-
-// packAction runs a pack action on the highlighted pack. Off the Packs panel
-// the highlighted row is invisible, so show the list and let the user pick.
-func (m *model) packAction(do func(), verb string) tea.Cmd {
-	if m.activePanel != panelPacks {
-		cmd := m.switchPanel(panelPacks)
-		m.message = "Select a pack, then press " + map[string]string{"install": "i", "remove": "d"}[verb] + " to " + verb
-		return cmd
-	}
-	do()
-	return nil
 }

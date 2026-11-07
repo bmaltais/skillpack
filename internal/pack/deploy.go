@@ -144,6 +144,58 @@ func Install(cfg *config.Config, st *state.State, def *Definition, agents []stri
 	return res, nil
 }
 
+// AddAgent deploys the pack packAddr for one more agent. An Installed Pack
+// keeps its skills and gains the agent; a pack that is not installed is
+// resolved from packAddr and installed for agent alone. Already-installed
+// skills are left as they are, so calling it again for an agent only retries
+// what is missing.
+func AddAgent(cfg *config.Config, st *state.State, packAddr, agent string, opts Options) (*Result, error) {
+	rec, ok := st.InstalledPacks[packAddr]
+	if !ok {
+		def, err := Resolve(packAddr, st)
+		if err != nil {
+			return nil, err
+		}
+		return Install(cfg, st, def, []string{agent}, opts)
+	}
+
+	var repoErrors map[string]error
+	if def, err := Resolve(packAddr, st); err == nil {
+		repoErrors = ensureRepos(def.Pack, cfg, st, opts)
+	}
+
+	res := &Result{Address: packAddr, Record: copyRecord(rec)}
+	if !contains(res.Record.Agents, agent) {
+		res.Record.Agents = append(res.Record.Agents, agent)
+	}
+	for _, skillAddr := range sortedKeys(rec.Skills) {
+		if rec.Skills[skillAddr][agent].Installed {
+			continue
+		}
+		res.add(skillAddr, agent, deploySkill(cfg, st, skillAddr, agent, repoErrors, opts))
+	}
+
+	if err := persist(st, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// copyRecord returns rec with its slices and maps duplicated, so edits to the
+// copy never reach the record held in state.
+func copyRecord(rec state.InstalledPackRecord) state.InstalledPackRecord {
+	out := rec
+	out.Agents = append([]string(nil), rec.Agents...)
+	out.Skills = make(map[string]map[string]state.PackSkillStatus, len(rec.Skills))
+	for skillAddr, statuses := range rec.Skills {
+		out.Skills[skillAddr] = make(map[string]state.PackSkillStatus, len(statuses))
+		for ag, s := range statuses {
+			out.Skills[skillAddr][ag] = s
+		}
+	}
+	return out
+}
+
 // Complete retries every skill of the Installed Pack packAddr that is not
 // installed. When the pack's recipe can still be resolved from packAddr, its
 // missing repos are registered again first (the usual cause of a Partial Pack

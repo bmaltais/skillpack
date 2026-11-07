@@ -238,6 +238,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.activePanel = panelPacks
 				m.refreshPacks()
 			case panelPacks:
+				m.activePanel = panelPackRemove
+				m.refreshPackRemove()
+			case panelPackRemove:
 				m.activePanel = panelDoctor
 				m.doctorScroll = 0
 			case panelDoctor:
@@ -255,6 +258,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case m.activePanel == panelUnmanaged:
 				m.unmanagedFilter = ""
 				m.filterActive = false
+			case m.activePanel == panelPackRemove && len(m.removeSel) > 0:
+				m.removeSel = nil
 			case m.activePanel == panelPacks && m.packDetailOpen:
 				m.packDetailOpen = false
 				m.message = ""
@@ -290,9 +295,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activePanel == panelSkills && m.cursorCol > 0 {
 				m.cursorCol--
 			}
+			if m.activePanel == panelPacks && m.packCol > 0 && !m.filterActive {
+				m.packCol--
+			}
 		case tea.KeyRight:
 			if m.activePanel == panelSkills && m.cursorCol < len(m.agents)-1 {
 				m.cursorCol++
+			}
+			if m.activePanel == panelPacks && m.packCol < len(m.agents)-1 && !m.filterActive {
+				m.packCol++
 			}
 		case tea.KeyEnter:
 			m.handleAction()
@@ -319,6 +330,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activePanel == panelPacks && m.filterActive && !m.packDetailOpen {
 				m.packFilter += " "
 				m.refreshPacks()
+			} else if m.activePanel == panelPacks && !m.packDetailOpen {
+				return m, m.togglePackAgent()
+			}
+			if m.activePanel == panelPackRemove {
+				m.toggleRemoveSel()
 			}
 			if m.activePanel == panelDoctor && m.filterActive {
 				m.doctorFilter += " "
@@ -469,6 +485,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.refreshPacks()
 					return m, nil
 				}
+				// Windows ConPTY can deliver space as a rune.
+				if ch == " " && !m.packDetailOpen {
+					return m, m.togglePackAgent()
+				}
 				switch ch {
 				case "q":
 					return m, tea.Quit
@@ -476,9 +496,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.startPackCreate()
 				case "e":
 					m.startPackEdit()
-				case "i":
-					// Install the selected available pack
-					m.startPackInstall()
 				case "c":
 					// Complete deployment for the selected partial pack
 					if m.packCursor < len(m.packRows) && m.packRows[m.packCursor].isPartial {
@@ -490,11 +507,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if m.packRows[m.packCursor].installed {
 							m.message = "Pack is already fully deployed"
 						} else {
-							m.message = "Pack is not installed — press i to install"
+							m.message = "Pack is not installed — press Space to enable it for an agent"
 						}
 					}
-				case "d", "D":
-					// Remove pack (with confirmation)
+				}
+			case panelPackRemove:
+				switch ch {
+				case "q":
+					return m, tea.Quit
+				case " ":
+					m.toggleRemoveSel()
+				case "a":
+					m.selectAllRemovable()
+				case "r", "R", "d":
 					m.startPackRemove()
 				}
 			case panelDoctor:

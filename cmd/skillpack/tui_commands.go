@@ -258,28 +258,32 @@ func (m *model) cmdCompleteDeployment(packAddr string) tea.Cmd {
 	}
 }
 
-// cmdPackInstall installs every skill in the pack for the given agents. It stays
-// quiet: the outcome is reported back to the Update loop via packInstallDoneMsg.
-func (m *model) cmdPackInstall(packAddr string, agents []string) tea.Cmd {
+// cmdPackToggle enables (or, when enable is false, disables) packAddr for one
+// agent. It stays quiet: the outcome is reported back to the Update loop via
+// packInstallDoneMsg.
+func (m *model) cmdPackToggle(packAddr, agent string, enable bool) tea.Cmd {
 	cfg := m.cfg
 	stCopy := m.st.Clone()
 	return func() tea.Msg {
-		def, err := pack.Resolve(packAddr, stCopy)
+		if !enable {
+			res, err := pack.Remove(cfg, stCopy, packAddr, []string{agent}, pack.RemoveOptions{})
+			if err != nil {
+				return packInstallDoneMsg{packAddr: packAddr, err: err}
+			}
+			summary := fmt.Sprintf("➖ Disabled %s for %s", packAddr, agent)
+			if res.Kept > 0 || res.Failed > 0 {
+				summary = fmt.Sprintf("⚠ Disabled %s for %s — %d locally modified skill(s) kept, %d failed", packAddr, agent, res.Kept, res.Failed)
+			}
+			return packInstallDoneMsg{packAddr: packAddr, st: stCopy, summary: summary}
+		}
+		res, err := pack.AddAgent(cfg, stCopy, packAddr, agent, pack.Options{})
 		if err != nil {
 			return packInstallDoneMsg{packAddr: packAddr, err: err}
 		}
-		res, err := pack.Install(cfg, stCopy, def, agents, pack.Options{})
-		if err != nil {
-			return packInstallDoneMsg{packAddr: def.Address, err: err}
-		}
-
-		// Installed/Failed count skill×agent installs, not unique skills.
-		var summary string
+		summary := fmt.Sprintf("➕ Enabled %s for %s — %d skill(s) installed", packAddr, agent, res.Installed)
 		if res.Failed > 0 {
-			summary = fmt.Sprintf("⚠ Pack %q installed partial — %d install(s) succeeded, %d failed (Enter for details)", def.Address, res.Installed, res.Failed)
-		} else {
-			summary = fmt.Sprintf("✓ Pack %q installed complete — %d install(s) for %s", def.Address, res.Installed, strings.Join(agents, ", "))
+			summary = fmt.Sprintf("⚠ Enabled %s for %s partially — %d installed, %d failed (press c to retry)", packAddr, agent, res.Installed, res.Failed)
 		}
-		return packInstallDoneMsg{packAddr: def.Address, st: stCopy, summary: summary}
+		return packInstallDoneMsg{packAddr: packAddr, st: stCopy, summary: summary}
 	}
 }

@@ -522,50 +522,93 @@ func TestPackWizard_DoneScreenClosesAndReportsResult(t *testing.T) {
 	}
 }
 
-// TestStartPackInstall_PreselectsDefaultAgent verifies the install overlay
-// opens with the default agent preselected.
-func TestStartPackInstall_PreselectsDefaultAgent(t *testing.T) {
+// packMatrixModel returns a Packs-panel model with two agents and one
+// installed pack enabled for claude-code only.
+func packMatrixModel(t *testing.T) model {
+	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	cache := t.TempDir()
-	makePackDir(t, cache, "packs/avail", "avail", "")
-
-	cfg := &config.Config{
-		DefaultAgent: "pi",
-		Agents: map[string]config.AgentConfig{
-			"claude-code": {SkillDir: t.TempDir()},
-			"pi":          {SkillDir: t.TempDir()},
-		},
-	}
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"claude-code": {SkillDir: t.TempDir()},
+		"pi":          {SkillDir: t.TempDir()},
+	}}
 	st := memState(&state.State{
-		Repos:           map[string]state.RepoRecord{"my-repo": {URL: "https://example.com/r.git", CachePath: cache}},
+		Repos:           map[string]state.RepoRecord{},
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
-		InstalledPacks:  make(map[string]state.InstalledPackRecord),
+		InstalledPacks: map[string]state.InstalledPackRecord{
+			"r/packs/p": {PackAddress: "r/packs/p", Agents: []string{"claude-code"}, Skills: map[string]map[string]state.PackSkillStatus{
+				"r/a": {"claude-code": {Installed: true}},
+				"r/b": {"claude-code": {Error: "boom"}},
+			}},
+		},
 	})
 	m := initialModel(cfg, st)
 	m.activePanel = panelPacks
+	return m
+}
 
-	next, _ := m.Update(keyRune("i"))
+func TestPackCells(t *testing.T) {
+	m := packMatrixModel(t)
+	if got := m.packRows[0].cells["claude-code"]; got != packCellPartial {
+		t.Errorf("claude-code cell = %v, want partial", got)
+	}
+	if got := m.packRows[0].cells["pi"]; got != packCellOff {
+		t.Errorf("pi cell = %v, want off", got)
+	}
+}
+
+// TestPackMatrix_SpaceTogglesSelectedAgent checks ←→ picks the agent column
+// and Space starts an enable for it (a partial cell re-enables).
+func TestPackMatrix_SpaceTogglesSelectedAgent(t *testing.T) {
+	m := packMatrixModel(t)
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	m = next.(model)
-	if m.inputMode != modePackInstallAgents {
-		t.Fatalf("expected modePackInstallAgents, got %v", m.inputMode)
+	if m.packCol != 1 {
+		t.Fatalf("packCol = %d, want 1", m.packCol)
 	}
-	if m.packInstallAddr != "my-repo/packs/avail" {
-		t.Errorf("unexpected packInstallAddr %q", m.packInstallAddr)
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = next.(model)
+	if cmd == nil || !strings.Contains(m.busy, "Enabling r/packs/p for pi") {
+		t.Errorf("busy = %q, cmd nil = %v; want an enable for pi", m.busy, cmd == nil)
 	}
-	// agents are sorted: [claude-code pi]; default agent "pi" is index 1.
-	if !m.packAgentSel[1] || m.packAgentSel[0] {
-		t.Errorf("expected only default agent preselected, got %v", m.packAgentSel)
+}
+
+// TestPackRemove_SelectAndConfirm drives the Remove Packs panel: Space
+// checks, r opens the confirm dialog, y removes and clears the selection.
+func TestPackRemove_SelectAndConfirm(t *testing.T) {
+	m := packMatrixModel(t)
+	m.activePanel = panelPackRemove
+	for _, k := range []tea.KeyMsg{keyRune(" "), keyRune("r")} {
+		next, _ := m.Update(k)
+		m = next.(model)
+	}
+	if !m.removeSel["r/packs/p"] || m.inputMode != modePackConfirmRemove {
+		t.Fatalf("sel = %v, mode = %v; want checked pack and confirm dialog", m.removeSel, m.inputMode)
+	}
+	next, _ := m.Update(keyRune("y"))
+	m = next.(model)
+	if len(m.st.InstalledPacks) != 0 || len(m.removeAddrs) != 0 || len(m.removeSel) != 0 {
+		t.Errorf("pack not removed: %v / %v / %v", m.st.InstalledPacks, m.removeAddrs, m.removeSel)
+	}
+}
+
+// TestPackRemove_DefaultsToHighlighted checks r with nothing checked still
+// targets the highlighted pack, behind the confirm dialog.
+func TestPackRemove_DefaultsToHighlighted(t *testing.T) {
+	m := packMatrixModel(t)
+	m.activePanel = panelPackRemove
+	if got := m.packRemoveTargets(); len(got) != 1 || got[0] != "r/packs/p" {
+		t.Errorf("targets = %v", got)
 	}
 }
 
 // TestViewPacks_RendersMergedList is a render smoke test: the packs panel
-// shows available and installed rows with their status labels.
+// shows available and installed rows with their per-agent cells.
 func TestViewPacks_RendersMergedList(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	cache := t.TempDir()
 	makePackDir(t, cache, "packs/avail", "avail", "a description here")
 
-	cfg := &config.Config{Agents: map[string]config.AgentConfig{}}
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{"claude-code": {SkillDir: t.TempDir()}}}
 	st := memState(&state.State{
 		Repos:           map[string]state.RepoRecord{"my-repo": {URL: "https://example.com/r.git", CachePath: cache}},
 		InstalledSkills: make(map[string]map[string]state.InstalledSkillRecord),
@@ -583,9 +626,9 @@ func TestViewPacks_RendersMergedList(t *testing.T) {
 	m.activePanel = panelPacks
 	out := m.View()
 
-	for _, want := range []string{"my-repo/packs/avail", "· available", "my-repo/packs/inst", "✓ complete", "a description here"} {
+	for _, want := range []string{"my-repo/packs/avail", "claude-code", "my-repo/packs/inst", "[✓]", "[ ]", "a description here"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("packs view missing %q", want)
+			t.Errorf("packs view missing %q in:\n%s", want, out)
 		}
 	}
 }

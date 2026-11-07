@@ -119,9 +119,9 @@ func dialogContent(m model) (title string, lines []string, ok bool) {
 		return "Remove Repo", []string{
 			fmt.Sprintf("Remove repo %q?", name),
 			"",
-			"[ Yes ]  [ No ]",
+			confirmButtons(m.packConfirmYes),
 			"",
-			dimStyle.Render("y/Enter to confirm • n/Esc to cancel"),
+			dimStyle.Render("←→ choose • Enter select • y/n shortcut • Esc cancel"),
 		}, true
 
 	case modeForkSelectRepo:
@@ -325,4 +325,15 @@ func helpLines(m model) []string {
 	page := append([]string{}, all[scroll:scroll+visible-1]...)
 	page = append(page, dimStyle.Render(fmt.Sprintf("↑↓ scroll (%d/%d)", scroll+visible-1, len(all))))
 	return page
+}
+
+// confirmButtons renders a Yes/No pair with the focused button highlighted.
+func confirmButtons(yes bool) string {
+	y, n := "[ Yes ]", "[ No ]"
+	if yes {
+		y = selectedStyle.Render(y)
+	} else {
+		n = selectedStyle.Render(n)
+	}
+	return y + "  " + n
 }

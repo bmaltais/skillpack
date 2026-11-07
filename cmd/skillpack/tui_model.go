@@ -173,6 +173,7 @@ type model struct {
 	packInstallAddr string       // pack address being installed
 	packAgentCursor int          // cursor within m.agents
 	packAgentSel    map[int]bool // m.agents index → selected
+	packConfirmYes  bool         // remove-confirm dialog: Yes button focused
 
 	// Config/state refs
 	cfg *config.Config

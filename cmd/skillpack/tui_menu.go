@@ -43,7 +43,7 @@ var appMenus = []menuDef{
 		items: []menuItem{
 			{"Add Repo", "a", func(m *model) bool { return m.activePanel == panelRepos }, func(m *model) tea.Cmd { m.startAddRepo(); return nil }},
 			{"Remove Repo", "d", func(m *model) bool { return m.activePanel == panelRepos && len(m.repoList) > 0 }, func(m *model) tea.Cmd { m.startRemoveRepo(); return nil }},
-			{"Add Agent", "", alwaysEnabled, func(m *model) tea.Cmd { m.startAddAgent(); return nil }},
+			{"Add Agent", "A", alwaysEnabled, func(m *model) tea.Cmd { m.startAddAgent(); return nil }},
 			{"Self-Update", "U", alwaysEnabled, func(m *model) tea.Cmd { return m.startSelfUpdate() }},
 			{"Exit", "q", alwaysEnabled, func(m *model) tea.Cmd { return tea.Quit }},
 		},
@@ -98,13 +98,13 @@ var appMenus = []menuDef{
 			{"Create Pack", "n", alwaysEnabled, func(m *model) tea.Cmd { m.startPackCreate(); return nil }},
 			{"Edit Pack", "e", alwaysEnabled, func(m *model) tea.Cmd { return m.menuPackEdit() }},
 			{"Install/Remove on Agent", "Space", func(m *model) bool { return m.activePanel == panelPacks && m.packCursor < len(m.packRows) }, func(m *model) tea.Cmd { return m.togglePackAgent() }},
-			{"Remove Packs...", "F8", alwaysEnabled, func(m *model) tea.Cmd { return m.switchPanel(panelPackRemove) }},
 		},
 	},
 	{
 		label: "Help",
 		items: []menuItem{
 			{"Keys", "F1 ?", alwaysEnabled, func(m *model) tea.Cmd { m.openHelp(); return nil }},
+			{"Command Palette", "Ctrl+P", alwaysEnabled, func(m *model) tea.Cmd { m.openPalette(); return nil }},
 			{"About", "", alwaysEnabled, func(m *model) tea.Cmd {
 				m.message = fmt.Sprintf("SkillPack %s", Version)
 				return nil
@@ -146,6 +146,9 @@ func (m *model) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return openMenu("Packs")
 	case "alt+h":
 		return openMenu("Help")
+	case "ctrl+p":
+		m.openPalette()
+		return nil, true
 	case "f1":
 		m.openHelp()
 		return nil, true

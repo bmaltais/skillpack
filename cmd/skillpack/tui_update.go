@@ -245,14 +245,17 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// it never quits - q and Ctrl+C do.
 			f := m.activeFilter()
 			switch {
+			case f != nil && m.filterActive:
+				*f = ""
+				m.filterActive = false
+				m.filterChanged()
 			case m.activePanel == panelPackRemove && len(m.removeSel) > 0:
 				m.removeSel = nil
 			case m.activePanel == panelPacks && m.packDetailOpen:
 				m.packDetailOpen = false
 				m.message = ""
-			case f != nil && (*f != "" || m.filterActive):
+			case f != nil && *f != "":
 				*f = ""
-				m.filterActive = false
 				m.filterChanged()
 			}
 		case tea.KeyUp:
@@ -315,8 +318,15 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-			if ch == "?" {
+			switch ch {
+			case "?":
 				m.openHelp()
+				return m, nil
+			case ":":
+				m.openPalette()
+				return m, nil
+			case "A":
+				m.startAddAgent()
 				return m, nil
 			}
 			switch m.activePanel {
@@ -504,6 +514,8 @@ func (m *model) activeFilter() *string {
 		}
 	case panelDoctor:
 		return &m.doctorFilter
+	case panelPackRemove:
+		return &m.removeFilter
 	}
 	return nil
 }
@@ -522,6 +534,9 @@ func (m *model) filterChanged() {
 		m.refreshPacks()
 	case panelDoctor:
 		m.doctorCursor = 0
+	case panelPackRemove:
+		m.removeCursor = 0
+		m.refreshPackRemove()
 	}
 }
 

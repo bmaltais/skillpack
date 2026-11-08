@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/bmaltais/skillpack/internal/repo"
 )
 
 // renderDialog draws a double-bordered box titled title around bodyLines
@@ -68,18 +70,15 @@ func listLine(m model, text string, selected bool) string {
 // isn't a dialog).
 func dialogContent(m model) (title string, lines []string, ok bool) {
 	switch m.inputMode {
-	case modeAddRepoName:
-		return "Add Repo", []string{
-			fmt.Sprintf("Repo name: %s▌", m.inputBuffer),
-			"",
-			dimStyle.Render("Enter to confirm • Esc to cancel"),
-		}, true
+	case modePalette:
+		return paletteDialog(m)
 
 	case modeAddRepoURL:
 		return "Add Repo", []string{
-			fmt.Sprintf("Repo URL for %q:", m.newRepoName),
+			"Repo URL:",
 			fmt.Sprintf("%s▌", m.inputBuffer),
 			"",
+			dimStyle.Render("Named after the URL: " + repo.NameFromURL(strings.TrimSpace(m.inputBuffer))),
 			dimStyle.Render("Enter to confirm • Esc to cancel"),
 		}, true
 
@@ -192,10 +191,10 @@ func dialogContent(m model) (title string, lines []string, ok bool) {
 			fmt.Sprintf("Repair broken upstream pointer: %q", m.relinkAddr),
 			dimStyle.Render(fmt.Sprintf("Agent: %s", m.relinkAgentName)),
 			"",
-			"1  Set new upstream address (--set-upstream)",
-			"2  Clear upstream pointer (--clear-upstream)",
+			listLine(m, "Set new upstream address", m.relinkChoice == 0),
+			listLine(m, "Clear upstream pointer", m.relinkChoice == 1),
 			"",
-			dimStyle.Render("1/2 to choose • Esc to cancel"),
+			dimStyle.Render("↑↓ select • Enter confirm • Esc cancel"),
 		}, true
 
 	case modeRelinkBrokenSetInput:

@@ -136,48 +136,35 @@ func renderMenuBar(m model) string {
 func hintForPanel(m model) string {
 	switch m.activePanel {
 	case panelSkills:
-		return "↑↓ navigate  ←→ agents  Space/Enter toggle  f fork  R repair  v view  / filter  Tab switch  q quit"
+		return "↑↓←→ move  Space toggle  f fork  R repair  v view  / filter  q quit"
 	case panelStatus:
 		rHelp := "r refresh"
 		if m.statusCursor < len(m.statusRows) {
-			row := m.statusRows[m.statusCursor]
-			if _, ok := m.forkCandidates[row.addr]; ok {
+			if _, ok := m.forkCandidates[m.statusRows[m.statusCursor].addr]; ok {
 				rHelp = "r register fork"
 			}
 		}
-		return fmt.Sprintf("↑↓ navigate  u update selected  S sync all  %s  U self-update  / filter  Tab switch  q quit", rHelp)
+		return fmt.Sprintf("↑↓ move  u update  S sync  %s  U self-update  / filter  q quit", rHelp)
 	case panelRepos:
-		return "↑↓ navigate  a add  d remove  / filter  Tab switch  q quit"
+		return "↑↓ move  a add repo  d remove  A add agent  / filter  q quit"
 	case panelUnmanaged:
-		return "↑↓ navigate  / filter  Enter adopt into repo  v view  Tab switch  q quit"
+		return "↑↓ move  Enter adopt  v view  / filter  q quit"
 	case panelPacks:
-		if m.packDetailOpen && m.packCursor < len(m.packRows) {
-			row := m.packRows[m.packCursor]
-			if !row.installed {
-				return "e edit  Esc back  Tab switch  q quit"
+		if m.packDetailOpen {
+			if m.packCursor < len(m.packRows) && m.packRows[m.packCursor].isPartial {
+				return "c complete  e edit  Esc back  q quit"
 			}
-			if row.isPartial {
-				return "c complete deployment  e edit  Esc back  Tab switch  q quit"
-			}
-			return "e edit  Esc back  Tab switch  q quit"
+			return "e edit  Esc back  q quit"
 		}
-		help := "↑↓ navigate  ←→ agents  Space enable/disable  Enter detail  n new  / filter  Tab switch  q quit"
-		if m.packCursor < len(m.packRows) {
-			row := m.packRows[m.packCursor]
-			switch {
-			case !row.installed:
-				help = "↑↓ navigate  ←→ agents  Space enable  Enter detail  n new  e edit  / filter  Tab switch  q quit"
-			case row.isPartial:
-				help = "↑↓ navigate  ←→ agents  Space toggle  c complete  Enter detail  e edit  / filter  Tab switch  q quit"
-			default:
-				help = "↑↓ navigate  ←→ agents  Space toggle  Enter detail  n new  e edit  / filter  Tab switch  q quit"
-			}
+		help := "↑↓←→ move  Space toggle  Enter detail  n new  e edit  / filter  q quit"
+		if m.packCursor < len(m.packRows) && m.packRows[m.packCursor].isPartial {
+			help = "↑↓←→ move  Space toggle  c complete  Enter detail  e edit  / filter  q quit"
 		}
 		return help
 	case panelPackRemove:
-		return "↑↓ navigate  Space select  a all  r remove  Esc clear  Tab switch  q quit"
+		return "↑↓ move  Space check  a all  r remove  / filter  Esc clear  q quit"
 	case panelDoctor:
-		return "↑↓ select  Enter/f apply fix  r rescan  / filter  Tab switch  q quit"
+		return "↑↓ select  Enter fix  r rescan  / filter  q quit"
 	default:
 		return ""
 	}
@@ -188,7 +175,7 @@ func hintForPanel(m model) string {
 // right.
 func renderStatusBar(m model) string {
 	left := " " + hintForPanel(m)
-	right := "?=Help F10=Menu "
+	right := "Tab :palette ?help F10 menu "
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1
@@ -1315,12 +1302,19 @@ func packCellGlyph(c packCell) (string, lipgloss.Style) {
 // checkboxes. Nothing is removed until r is pressed and confirmed.
 func (m model) viewPackRemove(b *strings.Builder) {
 	b.WriteString("\n")
-	if len(m.removeAddrs) == 0 {
+	if len(m.st.InstalledPacks) == 0 {
 		b.WriteString(emptyStyle.Render("   No packs are installed."))
 		b.WriteString("\n")
 		return
 	}
-	b.WriteString(dimStyle.Render("  Check the packs to remove, then press r. Their skills are uninstalled from every agent."))
+	switch {
+	case m.filterActive:
+		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s▌", m.removeFilter)))
+	case m.removeFilter != "":
+		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s", m.removeFilter)))
+	default:
+		b.WriteString(dimStyle.Render(" / to filter…  Check the packs to remove, then press r."))
+	}
 	b.WriteString("\n\n")
 	b.WriteString(dimStyle.Render("      PACK" + strings.Repeat(" ", max(m.width/2-8, 4)) + "AGENTS"))
 	b.WriteString("\n")

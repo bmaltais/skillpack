@@ -2,6 +2,8 @@ package main
 
 import (
 	"github.com/bmaltais/skillpack/internal/doctor"
+	"github.com/bmaltais/skillpack/internal/state"
+	"github.com/charmbracelet/lipgloss"
 	"strings"
 	"testing"
 
@@ -189,5 +191,175 @@ func TestDoctorPanel_ArrowsMoveSelection(t *testing.T) {
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	if next.(model).doctorCursor != 1 {
 		t.Fatal("cursor must stop at the last finding")
+	}
+}
+
+// --- Phase 2: verbs and dialogs ---
+
+func TestAddRepo_SingleStepNamesFromURL(t *testing.T) {
+	m := emptyTestModel()
+	m.activePanel = panelRepos
+	m.startAddRepo()
+	if m.inputMode != modeAddRepoURL {
+		t.Fatalf("Add Repo should open straight at the URL prompt, got %v", m.inputMode)
+	}
+	if _, lines, _ := dialogContent(m); !strings.Contains(strings.Join(lines, "\n"), "Named after the URL") {
+		t.Fatal("dialog should say how the repo will be named")
+	}
+}
+
+func TestRepairChoice_ArrowsAndEnter(t *testing.T) {
+	m := emptyTestModel()
+	m.inputMode = modeRelinkBrokenChoice
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(model)
+	if m.relinkChoice != 1 {
+		t.Fatalf("Down should select 'clear', got %d", m.relinkChoice)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = next.(model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if got := next.(model).inputMode; got != modeRelinkBrokenSetInput {
+		t.Fatalf("Enter on 'set' should ask for the address, got mode %v", got)
+	}
+}
+
+func TestAddAgentKeyWorksFromAnyPanel(t *testing.T) {
+	for _, p := range panelOrder {
+		m := emptyTestModel()
+		m.activePanel = p
+		next, _ := m.Update(keyRune("A"))
+		if next.(model).inputMode != modeAddAgentPick {
+			t.Errorf("panel %v: A should start Add Agent", p)
+		}
+	}
+}
+
+func TestRemovePacksFilter_KeepsSelectionAcrossFilter(t *testing.T) {
+	m := emptyTestModel()
+	m.st.InstalledPacks = map[string]state.InstalledPackRecord{"r/go": {}, "r/writing": {}}
+	m.activePanel = panelPackRemove
+	m.refreshPackRemove()
+	m.removeSel = map[string]bool{"r/go": true}
+
+	for _, k := range []string{"/", "w", "r"} {
+		next, _ := m.Update(keyRune(k))
+		m = next.(model)
+	}
+	if len(m.removeAddrs) != 1 || m.removeAddrs[0] != "r/writing" {
+		t.Fatalf("filter 'wr' should leave only r/writing, got %v", m.removeAddrs)
+	}
+	if !m.removeSel["r/go"] {
+		t.Fatal("a checked pack hidden by the filter must stay checked")
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(model)
+	if len(m.removeAddrs) != 2 {
+		t.Fatalf("Esc should clear the filter, got %v", m.removeAddrs)
+	}
+}
+
+func TestHintsFitHundredColumns(t *testing.T) {
+	for _, p := range panelOrder {
+		m := emptyTestModel()
+		m.activePanel = p
+		right := len("Tab :palette ?help F10 menu ")
+		if w := lipgloss.Width(" "+hintForPanel(m)) + right; w > 100 {
+			t.Errorf("panel %v: hint+menu hint is %d columns, want <= 100", p, w)
+		}
+	}
+}
+
+func TestPackMenuHasNoDuplicateRemoveEntry(t *testing.T) {
+	for _, it := range appMenus[menuIndexByLabel("Packs")].items {
+		if strings.HasPrefix(it.label, "Remove Packs") {
+			t.Fatal("Remove Packs is reached from the View menu only")
+		}
+	}
+}
+
+// --- Phase 3: command palette ---
+
+func TestFuzzyScore(t *testing.T) {
+	if _, ok := fuzzyScore("xyz", "Add Repo"); ok {
+		t.Fatal("non-subsequence must not match")
+	}
+	contig, _ := fuzzyScore("rep", "Add Repo")
+	scattered, _ := fuzzyScore("rep", "Remove Packs Entire")
+	if contig <= scattered {
+		t.Fatalf("contiguous word-start match should outrank scattered: %d vs %d", contig, scattered)
+	}
+	if _, ok := fuzzyScore("", "anything"); !ok {
+		t.Fatal("empty query matches everything")
+	}
+}
+
+func TestPalette_OpensWithCtrlPAndColon_EscCloses(t *testing.T) {
+	for _, open := range []tea.KeyMsg{{Type: tea.KeyCtrlP}, keyRune(":")} {
+		m := emptyTestModel()
+		next, _ := m.Update(open)
+		m = next.(model)
+		if m.inputMode != modePalette {
+			t.Fatalf("%v should open the palette", open)
+		}
+		next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+		if next.(model).inputMode != modeNormal {
+			t.Fatal("Esc should close the palette")
+		}
+	}
+}
+
+func TestPalette_ColonTypesIntoActiveFilter(t *testing.T) {
+	m := emptyTestModel()
+	m.filterActive = true
+	next, _ := m.Update(keyRune(":"))
+	if next.(model).inputMode == modePalette {
+		t.Fatal(": must be filter text while filtering")
+	}
+}
+
+func TestPalette_RunsMenuActionAndJumpsToEntities(t *testing.T) {
+	m := emptyTestModel()
+	m.openPalette()
+	for _, r := range "stat" { // View → Status
+		next, _ := m.Update(keyRune(string(r)))
+		m = next.(model)
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	if m.inputMode != modeNormal || m.activePanel != panelStatus {
+		t.Fatalf("palette should have switched to Status; mode=%v panel=%v", m.inputMode, m.activePanel)
+	}
+
+	m = emptyTestModel()
+	m.repoList = []repoEntry{{name: "community-skills"}}
+	m.openPalette()
+	m.paletteQuery = "community"
+	matches := m.paletteMatches()
+	var repoHit bool
+	for _, it := range matches {
+		repoHit = repoHit || (it.detail == "Repo" && it.label == "community-skills")
+	}
+	if !repoHit {
+		t.Fatalf("repo should be searchable: %+v", matches)
+	}
+}
+
+func TestPalette_OmitsDisabledActions(t *testing.T) {
+	m := emptyTestModel() // Skills panel, nothing selected for Fork etc.
+	m.openPalette()
+	for _, it := range m.paletteCandidates() {
+		if it.label == "Add Repo" {
+			t.Fatal("Add Repo is disabled off the Repos panel and must not be offered")
+		}
+	}
+}
+
+func TestPaletteDialogFitsTerminal(t *testing.T) {
+	m := emptyTestModel()
+	m.width, m.height = 80, 20
+	m.openPalette()
+	if got := strings.Count(m.View(), "\n") + 1; got != 20 {
+		t.Fatalf("frame has %d lines, want 20", got)
 	}
 }

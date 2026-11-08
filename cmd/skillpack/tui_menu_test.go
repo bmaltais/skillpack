@@ -258,7 +258,7 @@ func TestSlashFilter_SpaceFeedsFilterInsteadOfToggling(t *testing.T) {
 func TestMenu_InputModeBeatsMenu(t *testing.T) {
 	m := emptyTestModel()
 	m.activePanel = panelRepos
-	m.inputMode = modeAddRepoName
+	m.inputMode = modeAddRepoURL
 	m.inputBuffer = ""
 
 	next, _ := m.Update(keyF(10))
@@ -266,7 +266,7 @@ func TestMenu_InputModeBeatsMenu(t *testing.T) {
 	if m.menuOpen {
 		t.Fatal("F10 opened the menu while an input mode dialog was active")
 	}
-	if m.inputMode != modeAddRepoName {
+	if m.inputMode != modeAddRepoURL {
 		t.Fatalf("input mode changed unexpectedly: %v", m.inputMode)
 	}
 }

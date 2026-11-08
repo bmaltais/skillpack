@@ -19,10 +19,12 @@ Panels (a strip under the menu bar lists them; Tab/Shift+Tab cycle, F2-F8 jump):
   F5  Unmanaged   Adopt skills found in agent dirs but not tracked by skillpack
   F6  Packs       Browse packs, install them per agent (Space), create, and edit
   F7  Doctor      Find problems (stale skills, broken upstreams, partial packs, duplicates) and apply fixes with Enter
-  F8  Remove Packs  Check installed packs and remove them
+  F8  Remove Packs  Check installed packs (/ to filter) and remove them
 
 F10 (or Alt+F/V/A/P/H) opens the menu bar (File/View/Actions/Packs/Help);
 F1 or ? opens a scrollable key-binding reference sourced from the same menus.
+Ctrl+P (or :) opens a command palette: type to fuzzy-search every menu action and
+jump to any skill, repo or pack. A adds an agent from any panel.
 Esc only backs out (clears a filter, closes a dialog); q or Ctrl+C quits.
 
 Skills panel:

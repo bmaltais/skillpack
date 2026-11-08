@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/bmaltais/skillpack/internal/doctor"
 	"strings"
 	"testing"
 
@@ -106,5 +107,87 @@ func TestViewNeverExceedsTerminalHeight(t *testing.T) {
 				t.Errorf("panel %v height %d: frame has %d lines", p, h, got)
 			}
 		}
+	}
+}
+
+// --- Doctor fixes ---
+
+func doctorModel(findings ...doctor.Finding) model {
+	m := emptyTestModel()
+	m.activePanel = panelDoctor
+	m.doctorFindings = findings
+	return m
+}
+
+func TestDoctorFix_StaleOpensRelinkDialog(t *testing.T) {
+	m := doctorModel(doctor.Finding{Kind: doctor.StaleSkill, Subject: "r/gone", Agent: "claude", Fix: "Relink"})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	if m.inputMode != modeRelinkStaleInput || m.relinkAddr != "r/gone" || m.relinkAgentName != "claude" {
+		t.Fatalf("mode=%v addr=%q agent=%q", m.inputMode, m.relinkAddr, m.relinkAgentName)
+	}
+	if !m.doctorDirty {
+		t.Fatal("fix should mark the panel for rescan")
+	}
+}
+
+func TestDoctorFix_BrokenUpstreamOpensChoice(t *testing.T) {
+	m := doctorModel(doctor.Finding{Kind: doctor.BrokenUpstream, Subject: "r/fork", Agent: "pi", Fix: "Set"})
+	next, _ := m.Update(keyRune("f"))
+	if got := next.(model).inputMode; got != modeRelinkBrokenChoice {
+		t.Fatalf("mode=%v", got)
+	}
+}
+
+func TestDoctorFix_ForkCandidatePrefillsUpstream(t *testing.T) {
+	m := doctorModel(doctor.Finding{Kind: doctor.ForkCandidate, Subject: "mine/t", Related: "theirs/t", Fix: "Register"})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	if m.inputMode != modeRegisterForkInput || m.registerForkAddr != "mine/t" || m.registerForkInput != "theirs/t" {
+		t.Fatalf("mode=%v addr=%q input=%q", m.inputMode, m.registerForkAddr, m.registerForkInput)
+	}
+}
+
+func TestDoctorFix_PartialPackRunsCompleteAsync(t *testing.T) {
+	m := doctorModel(doctor.Finding{Kind: doctor.PartialPack, Subject: "r/packs/p", Fix: "Complete"})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	if cmd == nil || m.busy == "" || !m.doctorDirty {
+		t.Fatalf("cmd=%v busy=%q dirty=%v", cmd != nil, m.busy, m.doctorDirty)
+	}
+}
+
+func TestDoctorFix_InformationalDoesNothing(t *testing.T) {
+	m := doctorModel(doctor.Finding{Kind: doctor.Duplicate, Subject: "a/t", Related: "b/t"})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	if cmd != nil || m.inputMode != modeNormal || m.doctorDirty || m.message == "" {
+		t.Fatalf("informational finding must only explain: cmd=%v mode=%v msg=%q", cmd != nil, m.inputMode, m.message)
+	}
+}
+
+func TestDoctorFix_RescansWhenDialogCloses(t *testing.T) {
+	m := doctorModel(doctor.Finding{Kind: doctor.ForkCandidate, Subject: "mine/t", Related: "theirs/t", Fix: "Register"})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if next.(model).doctorFindings == nil {
+		t.Fatal("findings must stay while the dialog is open")
+	}
+	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyEsc}) // cancel the dialog
+	m = next.(model)
+	if m.doctorDirty || len(m.doctorFindings) != 0 {
+		t.Fatalf("closing the dialog should rescan (state has no problems): dirty=%v findings=%v", m.doctorDirty, m.doctorFindings)
+	}
+}
+
+func TestDoctorPanel_ArrowsMoveSelection(t *testing.T) {
+	m := doctorModel(doctor.Finding{Subject: "a"}, doctor.Finding{Subject: "b"})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(model)
+	if m.selectedFinding().Subject != "b" {
+		t.Fatalf("got %+v", m.selectedFinding())
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if next.(model).doctorCursor != 1 {
+		t.Fatal("cursor must stop at the last finding")
 	}
 }

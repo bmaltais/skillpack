@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/bmaltais/skillpack/internal/config"
+	"github.com/bmaltais/skillpack/internal/doctor"
 	"github.com/bmaltais/skillpack/internal/pack"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/skill"
@@ -427,8 +428,8 @@ func (m *model) handleUp() {
 			}
 		}
 	case panelDoctor:
-		if m.doctorScroll > 0 {
-			m.doctorScroll--
+		if m.doctorCursor > 0 {
+			m.doctorCursor--
 		}
 	}
 }
@@ -461,7 +462,9 @@ func (m *model) handleDown() {
 			}
 		}
 	case panelDoctor:
-		m.doctorScroll++
+		if m.doctorCursor < len(m.doctorVisible())-1 {
+			m.doctorCursor++
+		}
 	}
 }
 
@@ -585,7 +588,7 @@ func (m *model) switchPanel(p panel) tea.Cmd {
 		if err := m.refreshDoctor(); err != nil {
 			m.message = fmt.Sprintf("✗ %v", err)
 		}
-		m.doctorScroll = 0
+		m.doctorCursor = 0
 	case panelStatus:
 		if len(m.statusRows) == 0 && len(m.st.InstalledSkills) > 0 {
 			m.busy = "Checking status..."
@@ -856,23 +859,26 @@ func (m *model) startRepair() {
 		return
 	}
 
-	agent := m.agents[m.cursorCol]
-	m.relinkAddr = row.addr
+	m.beginRelink(row.addr, m.agents[m.cursorCol], row.problem == problemStale)
+}
+
+// beginRelink opens the repair dialog for addr: pick/type a replacement
+// address when stale, or choose set-upstream/clear when the upstream is
+// broken. Shared by the Skills panel (R) and the Doctor panel.
+func (m *model) beginRelink(addr, agent string, stale bool) {
+	m.relinkAddr = addr
 	m.relinkAgentName = agent
 	m.relinkInput = ""
-
-	switch row.problem {
-	case problemStale:
-		candidates := skill.SuggestReplacements(row.addr, m.st)
+	m.message = ""
+	if stale {
+		candidates := skill.SuggestReplacements(addr, m.st)
 		m.relinkCandidates = candidates
 		m.relinkCandidateCursor = 0
 		m.relinkCandidateMode = len(candidates) > 0
 		m.inputMode = modeRelinkStaleInput
-		m.message = ""
-	case problemBrokenUpstream:
-		m.inputMode = modeRelinkBrokenChoice
-		m.message = ""
+		return
 	}
+	m.inputMode = modeRelinkBrokenChoice
 }
 
 func (m *model) updateSelectedSkill() {
@@ -1015,4 +1021,61 @@ func (m *model) selectAllRemovable() {
 	for _, addr := range m.removeAddrs {
 		m.removeSel[addr] = true
 	}
+}
+
+// applyDoctorFix runs the fix offered for the selected finding by handing it
+// to the existing flow for that kind. Dialog flows (relink, register fork)
+// and async work (complete pack) finish on their own; doctorDirty makes the
+// panel rescan once they do.
+func (m *model) applyDoctorFix() tea.Cmd {
+	f := m.selectedFinding()
+	if f == nil {
+		m.message = "Nothing selected"
+		return nil
+	}
+	if f.Fix == "" {
+		m.message = "Informational: nothing to fix here"
+		return nil
+	}
+	switch f.Kind {
+	case doctor.StaleSkill, doctor.BrokenUpstream:
+		m.doctorDirty = true
+		m.beginRelink(f.Subject, f.Agent, f.Kind == doctor.StaleSkill)
+	case doctor.PartialPack:
+		m.doctorDirty = true
+		m.busy = "Completing deployment..."
+		m.message = ""
+		return m.cmdCompleteDeployment(f.Subject)
+	case doctor.ForkCandidate:
+		m.doctorDirty = true
+		m.registerForkAddr = f.Subject
+		m.registerForkInput = f.Related
+		m.inputMode = modeRegisterForkInput
+		m.message = ""
+	case doctor.Duplicate:
+		return m.viewDuplicateDiff(f.Subject, f.Related)
+	}
+	return nil
+}
+
+// viewDuplicateDiff writes the diff between two duplicate copies to a temp
+// file and opens it in the platform viewer, like View SKILL.md.
+func (m *model) viewDuplicateDiff(a, b string) tea.Cmd {
+	text, err := doctor.Diff(m.st, a, b)
+	if err != nil {
+		m.message = fmt.Sprintf("✗ Diff failed: %v", err)
+		return nil
+	}
+	f, err := os.CreateTemp("", "skillpack-diff-*.txt")
+	if err != nil {
+		m.message = fmt.Sprintf("✗ Diff failed: %v", err)
+		return nil
+	}
+	defer f.Close()
+	if _, err := f.WriteString(text); err != nil {
+		m.message = fmt.Sprintf("✗ Diff failed: %v", err)
+		return nil
+	}
+	m.message = ""
+	return cmdViewSkillMd(f.Name())
 }

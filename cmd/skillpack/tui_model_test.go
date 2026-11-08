@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/bmaltais/skillpack/internal/config"
+	"github.com/bmaltais/skillpack/internal/doctor"
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
@@ -657,8 +658,8 @@ func TestRefreshDoctor_NoDuplicates(t *testing.T) {
 	if err := m.refreshDoctor(); err != nil {
 		t.Fatalf("refreshDoctor: %v", err)
 	}
-	if len(m.doctorSets) != 0 {
-		t.Errorf("expected no duplicate sets, got %v", m.doctorSets)
+	if len(m.doctorFindings) != 0 {
+		t.Errorf("expected no findings, got %v", m.doctorFindings)
 	}
 }
 
@@ -684,15 +685,12 @@ func TestRefreshDoctor_FindsDuplicateAcrossRepos(t *testing.T) {
 	if err := m.refreshDoctor(); err != nil {
 		t.Fatalf("refreshDoctor: %v", err)
 	}
-	if len(m.doctorSets) != 1 {
-		t.Fatalf("expected 1 duplicate set, got %d", len(m.doctorSets))
+	if len(m.doctorFindings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(m.doctorFindings))
 	}
-	set := m.doctorSets[0]
-	if set.basename != "debugger" {
-		t.Errorf("basename = %q, want debugger", set.basename)
-	}
-	if len(set.pairs) != 1 || set.pairs[0].confidence != "identical" {
-		t.Errorf("expected 1 identical pair, got %v", set.pairs)
+	f := m.doctorFindings[0]
+	if f.Kind != doctor.Duplicate || f.Fix != "" || !strings.Contains(f.Detail, "identical") {
+		t.Errorf("expected an informational identical duplicate, got %+v", f)
 	}
 }
 
@@ -715,16 +713,16 @@ func TestSwitchPanel_Doctor_RefreshesAndResetsScroll(t *testing.T) {
 	})
 
 	m := initialModel(cfg, st)
-	m.doctorScroll = 5
+	m.doctorCursor = 5
 	m.switchPanel(panelDoctor)
 	if m.activePanel != panelDoctor {
 		t.Fatalf("activePanel = %v, want panelDoctor", m.activePanel)
 	}
-	if len(m.doctorSets) != 1 {
-		t.Fatalf("expected switchPanel to populate 1 duplicate set, got %d", len(m.doctorSets))
+	if len(m.doctorFindings) != 1 {
+		t.Fatalf("expected switchPanel to populate 1 finding, got %d", len(m.doctorFindings))
 	}
-	if m.doctorScroll != 0 {
-		t.Errorf("doctorScroll = %d, want 0 (reset on switch)", m.doctorScroll)
+	if m.doctorCursor != 0 {
+		t.Errorf("doctorCursor = %d, want 0 (reset on switch)", m.doctorCursor)
 	}
 }
 
@@ -753,7 +751,7 @@ func TestViewDoctor_RendersDuplicateSet(t *testing.T) {
 	}
 	out := m.View()
 
-	for _, want := range []string{"triage (2 members)", "repo-a/triage", "repo-b/triage", "identical", "unlinked"} {
+	for _, want := range []string{"DUPLICATE", "repo-a/triage", "repo-b/triage", "identical", "unlinked"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("doctor view missing %q", want)
 		}
@@ -778,7 +776,7 @@ func TestViewDoctor_NoDuplicatesMessage(t *testing.T) {
 	}
 	out := m.View()
 
-	if !strings.Contains(out, "No duplicates found.") {
+	if !strings.Contains(out, "No problems found.") {
 		t.Error("expected empty-state message when no duplicate sets exist")
 	}
 }

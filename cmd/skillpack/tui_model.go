@@ -10,9 +10,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/bmaltais/skillpack/internal/config"
+	"github.com/bmaltais/skillpack/internal/doctor"
 	"github.com/bmaltais/skillpack/internal/pack"
 	"github.com/bmaltais/skillpack/internal/repo"
-	"github.com/bmaltais/skillpack/internal/skill"
 	"github.com/bmaltais/skillpack/internal/state"
 )
 
@@ -159,10 +159,11 @@ type model struct {
 	packDetailDef  *pack.Pack // parsed pack.yaml for an available pack's detail overlay, loaded once on open
 	packDetailErr  error      // load error for the detail overlay, if any
 
-	// Doctor panel (read-only Duplicate Set report)
-	doctorSets   []doctorSetRow
-	doctorScroll int    // line offset, like helpScroll
-	doctorFilter string // incremental filter for the doctor panel
+	// Doctor panel: selectable findings, each with an offered fix
+	doctorFindings []doctor.Finding
+	doctorCursor   int    // index into the filtered findings
+	doctorFilter   string // incremental filter for the doctor panel
+	doctorDirty    bool   // a fix was launched; rescan once it finishes
 
 	// packWizard, when non-nil, is the embedded create/edit wizard child model.
 	// It receives all key/window messages and is rendered in place of the
@@ -223,21 +224,6 @@ type statusRow struct {
 	addr      string
 	agentName string
 	status    string // "ok", "update", "modified", "conflict", "error"
-}
-
-// doctorSetRow is the TUI-local, plain-data view of a skill.DuplicateSet.
-// Domain types stay out of the model/view layers (see cmd/skillpack/AGENTS.md);
-// refreshDoctor converts at the boundary.
-type doctorSetRow struct {
-	basename string
-	members  []string
-	pairs    []doctorPairRow
-}
-
-type doctorPairRow struct {
-	a, b       string
-	confidence string // "identical" or "diverged"
-	linkStatus string // "linked (fork)" or "unlinked"
 }
 
 func initialModel(cfg *config.Config, st *state.State) model {
@@ -367,49 +353,54 @@ func statusRowMatches(addr, agentName, filter string) bool {
 	return strings.Contains(strings.ToLower(addr), f) || strings.Contains(strings.ToLower(agentName), f)
 }
 
-// refreshDoctor rescans every registered repo's cache for Duplicate Sets.
-// Cheap and synchronous (pure local filesystem walk, no network), unlike
-// cmdCheckStatus, so it runs directly on panel switch rather than as an
-// async tea.Cmd. Converts skill.DuplicateSet into plain doctorSetRow values
-// so the model/view layers never hold internal/skill types directly.
-// Returns an error rather than swallowing one, so a failed scan surfaces to
-// the user instead of silently rendering as "No duplicates found."
+// refreshDoctor re-runs the diagnosis. Cheap and synchronous (local
+// filesystem only, no network), so it runs directly on panel switch. Returns
+// an error rather than swallowing one, so a failed scan surfaces to the user
+// instead of rendering as "no problems".
 func (m *model) refreshDoctor() error {
-	allSkills, err := repo.DiscoverAllSkills(m.st)
+	findings, err := doctor.Diagnose(m.st, m.canWriteRepo)
 	if err != nil {
-		return fmt.Errorf("scanning repos: %w", err)
+		return fmt.Errorf("diagnosing: %w", err)
 	}
-	sets, err := skill.DetectDuplicateSets(allSkills)
-	if err != nil {
-		return fmt.Errorf("detecting duplicate sets: %w", err)
-	}
-
-	m.doctorSets = make([]doctorSetRow, len(sets))
-	for i, set := range sets {
-		pairs := make([]doctorPairRow, len(set.Pairs))
-		for j, p := range set.Pairs {
-			pairs[j] = doctorPairRow{a: p.A, b: p.B, confidence: p.Confidence, linkStatus: p.LinkStatus}
-		}
-		m.doctorSets[i] = doctorSetRow{basename: set.Basename, members: set.Members, pairs: pairs}
+	m.doctorFindings = findings
+	if n := len(m.doctorVisible()); m.doctorCursor >= n {
+		m.doctorCursor = max(n-1, 0)
 	}
 	return nil
 }
 
-// doctorSetMatches reports whether a duplicate set's basename or any member
-// address contains filter, case-insensitively. Filtering happens at render
-// time (see doctorLines) rather than during refreshDoctor, since doctorScroll
-// is a line offset into rendered report text, not a row cursor.
-func doctorSetMatches(set doctorSetRow, filter string) bool {
-	f := strings.ToLower(filter)
-	if strings.Contains(strings.ToLower(set.basename), f) {
-		return true
+// canWriteRepo reports whether the user can push to the named repo (SSH URL
+// or a stored token), the same rule the Status panel uses for fork candidates.
+func (m *model) canWriteRepo(name string) bool {
+	rec, ok := m.st.Repos[name]
+	if !ok {
+		return false
 	}
-	for _, member := range set.members {
-		if strings.Contains(strings.ToLower(member), f) {
-			return true
+	return strings.HasPrefix(rec.URL, "git@") || strings.HasPrefix(rec.URL, "ssh://") || m.cfg.TokenForRepo(name) != ""
+}
+
+// doctorVisible returns the findings matching doctorFilter (all when empty).
+func (m *model) doctorVisible() []doctor.Finding {
+	if m.doctorFilter == "" {
+		return m.doctorFindings
+	}
+	f := strings.ToLower(m.doctorFilter)
+	var out []doctor.Finding
+	for _, fd := range m.doctorFindings {
+		if strings.Contains(strings.ToLower(fd.Subject+" "+fd.Related+" "+fd.Detail+" "+string(fd.Kind)), f) {
+			out = append(out, fd)
 		}
 	}
-	return false
+	return out
+}
+
+// selectedFinding returns the finding under the Doctor cursor, or nil.
+func (m *model) selectedFinding() *doctor.Finding {
+	vis := m.doctorVisible()
+	if m.doctorCursor < 0 || m.doctorCursor >= len(vis) {
+		return nil
+	}
+	return &vis[m.doctorCursor]
 }
 
 // refreshAgents rebuilds the sorted agent-name list used for skill/pack
@@ -636,47 +627,15 @@ func unmanagedMatches(skillName, agentName, localPath, filter string) bool {
 }
 
 // computeSkillProblems classifies installed skills into health states.
-// discoveredAddrs is the set of addresses found by repo.DiscoverAllSkills;
-// addresses absent from this set are classified as problemStale.
-// For forks (UpstreamAddr set), if the upstream skill cache path no longer
-// contains a SKILL.md the skill is classified as problemBrokenUpstream.
-// The function performs only local filesystem stat calls — no git or network I/O.
+// discoveredAddrs is the set of addresses found by repo.DiscoverAllSkills.
+// The classification itself lives in doctor.SkillProblems.
 func computeSkillProblems(st *state.State, discoveredAddrs map[string]bool) map[string]skillProblem {
 	problems := make(map[string]skillProblem)
-	for addr, agents := range st.InstalledSkills {
-		// If already flagged (e.g. from a previous loop iteration), skip.
-		if problems[addr] != problemNone {
-			continue
-		}
-		if !discoveredAddrs[addr] {
-			// Installed but not discoverable → stale address.
+	for addr, p := range doctor.SkillProblems(st, discoveredAddrs) {
+		if p.Kind == doctor.StaleSkill {
 			problems[addr] = problemStale
-			continue
-		}
-		// Check for broken upstream pointer on forks.
-		for _, rec := range agents {
-			if rec.UpstreamAddr == "" {
-				continue
-			}
-			upstreamParts := strings.SplitN(rec.UpstreamAddr, "/", 2)
-			if len(upstreamParts) != 2 {
-				continue
-			}
-			upstreamRepo, ok := st.Repos[upstreamParts[0]]
-			if !ok {
-				// Upstream repo not registered — not necessarily broken, just unknown.
-				continue
-			}
-			// Only flag broken if the upstream repo is a real git clone
-			// (avoids false positives on empty test fixtures).
-			if _, gitErr := os.Stat(filepath.Join(upstreamRepo.CachePath, ".git")); gitErr != nil {
-				continue
-			}
-			upstreamSkillPath := filepath.Join(upstreamRepo.CachePath, filepath.FromSlash(upstreamParts[1]))
-			if _, statErr := os.Stat(filepath.Join(upstreamSkillPath, "SKILL.md")); os.IsNotExist(statErr) {
-				problems[addr] = problemBrokenUpstream
-			}
-			break // one agent record is enough to determine fork status
+		} else {
+			problems[addr] = problemBrokenUpstream
 		}
 	}
 	return problems

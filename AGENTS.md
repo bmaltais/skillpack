@@ -128,5 +128,6 @@ When a review or user correction establishes a convention no check enforces, add
 | [`internal/testutil/AGENTS.md`](internal/testutil/AGENTS.md) | Test helpers: isolated temp HOME for tests |
 | [`internal/layering/AGENTS.md`](internal/layering/AGENTS.md) | Tests enforcing Layering rules (`cmd` never saves state, `internal/*` never prints) |
 | [`internal/pack/AGENTS.md`](internal/pack/AGENTS.md) | Pack Deployment: `pack.yaml` schema, recipe resolution, install/complete/update/remove |
+| [`internal/doctor/AGENTS.md`](internal/doctor/AGENTS.md) | Doctor: read-only `Diagnose` returning typed findings, each with an offered fix |
 
 Each child AGENTS.md lists its own children (if any) at the bottom. The repo child points to gitops as its only sub-domain.

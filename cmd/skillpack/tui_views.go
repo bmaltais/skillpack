@@ -76,8 +76,8 @@ func renderPanelStrip(m model) string {
 				label = fmt.Sprintf("F%d %s", i+2, label)
 			}
 			if i > 0 {
-				sb.WriteString(dimStyle.Render(" │ "))
-				plain += 3
+				sb.WriteString(dimStyle.Render("│"))
+				plain++
 			}
 			if p == m.activePanel {
 				sb.WriteString(cellSelStyle.Render(" " + label + " "))

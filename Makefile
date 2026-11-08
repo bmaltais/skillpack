@@ -1,4 +1,4 @@
-.PHONY: build install test vet fmt fmt-check check hooks
+.PHONY: build install test vet fmt fmt-check check hooks try
 
 BINARY := skillpack
 INSTALL_DIR := $(HOME)/.local/bin
@@ -27,3 +27,11 @@ check: fmt-check vet test
 
 hooks:
 	git config core.hooksPath .githooks
+
+# try: rebuild and launch the TUI against a throwaway HOME so manual testing
+# never touches your real ~/.skillpack. Use TRY_HOME=$$HOME to test on real data.
+TRY_HOME ?= /tmp/skillpack-try
+try:
+	mkdir -p $(TRY_HOME)
+	go build -o $(TRY_HOME)/skillpack $(CMD)
+	HOME=$(TRY_HOME) $(TRY_HOME)/skillpack tui

@@ -85,6 +85,26 @@ func (m *model) paletteCandidates() []paletteItem {
 			return cmd
 		}})
 	}
+	// Direct skill actions: install or remove on a specific agent, through
+	// the same path as Space on the Skills panel.
+	for i, r := range m.rows {
+		if r.kind != skillRow {
+			continue
+		}
+		for j, agent := range m.agents {
+			i, j, addr, agent := i, j, r.addr, agent
+			label, verb := fmt.Sprintf("Install %s on %s", addr, agent), "Install"
+			if m.installed[addr][agent] {
+				label, verb = fmt.Sprintf("Remove %s from %s", addr, agent), "Remove"
+			}
+			items = append(items, paletteItem{label: label, detail: verb, run: func(m *model) tea.Cmd {
+				cmd := m.switchPanel(panelSkills)
+				m.cursorRow, m.cursorCol = i, j
+				m.handleSkillToggle()
+				return cmd
+			}})
+		}
+	}
 	for _, r := range m.repoList {
 		name := r.name
 		items = append(items, paletteItem{label: name, detail: "Repo", run: func(m *model) tea.Cmd {
@@ -103,6 +123,30 @@ func (m *model) paletteCandidates() []paletteItem {
 			return cmd
 		}})
 	}
+	// Direct pack actions: enable or disable on an agent, or remove outright.
+	for i, r := range m.packRows {
+		i, r := i, r
+		for j, agent := range m.agents {
+			j, agent := j, agent
+			label, verb := fmt.Sprintf("Enable %s on %s", r.packAddr, agent), "Enable"
+			if r.cells[agent] == packCellOn {
+				label, verb = fmt.Sprintf("Disable %s on %s", r.packAddr, agent), "Disable"
+			}
+			items = append(items, paletteItem{label: label, detail: verb, run: func(m *model) tea.Cmd {
+				cmd := m.switchPanel(panelPacks)
+				m.packCursor, m.packCol = i, j
+				return tea.Batch(cmd, m.togglePackAgent())
+			}})
+		}
+		if r.installed {
+			items = append(items, paletteItem{label: "Remove pack " + r.packAddr, detail: "Remove", run: func(m *model) tea.Cmd {
+				cmd := m.switchPanel(panelPacks)
+				m.packCursor = i
+				m.startPackRemove()
+				return cmd
+			}})
+		}
+	}
 	return items
 }
 
@@ -115,7 +159,12 @@ func (m *model) paletteMatches() []paletteItem {
 			out = append(out, it)
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].score > out[j].score })
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].score != out[j].score {
+			return out[i].score > out[j].score
+		}
+		return len(out[i].label) < len(out[j].label)
+	})
 	return out
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/bmaltais/skillpack/internal/pack"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/skill"
+	"github.com/bmaltais/skillpack/internal/state"
 )
 
 // --- Async Command Factories (extracted in Phase 4) ---
@@ -285,5 +286,17 @@ func (m *model) cmdPackToggle(packAddr, agent string, enable bool) tea.Cmd {
 			summary = fmt.Sprintf("⚠ Enabled %s for %s partially — %d installed, %d failed (press c to retry)", packAddr, agent, res.Installed, res.Failed)
 		}
 		return packInstallDoneMsg{packAddr: packAddr, st: stCopy, summary: summary}
+	}
+}
+
+// cmdDoctorWrite runs a Doctor repo write (overwrite or delete a copy) off the
+// UI goroutine on a copy of state; the push can take a while.
+func (m *model) cmdDoctorWrite(summary string, fn func(st *state.State) error) tea.Cmd {
+	stCopy := m.st.Clone()
+	return func() tea.Msg {
+		if err := fn(stCopy); err != nil {
+			return doctorWriteDoneMsg{summary: summary, err: err}
+		}
+		return doctorWriteDoneMsg{summary: summary, st: stCopy}
 	}
 }

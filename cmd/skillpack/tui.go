@@ -12,14 +12,13 @@ var tuiCmd = &cobra.Command{
 menu bar, bottom status bar) to browse skills across repos and toggle
 installation for each configured agent.
 
-Panels (a strip under the menu bar lists them; Tab/Shift+Tab cycle, F2-F8 jump):
+Panels (a strip under the menu bar lists them; Tab/Shift+Tab cycle, F2-F7 jump):
   F2  Skills      Browse and install/remove skills
   F3  Status      View installed skill states, update, sync
   F4  Repos       Add/remove skill repositories
   F5  Unmanaged   Adopt skills found in agent dirs but not tracked by skillpack
   F6  Packs       Browse packs, install them per agent (Space), create, and edit
-  F7  Doctor      Find problems (stale skills, broken upstreams, partial packs, duplicates) and apply fixes with Enter
-  F8  Remove Packs  Check installed packs (/ to filter) and remove them
+  F7  Doctor      Find problems (stale skills, broken upstreams, partial packs, duplicates); Enter applies a fix, asking first when it writes to a repo
 
 F10 (or Alt+F/V/A/P/H) opens the menu bar (File/View/Actions/Packs/Help);
 F1 or ? opens a scrollable key-binding reference sourced from the same menus.
@@ -65,7 +64,8 @@ Packs panel:
   n           Create a new pack (embedded wizard)
   e           Edit the selected pack
   c           Complete a partially-deployed pack
-  F8          Remove Packs panel (Space to check, r to remove)
+  m           Mark the selected installed pack for removal
+  d           Remove the marked packs (or the selected one), after a confirm
 
 All changes are applied immediately.`,
 	RunE: func(cmd *cobra.Command, args []string) error {

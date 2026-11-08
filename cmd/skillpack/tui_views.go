@@ -51,8 +51,6 @@ func panelName(p panel) string {
 		return "Packs"
 	case panelDoctor:
 		return "Doctor"
-	case panelPackRemove:
-		return "Remove Packs"
 	default:
 		return ""
 	}
@@ -60,7 +58,7 @@ func panelName(p panel) string {
 
 // panelOrder is the one ordering of panels: F2..F8 jump to it by index and
 // Tab/Shift+Tab walk it, so the two can never disagree.
-var panelOrder = []panel{panelSkills, panelStatus, panelRepos, panelUnmanaged, panelPacks, panelDoctor, panelPackRemove}
+var panelOrder = []panel{panelSkills, panelStatus, panelRepos, panelUnmanaged, panelPacks, panelDoctor}
 
 // panelStripRows is the height of the panel strip; panel list sizing
 // subtracts it from the chrome overhead so bodies don't overflow the screen.
@@ -156,13 +154,11 @@ func hintForPanel(m model) string {
 			}
 			return "e edit  Esc back  q quit"
 		}
-		help := "↑↓←→ move  Space toggle  Enter detail  n new  e edit  / filter  q quit"
+		help := "↑↓←→ move  Space toggle  m mark  d remove  n new  e edit  q quit"
 		if m.packCursor < len(m.packRows) && m.packRows[m.packCursor].isPartial {
-			help = "↑↓←→ move  Space toggle  c complete  Enter detail  e edit  / filter  q quit"
+			help = "↑↓←→ move  Space toggle  c complete  m mark  d remove  e edit  q quit"
 		}
 		return help
-	case panelPackRemove:
-		return "↑↓ move  Space check  a all  r remove  / filter  Esc clear  q quit"
 	case panelDoctor:
 		return "↑↓ select  Enter fix  r rescan  / filter  q quit"
 	default:
@@ -267,8 +263,6 @@ func (m model) View() string {
 		m.viewUnmanaged(&b)
 	case panelPacks:
 		m.viewPacks(&b)
-	case panelPackRemove:
-		m.viewPackRemove(&b)
 	case panelDoctor:
 		m.viewDoctor(&b)
 	}
@@ -1189,7 +1183,11 @@ func (m model) viewPacks(b *strings.Builder) {
 			if row.isPartial {
 				badge = " ⚠"
 			}
-			name := fmt.Sprintf("%-*s", nameW+1, truncate(" "+row.packAddr, nameW-len(badge))+badge)
+			mark := " "
+			if m.packMarks[row.packAddr] {
+				mark = "✓"
+			}
+			name := fmt.Sprintf("%-*s", nameW+1, truncate(mark+row.packAddr, nameW-len(badge))+badge)
 			switch {
 			case isSelected:
 				b.WriteString(selectedStyle.Render(name))
@@ -1296,65 +1294,6 @@ func packCellGlyph(c packCell) (string, lipgloss.Style) {
 	default:
 		return " [ ] ", emptyStyle
 	}
-}
-
-// viewPackRemove renders the Remove Packs panel: installed packs with
-// checkboxes. Nothing is removed until r is pressed and confirmed.
-func (m model) viewPackRemove(b *strings.Builder) {
-	b.WriteString("\n")
-	if len(m.st.InstalledPacks) == 0 {
-		b.WriteString(emptyStyle.Render("   No packs are installed."))
-		b.WriteString("\n")
-		return
-	}
-	switch {
-	case m.filterActive:
-		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s▌", m.removeFilter)))
-	case m.removeFilter != "":
-		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s", m.removeFilter)))
-	default:
-		b.WriteString(dimStyle.Render(" / to filter…  Check the packs to remove, then press r."))
-	}
-	b.WriteString("\n\n")
-	b.WriteString(dimStyle.Render("      PACK" + strings.Repeat(" ", max(m.width/2-8, 4)) + "AGENTS"))
-	b.WriteString("\n")
-	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
-	b.WriteString("\n")
-
-	maxRows := max(m.height-panelStripRows-12, 3)
-	offset := scrollOffset(m.removeCursor, maxRows, len(m.removeAddrs))
-	nameW := max(m.width/2, 20)
-	displayed := 0
-	for i := offset; i < len(m.removeAddrs) && displayed < maxRows; i++ {
-		addr := m.removeAddrs[i]
-		box := "[ ]"
-		if m.removeSel[addr] {
-			box = "[x]"
-		}
-		agents := strings.Join(m.st.InstalledPacks[addr].Agents, ", ")
-		line := fmt.Sprintf(" %s %-*s %s", box, nameW, truncate(addr, nameW), truncate(agents, max(m.width-nameW-8, 4)))
-		switch {
-		case i == m.removeCursor:
-			b.WriteString(selectedStyle.Render(line))
-		case m.removeSel[addr]:
-			b.WriteString(conflictStyle.Render(line))
-		default:
-			b.WriteString(line)
-		}
-		b.WriteString("\n")
-		displayed++
-	}
-	for i := displayed; i < maxRows; i++ {
-		b.WriteString("\n")
-	}
-	b.WriteString("\n")
-	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
-	b.WriteString("\n")
-	if m.message != "" {
-		b.WriteString(msgStyle.Render(" " + m.message))
-		return
-	}
-	b.WriteString(dimStyle.Render(fmt.Sprintf(" %d of %d selected", len(m.removeSel), len(m.removeAddrs))))
 }
 
 // viewAvailablePackDetail renders the detail overlay for a pack that is

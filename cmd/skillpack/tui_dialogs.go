@@ -73,6 +73,21 @@ func dialogContent(m model) (title string, lines []string, ok bool) {
 	case modePalette:
 		return paletteDialog(m)
 
+	case modeDoctorChoice:
+		lines := []string{"What do you want to do with this pair?", ""}
+		for i, o := range m.doctorChoices {
+			lines = append(lines, listLine(m, o.label, i == m.doctorChoice))
+		}
+		return "Duplicate", append(lines, "", dimStyle.Render("↑↓ select • Enter choose • Esc cancel")), true
+
+	case modeConfirmAction:
+		return m.confirmTitle, append(append([]string{}, m.confirmLines...),
+			"",
+			confirmButtons(m.confirmYes),
+			"",
+			dimStyle.Render("←→ choose • Enter select • y/n shortcut • Esc cancel"),
+		), true
+
 	case modeAddRepoURL:
 		return "Add Repo", []string{
 			"Repo URL:",

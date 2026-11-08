@@ -97,7 +97,6 @@ func TestMenu_F2ThroughF7SwitchPanels(t *testing.T) {
 		{keyF(5), panelUnmanaged},
 		{keyF(6), panelPacks},
 		{keyF(7), panelDoctor},
-		{keyF(8), panelPackRemove},
 	}
 	for _, c := range cases {
 		m := emptyTestModel()

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -219,71 +220,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
-		case tea.KeyTab:
-			switch m.activePanel {
-			case panelSkills:
-				m.activePanel = panelStatus
-				// Auto-refresh status on first visit
-				if len(m.statusRows) == 0 && len(m.st.InstalledSkills) > 0 {
-					m.busy = "Checking status..."
-					m.message = ""
-					return m, m.cmdCheckStatus()
-				}
-			case panelStatus:
-				m.activePanel = panelRepos
-			case panelRepos:
-				m.activePanel = panelUnmanaged
-				m.refreshUnmanaged()
-			case panelUnmanaged:
-				m.activePanel = panelPacks
-				m.refreshPacks()
-			case panelPacks:
-				m.activePanel = panelPackRemove
-				m.refreshPackRemove()
-			case panelPackRemove:
-				m.activePanel = panelDoctor
-				m.doctorScroll = 0
-			case panelDoctor:
-				m.activePanel = panelSkills
+		case tea.KeyTab, tea.KeyShiftTab:
+			step := 1
+			if msg.Type == tea.KeyShiftTab {
+				step = len(panelOrder) - 1
 			}
-			m.message = ""
-			m.filterActive = false
-			if m.activePanel == panelDoctor {
-				if err := m.refreshDoctor(); err != nil {
-					m.message = fmt.Sprintf("✗ %v", err)
-				}
-			}
+			return m, m.switchPanel(panelOrder[(panelIndex(m.activePanel)+step)%len(panelOrder)])
 		case tea.KeyEsc:
+			// Esc only backs out (clear selection, close detail, clear filter);
+			// it never quits - q and Ctrl+C do.
+			f := m.activeFilter()
 			switch {
-			case m.activePanel == panelUnmanaged:
-				m.unmanagedFilter = ""
-				m.filterActive = false
 			case m.activePanel == panelPackRemove && len(m.removeSel) > 0:
 				m.removeSel = nil
 			case m.activePanel == panelPacks && m.packDetailOpen:
 				m.packDetailOpen = false
 				m.message = ""
-			case m.activePanel == panelPacks && (m.packFilter != "" || m.filterActive):
-				m.packFilter = ""
+			case f != nil && (*f != "" || m.filterActive):
+				*f = ""
 				m.filterActive = false
-				m.refreshPacks()
-			case m.activePanel == panelStatus && (m.statusFilter != "" || m.filterActive):
-				m.statusFilter = ""
-				m.filterActive = false
-				m.rebuildStatusRows()
-			case m.activePanel == panelRepos && (m.repoFilter != "" || m.filterActive):
-				m.repoFilter = ""
-				m.filterActive = false
-				m.refreshRepos()
-			case m.activePanel == panelDoctor && (m.doctorFilter != "" || m.filterActive):
-				m.doctorFilter = ""
-				m.filterActive = false
-				m.doctorScroll = 0
-			case m.filter != "" || m.filterActive:
-				m.filter = ""
-				m.filterActive = false
-			default:
-				return m, tea.Quit
+				m.filterChanged()
 			}
 		case tea.KeyUp:
 			m.filterActive = false // arrows hand keyboard focus from the filter box to the list
@@ -308,81 +264,46 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEnter:
 			m.handleAction()
 		case tea.KeySpace:
-			if m.activePanel == panelSkills {
-				if m.filterActive {
-					m.filter += " "
-				} else {
-					m.handleEnter()
+			if m.filterActive && m.activeFilter() != nil {
+				m.appendFilter(" ")
+				break
+			}
+			switch m.activePanel {
+			case panelSkills:
+				m.handleEnter()
+			case panelPacks:
+				if !m.packDetailOpen {
+					return m, m.togglePackAgent()
 				}
-			}
-			if m.activePanel == panelUnmanaged && m.filterActive {
-				m.unmanagedFilter += " "
-				m.refreshUnmanaged()
-			}
-			if m.activePanel == panelStatus && m.filterActive {
-				m.statusFilter += " "
-				m.rebuildStatusRows()
-			}
-			if m.activePanel == panelRepos && m.filterActive {
-				m.repoFilter += " "
-				m.refreshRepos()
-			}
-			if m.activePanel == panelPacks && m.filterActive && !m.packDetailOpen {
-				m.packFilter += " "
-				m.refreshPacks()
-			} else if m.activePanel == panelPacks && !m.packDetailOpen {
-				return m, m.togglePackAgent()
-			}
-			if m.activePanel == panelPackRemove {
+			case panelPackRemove:
 				m.toggleRemoveSel()
-			}
-			if m.activePanel == panelDoctor && m.filterActive {
-				m.doctorFilter += " "
-				m.doctorScroll = 0
 			}
 		case tea.KeyDelete:
 			if m.activePanel == panelRepos {
 				m.startRemoveRepo()
 			}
 		case tea.KeyBackspace:
-			if !m.filterActive {
-				break
-			}
-			if m.activePanel == panelSkills && len(m.filter) > 0 {
-				m.filter = m.filter[:len(m.filter)-1]
-			}
-			if m.activePanel == panelUnmanaged && len(m.unmanagedFilter) > 0 {
-				m.unmanagedFilter = m.unmanagedFilter[:len(m.unmanagedFilter)-1]
-				m.refreshUnmanaged()
-			}
-			if m.activePanel == panelStatus && len(m.statusFilter) > 0 {
-				m.statusFilter = m.statusFilter[:len(m.statusFilter)-1]
-				m.rebuildStatusRows()
-			}
-			if m.activePanel == panelRepos && len(m.repoFilter) > 0 {
-				m.repoFilter = m.repoFilter[:len(m.repoFilter)-1]
-				m.refreshRepos()
-			}
-			if m.activePanel == panelPacks && len(m.packFilter) > 0 && !m.packDetailOpen {
-				m.packFilter = m.packFilter[:len(m.packFilter)-1]
-				m.refreshPacks()
-			}
-			if m.activePanel == panelDoctor && len(m.doctorFilter) > 0 {
-				m.doctorFilter = m.doctorFilter[:len(m.doctorFilter)-1]
-				m.doctorScroll = 0
+			if m.filterActive {
+				m.backspaceFilter()
 			}
 		case tea.KeyRunes:
 			ch := msg.String()
-			switch m.activePanel {
-			case panelSkills:
+			if f := m.activeFilter(); f != nil {
 				if ch == "/" && !m.filterActive {
 					m.filterActive = true
 					return m, nil
 				}
 				if m.filterActive {
-					m.filter += ch
+					m.appendFilter(ch)
 					return m, nil
 				}
+			}
+			if ch == "?" {
+				m.openHelp()
+				return m, nil
+			}
+			switch m.activePanel {
+			case panelSkills:
 				// On Windows (ConPTY), space can arrive as a rune instead of
 				// KeySpace. Treat it as the toggle action to match Linux/macOS.
 				if ch == " " {
@@ -400,15 +321,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.startViewSkillMd()
 				}
 			case panelStatus:
-				if ch == "/" && !m.filterActive {
-					m.filterActive = true
-					return m, nil
-				}
-				if m.filterActive {
-					m.statusFilter += ch
-					m.rebuildStatusRows()
-					return m, nil
-				}
 				switch ch {
 				case "q":
 					return m, tea.Quit
@@ -439,15 +351,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.startSelfUpdate()
 				}
 			case panelRepos:
-				if ch == "/" && !m.filterActive {
-					m.filterActive = true
-					return m, nil
-				}
-				if m.filterActive {
-					m.repoFilter += ch
-					m.refreshRepos()
-					return m, nil
-				}
 				switch ch {
 				case "q":
 					return m, tea.Quit
@@ -457,15 +360,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.startRemoveRepo()
 				}
 			case panelUnmanaged:
-				if ch == "/" && !m.filterActive {
-					m.filterActive = true
-					return m, nil
-				}
-				if m.filterActive {
-					m.unmanagedFilter += ch
-					m.refreshUnmanaged()
-					return m, nil
-				}
 				switch ch {
 				case "q":
 					return m, tea.Quit
@@ -476,15 +370,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Filter UI isn't shown while the detail overlay is open, so '/'
 				// and typed runes fall through to the overlay's own shortcuts
 				// instead of silently mutating packFilter behind it.
-				if ch == "/" && !m.filterActive && !m.packDetailOpen {
-					m.filterActive = true
-					return m, nil
-				}
-				if m.filterActive && !m.packDetailOpen {
-					m.packFilter += ch
-					m.refreshPacks()
-					return m, nil
-				}
 				// Windows ConPTY can deliver space as a rune.
 				if ch == " " && !m.packDetailOpen {
 					return m, m.togglePackAgent()
@@ -523,15 +408,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.startPackRemove()
 				}
 			case panelDoctor:
-				if ch == "/" && !m.filterActive {
-					m.filterActive = true
-					return m, nil
-				}
-				if m.filterActive {
-					m.doctorFilter += ch
-					m.doctorScroll = 0
-					return m, nil
-				}
 				switch ch {
 				case "q":
 					return m, tea.Quit
@@ -579,4 +455,70 @@ func (m model) updateWizard(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.packWizard = &w
 	}
 	return m, cmd
+}
+
+// panelIndex returns p's position in panelOrder.
+func panelIndex(p panel) int {
+	for i, q := range panelOrder {
+		if q == p {
+			return i
+		}
+	}
+	return 0
+}
+
+// activeFilter returns the filter text of the active panel, or nil when the
+// panel has no filter (Remove Packs, or Packs while its detail overlay hides
+// the filter box).
+func (m *model) activeFilter() *string {
+	switch m.activePanel {
+	case panelSkills:
+		return &m.filter
+	case panelStatus:
+		return &m.statusFilter
+	case panelRepos:
+		return &m.repoFilter
+	case panelUnmanaged:
+		return &m.unmanagedFilter
+	case panelPacks:
+		if !m.packDetailOpen {
+			return &m.packFilter
+		}
+	case panelDoctor:
+		return &m.doctorFilter
+	}
+	return nil
+}
+
+// filterChanged re-derives the active panel's view after its filter text
+// changed.
+func (m *model) filterChanged() {
+	switch m.activePanel {
+	case panelStatus:
+		m.rebuildStatusRows()
+	case panelRepos:
+		m.refreshRepos()
+	case panelUnmanaged:
+		m.refreshUnmanaged()
+	case panelPacks:
+		m.refreshPacks()
+	case panelDoctor:
+		m.doctorScroll = 0
+	}
+}
+
+func (m *model) appendFilter(s string) {
+	*m.activeFilter() += s
+	m.filterChanged()
+}
+
+// backspaceFilter drops the last rune (not byte) of the active filter.
+func (m *model) backspaceFilter() {
+	f := m.activeFilter()
+	if f == nil || *f == "" {
+		return
+	}
+	_, n := utf8.DecodeLastRuneInString(*f)
+	*f = (*f)[:len(*f)-n]
+	m.filterChanged()
 }

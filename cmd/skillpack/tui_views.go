@@ -56,6 +56,41 @@ func panelName(p panel) string {
 	}
 }
 
+// panelOrder is the one ordering of panels: F2..F8 jump to it by index and
+// Tab/Shift+Tab walk it, so the two can never disagree.
+var panelOrder = []panel{panelSkills, panelStatus, panelRepos, panelUnmanaged, panelPacks, panelDoctor, panelPackRemove}
+
+// renderPanelStrip renders the always-visible panel switcher under the menu
+// bar, with F-key labels when they fit the terminal width.
+func renderPanelStrip(m model) string {
+	build := func(withKeys bool) (string, int) {
+		var sb strings.Builder
+		plain := 0
+		for i, p := range panelOrder {
+			label := panelName(p)
+			if withKeys {
+				label = fmt.Sprintf("F%d %s", i+2, label)
+			}
+			if i > 0 {
+				sb.WriteString(dimStyle.Render(" │ "))
+				plain += 3
+			}
+			if p == m.activePanel {
+				sb.WriteString(cellSelStyle.Render(" " + label + " "))
+			} else {
+				sb.WriteString(dimStyle.Render(" " + label + " "))
+			}
+			plain += lipgloss.Width(label) + 2
+		}
+		return sb.String(), plain
+	}
+	if line, w := build(true); w <= m.width {
+		return line
+	}
+	line, _ := build(false)
+	return line
+}
+
 // renderTitleBar renders the full-width reverse-video title bar: app name,
 // version, and the active panel's name, roughly centered.
 func renderTitleBar(m model) string {
@@ -147,7 +182,7 @@ func hintForPanel(m model) string {
 // right.
 func renderStatusBar(m model) string {
 	left := " " + hintForPanel(m)
-	right := "F10=Menu "
+	right := "?=Help F10=Menu "
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1
@@ -185,6 +220,8 @@ func (m model) View() string {
 	b.WriteString(renderTitleBar(m))
 	b.WriteString("\n")
 	b.WriteString(renderMenuBar(m))
+	b.WriteString("\n")
+	b.WriteString(renderPanelStrip(m))
 	b.WriteString("\n")
 
 	// Update banner

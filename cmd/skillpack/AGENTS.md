@@ -19,6 +19,7 @@ Owns the Cobra CLI surface: commands, flags, TUI, and re-exec plumbing. Translat
 - All domain logic lives in `internal/*`. The CLI only calls into `config`, `state`, `repo`, `skill`, `pack`, and `gitops`. Pack install, complete, update and remove run through `internal/pack`; the CLI and TUI only render its result. Sync runs through `skill.RunSync`/`skill.Sync`; `cmd/skillpack/sync.go` renders the `SyncReport`.
 - The CLI and TUI never call `state.Save`; internal operations own persistence (e.g. `InstalledSkill.RemoveDirect`, `repo.Rename`). Cmd tests build states with `memState` (in-memory store).
 - The Packs panel is a pack × agent matrix like Skills: Space enables/disables the selected pack for the selected agent (`pack.AddAgent` / `pack.Remove` with one agent). Removal lives in the separate Remove Packs panel (F8): Space checks, `r` removes after a Yes/No confirm.
+- Panel order lives once in `panelOrder` (tui_views.go): F2..F8, Tab and the always-visible panel strip all derive from it. Per-panel filters go through `activeFilter`/`filterChanged` (tui_update.go), never per-panel copies. Esc backs out and never quits; menu mnemonics are auto-assigned unique per menu (`mnemonicIndexes`), so don't hand-pick them.
 - Commands share `App{Cfg, St}` via Cobra context (set in `PersistentPreRunE`).
 - `self-update` and `tui` bypass `ensureConfig()` — they run before config exists.
 - Re-exec spawns a fresh binary process to avoid TUI signal-handling conflicts with the parent.

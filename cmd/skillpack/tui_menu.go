@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // menuItem is one selectable row in a dropdown. action calls into an
@@ -95,19 +96,15 @@ var appMenus = []menuDef{
 		label: "Packs",
 		items: []menuItem{
 			{"Create Pack", "n", alwaysEnabled, func(m *model) tea.Cmd { m.startPackCreate(); return nil }},
-			{"Edit Pack", "e", func(m *model) bool { return m.packCursor < len(m.packRows) }, func(m *model) tea.Cmd { m.startPackEdit(); return nil }},
-			{"Toggle Agent", "Space", func(m *model) bool { return m.activePanel == panelPacks && m.packCursor < len(m.packRows) }, func(m *model) tea.Cmd { return m.togglePackAgent() }},
+			{"Edit Pack", "e", alwaysEnabled, func(m *model) tea.Cmd { return m.menuPackEdit() }},
+			{"Install/Remove on Agent", "Space", func(m *model) bool { return m.activePanel == panelPacks && m.packCursor < len(m.packRows) }, func(m *model) tea.Cmd { return m.togglePackAgent() }},
 			{"Remove Packs...", "F8", alwaysEnabled, func(m *model) tea.Cmd { return m.switchPanel(panelPackRemove) }},
 		},
 	},
 	{
 		label: "Help",
 		items: []menuItem{
-			{"Keys", "F1", alwaysEnabled, func(m *model) tea.Cmd {
-				m.inputMode = modeHelp
-				m.helpScroll = 0
-				return nil
-			}},
+			{"Keys", "F1 ?", alwaysEnabled, func(m *model) tea.Cmd { m.openHelp(); return nil }},
 			{"About", "", alwaysEnabled, func(m *model) tea.Cmd {
 				m.message = fmt.Sprintf("SkillPack %s", Version)
 				return nil
@@ -150,23 +147,13 @@ func (m *model) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	case "alt+h":
 		return openMenu("Help")
 	case "f1":
-		m.inputMode = modeHelp
-		m.helpScroll = 0
+		m.openHelp()
 		return nil, true
-	case "f2":
-		return m.switchPanel(panelSkills), true
-	case "f3":
-		return m.switchPanel(panelStatus), true
-	case "f4":
-		return m.switchPanel(panelRepos), true
-	case "f5":
-		return m.switchPanel(panelUnmanaged), true
-	case "f6":
-		return m.switchPanel(panelPacks), true
-	case "f7":
-		return m.switchPanel(panelDoctor), true
-	case "f8":
-		return m.switchPanel(panelPackRemove), true
+	}
+	for i, p := range panelOrder {
+		if msg.String() == fmt.Sprintf("f%d", i+2) {
+			return m.switchPanel(p), true
+		}
 	}
 	return nil, false
 }
@@ -209,13 +196,33 @@ func (m *model) handleMenuKey(msg tea.KeyMsg) (model, tea.Cmd) {
 
 	if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
 		ch := strings.ToLower(string(msg.Runes))
-		for _, item := range items {
-			if strings.ToLower(item.label[:1]) == ch {
-				return runItem(item)
+		for i, at := range mnemonicIndexes(items) {
+			if at >= 0 && strings.ToLower(items[i].label[at:at+1]) == ch {
+				return runItem(items[i])
 			}
 		}
 	}
 	return *m, nil
+}
+
+// mnemonicIndexes returns, per item, the byte index in its label of the
+// letter that activates it (-1 if none). Each item takes the first letter
+// not already claimed by an earlier item, so mnemonics never collide.
+func mnemonicIndexes(items []menuItem) []int {
+	used := map[string]bool{}
+	out := make([]int, len(items))
+	for i, it := range items {
+		out[i] = -1
+		for j := 0; j < len(it.label); j++ {
+			c := strings.ToLower(it.label[j : j+1])
+			if c >= "a" && c <= "z" && !used[c] {
+				used[c] = true
+				out[i] = j
+				break
+			}
+		}
+	}
+	return out
 }
 
 // menuLabelOffset returns the column (0-indexed) where appMenus[idx]'s label
@@ -243,6 +250,7 @@ func renderDropdownBox(m *model) []string {
 	}
 	width += 2 // padding
 
+	mnemonics := mnemonicIndexes(menu.items)
 	lines := make([]string, 0, len(menu.items)+2)
 	lines = append(lines, "┌"+strings.Repeat("─", width)+"┐")
 	for i, it := range menu.items {
@@ -257,11 +265,17 @@ func renderDropdownBox(m *model) []string {
 			text += strings.Repeat(" ", width-len(text))
 		}
 
-		switch {
+		base := lipgloss.NewStyle()
+		if !it.enabled(m) {
+			base = dimStyle
+		}
+		switch at := mnemonics[i] + 1; { // +1 for the leading space
 		case i == m.menuItemIndex:
 			text = selectedStyle.Render(text)
-		case !it.enabled(m):
-			text = dimStyle.Render(text)
+		case at > 0:
+			text = base.Render(text[:at]) + base.Underline(true).Render(text[at:at+1]) + base.Render(text[at+1:])
+		default:
+			text = base.Render(text)
 		}
 		lines = append(lines, "│"+text+"│")
 	}
@@ -281,11 +295,29 @@ func overlayDropdown(m model, body string) string {
 	offset := menuLabelOffset(m.menuIndex)
 	prefix := strings.Repeat(" ", offset)
 	for i, boxLine := range renderDropdownBox(&m) {
-		row := 2 + i // row 0 = title bar, row 1 = menu bar
+		row := 3 + i // row 0 = title bar, 1 = menu bar, 2 = panel strip
 		for row >= len(lines) {
 			lines = append(lines, "")
 		}
 		lines[row] = prefix + boxLine
 	}
 	return strings.Join(lines, "\n")
+}
+
+// menuPackEdit edits the highlighted pack. Off the Packs panel the highlighted
+// row is invisible, so show the list and let the user pick.
+func (m *model) menuPackEdit() tea.Cmd {
+	if m.activePanel != panelPacks {
+		cmd := m.switchPanel(panelPacks)
+		m.message = "Select a pack, then press e to edit"
+		return cmd
+	}
+	m.startPackEdit()
+	return nil
+}
+
+// openHelp shows the key-binding reference (F1, ?, Help→Keys).
+func (m *model) openHelp() {
+	m.inputMode = modeHelp
+	m.helpScroll = 0
 }

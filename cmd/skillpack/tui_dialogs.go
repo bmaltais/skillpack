@@ -298,7 +298,7 @@ func helpLines(m model) []string {
 		}
 	}
 
-	visible := m.height - 9 // title+menu bar, box border x2, footer hint, margin
+	visible := m.height - panelStripRows - 9 // title+menu bar, box border x2, footer hint, margin
 	if visible < 6 {
 		visible = 6
 	}

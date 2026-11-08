@@ -60,6 +60,10 @@ func panelName(p panel) string {
 // Tab/Shift+Tab walk it, so the two can never disagree.
 var panelOrder = []panel{panelSkills, panelStatus, panelRepos, panelUnmanaged, panelPacks, panelDoctor, panelPackRemove}
 
+// panelStripRows is the height of the panel strip; panel list sizing
+// subtracts it from the chrome overhead so bodies don't overflow the screen.
+const panelStripRows = 1
+
 // renderPanelStrip renders the always-visible panel switcher under the menu
 // bar, with F-key labels when they fit the terminal width.
 func renderPanelStrip(m model) string {
@@ -84,7 +88,7 @@ func renderPanelStrip(m model) string {
 		}
 		return sb.String(), plain
 	}
-	if line, w := build(true); w <= m.width {
+	if line, w := build(true); w < m.width {
 		return line
 	}
 	line, _ := build(false)
@@ -206,6 +210,11 @@ func renderStatusBar(m model) string {
 // the last row, regardless of how much of the height the body used.
 func (m model) render(body string) string {
 	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+	// Never exceed the terminal: overflow scrolls the screen and loses the
+	// top bars. Transient lines (busy, banner) can push a full panel over.
+	if len(lines) > m.height-1 {
+		lines = lines[:m.height-1]
+	}
 	for len(lines) < m.height-1 {
 		lines = append(lines, "")
 	}
@@ -358,7 +367,7 @@ func (m model) viewSkills(b *strings.Builder) {
 	b.WriteString("\n")
 
 	// Scrolling
-	maxRows := m.height - 10 // header(4) + footer(5) + chrome(1)
+	maxRows := m.height - panelStripRows - 10 // header(4) + footer(5) + chrome(1)
 	if maxRows < 5 {
 		maxRows = 5
 	}
@@ -645,7 +654,7 @@ func (m model) viewStatus(b *strings.Builder) {
 		b.WriteString("\n")
 
 		// Scrolling
-		maxRows := m.height - 11
+		maxRows := m.height - panelStripRows - 11
 		if maxRows < 5 {
 			maxRows = 5
 		}
@@ -790,7 +799,7 @@ func doctorLines(m model) []string {
 		}
 	}
 
-	visible := m.height - 10 // title+menu bar, filter indicator, panel header, footer, margin
+	visible := m.height - panelStripRows - 10 // title+menu bar, filter indicator, panel header, footer, margin
 	if visible < 6 {
 		visible = 6
 	}
@@ -902,7 +911,7 @@ func (m model) viewRepos(b *strings.Builder) {
 	b.WriteString("\n")
 
 	// Repo list
-	maxRows := m.height - 13
+	maxRows := m.height - panelStripRows - 13
 	if maxRows < 3 {
 		maxRows = 3
 	}
@@ -1000,7 +1009,7 @@ func (m model) viewUnmanaged(b *strings.Builder) {
 		b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 		b.WriteString("\n")
 
-		maxRows := m.height - 11
+		maxRows := m.height - panelStripRows - 11
 		if maxRows < 3 {
 			maxRows = 3
 		}
@@ -1109,7 +1118,7 @@ func (m model) viewPacks(b *strings.Builder) {
 		b.WriteString(dimStyle.Render("  " + safeRepeat("─", m.width-4)))
 		b.WriteString("\n")
 
-		maxRows := m.height - 13
+		maxRows := m.height - panelStripRows - 13
 		if maxRows < 3 {
 			maxRows = 3
 		}
@@ -1195,7 +1204,7 @@ func (m model) viewPacks(b *strings.Builder) {
 		b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 		b.WriteString("\n")
 
-		maxRows := m.height - 11
+		maxRows := m.height - panelStripRows - 11
 		if maxRows < 3 {
 			maxRows = 3
 		}
@@ -1335,7 +1344,7 @@ func (m model) viewPackRemove(b *strings.Builder) {
 	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
 
-	maxRows := max(m.height-12, 3)
+	maxRows := max(m.height-panelStripRows-12, 3)
 	offset := scrollOffset(m.removeCursor, maxRows, len(m.removeAddrs))
 	nameW := max(m.width/2, 20)
 	displayed := 0
@@ -1393,7 +1402,7 @@ func (m model) viewAvailablePackDetail(b *strings.Builder, row packRow) {
 	}
 	b.WriteString(fmt.Sprintf(" Skills: %d\n\n", len(pk.Skills)))
 
-	maxRows := m.height - 11
+	maxRows := m.height - panelStripRows - 11
 	if maxRows < 3 {
 		maxRows = 3
 	}

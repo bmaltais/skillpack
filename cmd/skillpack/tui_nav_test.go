@@ -93,3 +93,18 @@ func TestPanelStripListsEveryPanel(t *testing.T) {
 		}
 	}
 }
+
+// A frame taller than the terminal scrolls the screen and loses the top bars.
+func TestViewNeverExceedsTerminalHeight(t *testing.T) {
+	for _, p := range panelOrder {
+		for h := 12; h <= 40; h += 7 {
+			m := emptyTestModel()
+			m.width, m.height = 100, h
+			m.activePanel = p
+			m.busy = "Checking status..."
+			if got := strings.Count(m.View(), "\n") + 1; got != h {
+				t.Errorf("panel %v height %d: frame has %d lines", p, h, got)
+			}
+		}
+	}
+}

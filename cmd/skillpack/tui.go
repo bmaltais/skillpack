@@ -17,7 +17,7 @@ Panels (Tab to cycle, or jump directly with F2-F6):
   F3  Status      View installed skill states, update, sync
   F4  Repos       Add/remove skill repositories
   F5  Unmanaged   Adopt skills found in agent dirs but not tracked by skillpack
-  F6  Packs       Browse, install, create, and edit packs
+  F6  Packs       Browse packs, install them per agent (Space), create, and edit
 
 F10 (or Alt+F/V/A/P/H) opens the menu bar (File/View/Actions/Packs/Help);
 F1 opens a scrollable key-binding reference sourced from the same menus.
@@ -54,13 +54,13 @@ Unmanaged panel:
   v           View SKILL.md of the selected skill
 
 Packs panel:
-  ↑/↓         Move between packs
+  ↑/↓ ←/→     Move between packs and agents (pack × agent matrix)
+  Space       Install the selected pack on the selected agent (or remove it from that agent)
   Enter       Toggle the detail overlay for the selected pack
   n           Create a new pack (embedded wizard)
   e           Edit the selected pack
-  i           Install the selected available pack
   c           Complete a partially-deployed pack
-  d           Remove the selected installed pack
+  F8          Remove Packs panel (Space to check, r to remove)
 
 All changes are applied immediately.`,
 	RunE: func(cmd *cobra.Command, args []string) error {

@@ -95,8 +95,8 @@ var appMenus = []menuDef{
 		label: "Packs",
 		items: []menuItem{
 			{"Create Pack", "n", alwaysEnabled, func(m *model) tea.Cmd { m.startPackCreate(); return nil }},
-			{"Edit Pack", "e", func(m *model) bool { return m.packCursor < len(m.packRows) }, func(m *model) tea.Cmd { m.startPackEdit(); return nil }},
-			{"Toggle Agent", "Space", func(m *model) bool { return m.activePanel == panelPacks && m.packCursor < len(m.packRows) }, func(m *model) tea.Cmd { return m.togglePackAgent() }},
+			{"Edit Pack", "e", alwaysEnabled, func(m *model) tea.Cmd { return m.menuPackEdit() }},
+			{"Install/Remove on Agent", "Space", func(m *model) bool { return m.activePanel == panelPacks && m.packCursor < len(m.packRows) }, func(m *model) tea.Cmd { return m.togglePackAgent() }},
 			{"Remove Packs...", "F8", alwaysEnabled, func(m *model) tea.Cmd { return m.switchPanel(panelPackRemove) }},
 		},
 	},
@@ -288,4 +288,16 @@ func overlayDropdown(m model, body string) string {
 		lines[row] = prefix + boxLine
 	}
 	return strings.Join(lines, "\n")
+}
+
+// menuPackEdit edits the highlighted pack. Off the Packs panel the highlighted
+// row is invisible, so show the list and let the user pick.
+func (m *model) menuPackEdit() tea.Cmd {
+	if m.activePanel != panelPacks {
+		cmd := m.switchPanel(panelPacks)
+		m.message = "Select a pack, then press e to edit"
+		return cmd
+	}
+	m.startPackEdit()
+	return nil
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/bmaltais/skillpack/internal/doctor"
 	"github.com/bmaltais/skillpack/internal/state"
 	"github.com/charmbracelet/lipgloss"
@@ -235,27 +236,26 @@ func TestAddAgentKeyWorksFromAnyPanel(t *testing.T) {
 	}
 }
 
-func TestRemovePacksFilter_KeepsSelectionAcrossFilter(t *testing.T) {
+func TestPackRemove_UnavailablePackCannotBeMarkedOrRemoved(t *testing.T) {
 	m := emptyTestModel()
-	m.st.InstalledPacks = map[string]state.InstalledPackRecord{"r/go": {}, "r/writing": {}}
-	m.activePanel = panelPackRemove
-	m.refreshPackRemove()
-	m.removeSel = map[string]bool{"r/go": true}
-
-	for _, k := range []string{"/", "w", "r"} {
-		next, _ := m.Update(keyRune(k))
-		m = next.(model)
-	}
-	if len(m.removeAddrs) != 1 || m.removeAddrs[0] != "r/writing" {
-		t.Fatalf("filter 'wr' should leave only r/writing, got %v", m.removeAddrs)
-	}
-	if !m.removeSel["r/go"] {
-		t.Fatal("a checked pack hidden by the filter must stay checked")
-	}
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m.activePanel = panelPacks
+	m.packRows = []packRow{{packAddr: "r/packs/avail"}} // available, not installed
+	next, _ := m.Update(keyRune("m"))
 	m = next.(model)
-	if len(m.removeAddrs) != 2 {
-		t.Fatalf("Esc should clear the filter, got %v", m.removeAddrs)
+	if len(m.packMarks) != 0 || m.message == "" {
+		t.Fatalf("marks=%v msg=%q", m.packMarks, m.message)
+	}
+	next, _ = m.Update(keyRune("d"))
+	if next.(model).inputMode == modePackConfirmRemove {
+		t.Fatal("d must not offer to remove a pack that is not installed")
+	}
+}
+
+func TestRemovePacksPanelIsGone(t *testing.T) {
+	for _, p := range panelOrder {
+		if panelName(p) == "Remove Packs" {
+			t.Fatal("Remove Packs is part of the Packs panel now")
+		}
 	}
 }
 
@@ -361,5 +361,125 @@ func TestPaletteDialogFitsTerminal(t *testing.T) {
 	m.openPalette()
 	if got := strings.Count(m.View(), "\n") + 1; got != 20 {
 		t.Fatalf("frame has %d lines, want 20", got)
+	}
+}
+
+func TestPalette_DirectSkillAndPackActions(t *testing.T) {
+	m := emptyTestModel()
+	m.agents = []string{"claude-code"}
+	m.rows = []tuiRow{{kind: skillRow, addr: "r/triage"}}
+	m.installed = map[string]map[string]bool{"r/triage": {"claude-code": true}}
+	m.st.InstalledPacks = map[string]state.InstalledPackRecord{"r/packs/p": {Agents: []string{"claude-code"}}}
+	m.packRows = []packRow{{packAddr: "r/packs/p", installed: true, cells: map[string]packCell{"claude-code": packCellOn}}}
+	m.openPalette()
+
+	m.paletteQuery = "triage claude"
+	got := m.paletteMatches()
+	if len(got) == 0 || got[0].label != "Remove r/triage from claude-code" {
+		t.Fatalf("installed skill should offer Remove first, got %+v", got)
+	}
+
+	m.paletteQuery = "disable p claude"
+	if got := m.paletteMatches(); len(got) == 0 || got[0].detail != "Disable" {
+		t.Fatalf("enabled pack should offer Disable, got %+v", got)
+	}
+
+	m.paletteQuery = "remove pack"
+	got = m.paletteMatches()
+	if len(got) == 0 || got[0].label != "Remove pack r/packs/p" {
+		t.Fatalf("got %+v", got)
+	}
+	m.inputMode = modeNormal
+	got[0].run(&m)
+	if m.inputMode != modePackConfirmRemove {
+		t.Fatalf("removing a pack from the palette must still confirm, mode=%v", m.inputMode)
+	}
+}
+
+// --- Doctor duplicate actions (these write to repos, so they confirm) ---
+
+func dupModel(identical bool, aURL, bURL string) model {
+	m := emptyTestModel()
+	m.activePanel = panelDoctor
+	m.st.Repos = map[string]state.RepoRecord{"a": {URL: aURL}, "b": {URL: bURL}}
+	m.doctorFindings = []doctor.Finding{{Kind: doctor.Duplicate, Subject: "a/t", Related: "b/t", Identical: identical, Fix: "x"}}
+	return m
+}
+
+func choiceLabels(m model) []string {
+	var out []string
+	for _, o := range m.doctorChoices {
+		out = append(out, o.label)
+	}
+	return out
+}
+
+func TestDuplicateChoices_DivergedOffersOverwriteOnlyWhereWritable(t *testing.T) {
+	m := dupModel(false, "git@h:a.git", "https://h/b.git") // b has no token: read-only
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	got := strings.Join(choiceLabels(m), "|")
+	if m.inputMode != modeDoctorChoice || !strings.Contains(got, "View diff") || !strings.Contains(got, "Make a/t match b/t") {
+		t.Fatalf("mode=%v choices=%s", m.inputMode, got)
+	}
+	if strings.Contains(got, "Make b/t match a/t") || strings.Contains(got, "Delete") {
+		t.Fatalf("must not offer writing to a read-only repo or deleting a diverged copy: %s", got)
+	}
+}
+
+func TestDuplicateChoices_IdenticalOffersDeleteNotInstalled(t *testing.T) {
+	m := dupModel(true, "git@h:a.git", "git@h:b.git")
+	m.st.InstalledSkills["a/t"] = map[string]state.InstalledSkillRecord{"claude": {}}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := strings.Join(choiceLabels(next.(model)), "|")
+	if !strings.Contains(got, "Delete b/t") || strings.Contains(got, "Delete a/t") {
+		t.Fatalf("an installed copy must not be offered for deletion: %s", got)
+	}
+}
+
+func TestDuplicateChoices_WriteNeedsConfirmAndDefaultsToNo(t *testing.T) {
+	m := dupModel(false, "git@h:a.git", "git@h:b.git")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	m.doctorChoice = 1 // "Make b/t match a/t"
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	if m.inputMode != modeConfirmAction || m.confirmYes {
+		t.Fatalf("a write must open a confirm that defaults to No: mode=%v yes=%v", m.inputMode, m.confirmYes)
+	}
+	// Enter on the default (No) must do nothing.
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	if cmd != nil || m.busy != "" || m.inputMode != modeNormal {
+		t.Fatalf("declining must not start work: cmd=%v busy=%q mode=%v", cmd != nil, m.busy, m.inputMode)
+	}
+}
+
+func TestDuplicateChoices_YesStartsAsyncWrite(t *testing.T) {
+	m := dupModel(true, "git@h:a.git", "git@h:b.git")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // first choice: View diff is index 0; pick a Delete
+	_ = next
+	m.doctorChoice = 1
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	next, cmd := m.Update(keyRune("y"))
+	m = next.(model)
+	if !m.doctorDirty {
+		t.Fatal("a write must flag the panel for a rescan")
+	}
+	if cmd == nil || !strings.HasPrefix(m.busy, "Deleting") {
+		t.Fatalf("y should start the delete: cmd=%v busy=%q", cmd != nil, m.busy)
+	}
+}
+
+func TestDoctorWriteDone_SurfacesErrorAndKeepsState(t *testing.T) {
+	m := dupModel(true, "git@h:a.git", "git@h:b.git")
+	m.busy = "Deleting b/t..."
+	next, _ := m.Update(doctorWriteDoneMsg{summary: "Deleted b/t", err: fmt.Errorf("push rejected")})
+	m = next.(model)
+	if m.busy != "" || !strings.Contains(m.message, "push rejected") {
+		t.Fatalf("busy=%q message=%q", m.busy, m.message)
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/bmaltais/skillpack/internal/pack"
 	"github.com/bmaltais/skillpack/internal/repo"
 	"github.com/bmaltais/skillpack/internal/skill"
+	"github.com/bmaltais/skillpack/internal/state"
 )
 
 // --- Action Handlers (extracted in Phase 3) ---
@@ -364,6 +365,52 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 			return *m, tea.Quit
 		}
 
+	case modeDoctorChoice:
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.inputMode = modeNormal
+		case tea.KeyUp:
+			if m.doctorChoice > 0 {
+				m.doctorChoice--
+			}
+		case tea.KeyDown:
+			if m.doctorChoice < len(m.doctorChoices)-1 {
+				m.doctorChoice++
+			}
+		case tea.KeyEnter:
+			run := m.doctorChoices[m.doctorChoice].run
+			m.inputMode = modeNormal
+			return *m, run(m)
+		case tea.KeyCtrlC:
+			return *m, tea.Quit
+		}
+
+	case modeConfirmAction:
+		finish := func(yes bool) (model, tea.Cmd) {
+			m.inputMode = modeNormal
+			if !yes {
+				return *m, nil
+			}
+			return *m, m.confirmRun(m)
+		}
+		switch msg.Type {
+		case tea.KeyEsc:
+			return finish(false)
+		case tea.KeyLeft, tea.KeyRight, tea.KeyUp, tea.KeyDown, tea.KeyTab:
+			m.confirmYes = !m.confirmYes
+		case tea.KeyEnter:
+			return finish(m.confirmYes)
+		case tea.KeyRunes:
+			switch msg.String() {
+			case "y", "Y":
+				return finish(true)
+			case "n", "N":
+				return finish(false)
+			}
+		case tea.KeyCtrlC:
+			return *m, tea.Quit
+		}
+
 	case modePalette:
 		return m.handlePaletteKey(msg)
 
@@ -399,10 +446,6 @@ func (m *model) handleUp() {
 		if m.unmanagedCursor > 0 {
 			m.unmanagedCursor--
 		}
-	case panelPackRemove:
-		if m.removeCursor > 0 {
-			m.removeCursor--
-		}
 	case panelPacks:
 		if m.packCursor > 0 {
 			m.packCursor--
@@ -432,10 +475,6 @@ func (m *model) handleDown() {
 	case panelUnmanaged:
 		if m.unmanagedCursor < len(m.unmanagedEntries)-1 {
 			m.unmanagedCursor++
-		}
-	case panelPackRemove:
-		if m.removeCursor < len(m.removeAddrs)-1 {
-			m.removeCursor++
 		}
 	case panelPacks:
 		if m.packCursor < len(m.packRows)-1 {
@@ -565,7 +604,7 @@ func (m *model) switchPanel(p panel) tea.Cmd {
 	switch p {
 	case panelUnmanaged:
 		m.refreshUnmanaged()
-	case panelPacks, panelPackRemove:
+	case panelPacks:
 		m.refreshPacks()
 	case panelDoctor:
 		if err := m.refreshDoctor(); err != nil {
@@ -940,8 +979,8 @@ func (m *model) togglePackAgent() tea.Cmd {
 // startPackRemove opens the confirm dialog for the checked packs (or the
 // highlighted one) in the Remove Packs panel.
 func (m *model) startPackRemove() {
-	if len(m.removeAddrs) == 0 {
-		m.message = "No installed packs to remove"
+	if len(m.packRemoveTargets()) == 0 {
+		m.message = "Select an installed pack to remove"
 		return
 	}
 	m.message = ""
@@ -964,7 +1003,7 @@ func (m *model) doPackRemove() {
 		kept += res.Kept
 		failed += res.Failed
 	}
-	m.removeSel = nil
+	m.packMarks = nil
 	m.refreshPacks()
 	m.refreshSkills()
 	m.packDetailOpen = false
@@ -977,39 +1016,6 @@ func (m *model) doPackRemove() {
 		m.message = fmt.Sprintf("➖ Removed %d pack(s) (%d locally modified skill(s) kept)", removed, kept)
 	default:
 		m.message = fmt.Sprintf("➖ Removed %d pack(s)", removed)
-	}
-}
-
-// toggleRemoveSel checks or unchecks the highlighted pack in the Remove Packs panel.
-func (m *model) toggleRemoveSel() {
-	if m.removeCursor >= len(m.removeAddrs) {
-		return
-	}
-	addr := m.removeAddrs[m.removeCursor]
-	if m.removeSel == nil {
-		m.removeSel = make(map[string]bool)
-	}
-	m.removeSel[addr] = !m.removeSel[addr]
-	if !m.removeSel[addr] {
-		delete(m.removeSel, addr)
-	}
-}
-
-// selectAllRemovable checks every pack, or clears the selection when all are already checked.
-func (m *model) selectAllRemovable() {
-	all := true
-	for _, addr := range m.removeAddrs {
-		all = all && m.removeSel[addr]
-	}
-	if m.removeSel == nil {
-		m.removeSel = make(map[string]bool)
-	}
-	for _, addr := range m.removeAddrs {
-		if all {
-			delete(m.removeSel, addr)
-		} else {
-			m.removeSel[addr] = true
-		}
 	}
 }
 
@@ -1043,8 +1049,77 @@ func (m *model) applyDoctorFix() tea.Cmd {
 		m.inputMode = modeRegisterForkInput
 		m.message = ""
 	case doctor.Duplicate:
-		return m.viewDuplicateDiff(f.Subject, f.Related)
+		m.openDuplicateChoices(*f)
 	}
+	return nil
+}
+
+// dupOption is one thing the user can do with a duplicate pair.
+type dupOption struct {
+	label string
+	run   func(*model) tea.Cmd
+}
+
+// openDuplicateChoices lists what can be done with a duplicate pair. Writes
+// are offered only where the user can push, and deleting only for identical,
+// uninstalled copies; each write asks for confirmation first.
+func (m *model) openDuplicateChoices(f doctor.Finding) {
+	a, b := f.Subject, f.Related
+	opts := []dupOption{{label: "View diff", run: func(m *model) tea.Cmd { return m.viewDuplicateDiff(a, b) }}}
+	writable := func(addr string) bool { return m.canWriteRepo(repoNameFromAddr(addr)) }
+	overwrite := func(target, source string) {
+		if !writable(target) {
+			return
+		}
+		opts = append(opts, dupOption{label: fmt.Sprintf("Make %s match %s", target, source), run: func(m *model) tea.Cmd {
+			return m.confirm("Overwrite copy", []string{
+				fmt.Sprintf("Replace the content of %s with %s?", target, source),
+				dimStyle.Render("Commits and pushes to repo " + repoNameFromAddr(target) + "."),
+			}, func(m *model) tea.Cmd {
+				token := m.cfg.TokenForRepo(repoNameFromAddr(target))
+				m.busy = "Overwriting " + target + "..."
+				m.doctorDirty = true // rescan once the write finishes
+				return m.cmdDoctorWrite(fmt.Sprintf("%s now matches %s", target, source), func(st *state.State) error {
+					return doctor.OverwriteCopy(st, target, source, token)
+				})
+			})
+		}})
+	}
+	remove := func(target, keep string) {
+		if _, installed := m.st.InstalledSkills[target]; installed || !writable(target) {
+			return
+		}
+		opts = append(opts, dupOption{label: "Delete " + target, run: func(m *model) tea.Cmd {
+			return m.confirm("Delete copy", []string{
+				fmt.Sprintf("Delete %s?", target),
+				dimStyle.Render("It is identical to " + keep + ". Commits and pushes the removal to repo " + repoNameFromAddr(target) + "."),
+			}, func(m *model) tea.Cmd {
+				token := m.cfg.TokenForRepo(repoNameFromAddr(target))
+				m.busy = "Deleting " + target + "..."
+				m.doctorDirty = true // rescan once the write finishes
+				return m.cmdDoctorWrite("Deleted "+target, func(st *state.State) error {
+					return doctor.DeleteCopy(st, target, keep, token)
+				})
+			})
+		}})
+	}
+	if f.Identical {
+		remove(b, a)
+		remove(a, b)
+	} else {
+		overwrite(b, a)
+		overwrite(a, b)
+	}
+	m.doctorChoices = opts
+	m.doctorChoice = 0
+	m.inputMode = modeDoctorChoice
+	m.message = ""
+}
+
+// confirm opens the generic Yes/No dialog (default No); run executes on Yes.
+func (m *model) confirm(title string, lines []string, run func(*model) tea.Cmd) tea.Cmd {
+	m.confirmTitle, m.confirmLines, m.confirmRun, m.confirmYes = title, lines, run, false
+	m.inputMode = modeConfirmAction
 	return nil
 }
 
@@ -1068,4 +1143,22 @@ func (m *model) viewDuplicateDiff(a, b string) tea.Cmd {
 	}
 	m.message = ""
 	return cmdViewSkillMd(f.Name())
+}
+
+// toggleMarkPack marks or unmarks the installed pack under the cursor for
+// removal (d removes every marked pack, or just the cursor pack if none).
+func (m *model) toggleMarkPack() {
+	if m.packCursor >= len(m.packRows) || !m.packRows[m.packCursor].installed {
+		m.message = "Only installed packs can be marked for removal"
+		return
+	}
+	addr := m.packRows[m.packCursor].packAddr
+	if m.packMarks == nil {
+		m.packMarks = make(map[string]bool)
+	}
+	if m.packMarks[addr] {
+		delete(m.packMarks, addr)
+		return
+	}
+	m.packMarks[addr] = true
 }

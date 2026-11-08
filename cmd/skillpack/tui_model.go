@@ -54,7 +54,6 @@ const (
 	panelUnmanaged
 	panelPacks
 	panelDoctor
-	panelPackRemove // multi-select list of installed packs to remove
 )
 
 // --- Input mode ---
@@ -78,6 +77,8 @@ const (
 	modePackConfirmRemove    // packs panel: confirm pack removal
 	modeHelp                 // Help→Keys / F1: scrollable key-binding reference
 	modePalette              // Ctrl+P / ":": fuzzy command palette
+	modeDoctorChoice         // Doctor: pick what to do with a duplicate pair
+	modeConfirmAction        // generic Yes/No confirm for a destructive action
 )
 
 // --- Model ---
@@ -108,6 +109,14 @@ type model struct {
 	menuIndex     int // which top-level menu in appMenus is open
 	menuItemIndex int // cursor within the open menu's items
 	helpScroll    int // scroll offset for the F1 help dialog
+
+	// Doctor duplicate-pair actions and the generic confirm dialog
+	doctorChoices []dupOption
+	doctorChoice  int
+	confirmTitle  string
+	confirmLines  []string
+	confirmYes    bool
+	confirmRun    func(*model) tea.Cmd
 
 	// Command palette
 	paletteQuery  string
@@ -174,11 +183,8 @@ type model struct {
 	// active panel until it finishes or is cancelled.
 	packWizard *packCreateModel
 
-	// Remove Packs panel: installed pack addresses, with a multi-selection.
-	removeAddrs  []string
-	removeCursor int
-	removeSel    map[string]bool
-	removeFilter string // incremental filter for the Remove Packs panel
+	// packMarks holds installed packs marked with m for removal with d.
+	packMarks map[string]bool
 
 	// packCol is the agent column index in the packs matrix.
 	packCol        int
@@ -491,47 +497,11 @@ func (m *model) refreshPacks() {
 	if m.packCursor >= len(m.packRows) {
 		m.packCursor = 0
 	}
-	m.refreshPackRemove()
-}
-
-// refreshPackRemove rebuilds the Remove Packs list from state and drops
-// selections of packs that are no longer installed.
-func (m *model) refreshPackRemove() {
-	all := make([]string, 0, len(m.st.InstalledPacks))
-	for addr := range m.st.InstalledPacks {
-		all = append(all, addr)
-	}
-	sort.Strings(all)
-	f := strings.ToLower(m.removeFilter)
-	m.removeAddrs = m.removeAddrs[:0]
-	sel := make(map[string]bool)
-	for _, addr := range all {
-		if m.removeSel[addr] { // selections survive filtering
-			sel[addr] = true
-		}
-		if f == "" || strings.Contains(strings.ToLower(addr), f) {
-			m.removeAddrs = append(m.removeAddrs, addr)
+	for addr := range m.packMarks { // drop marks for packs that no longer exist
+		if _, ok := m.st.InstalledPacks[addr]; !ok {
+			delete(m.packMarks, addr)
 		}
 	}
-	m.removeSel = sel
-	if m.removeCursor >= len(m.removeAddrs) {
-		m.removeCursor = max(len(m.removeAddrs)-1, 0)
-	}
-}
-
-// packRemoveTargets returns the packs a remove would act on: the checked
-// ones, or the highlighted one when nothing is checked.
-func (m *model) packRemoveTargets() []string {
-	var targets []string
-	for _, addr := range m.removeAddrs {
-		if m.removeSel[addr] {
-			targets = append(targets, addr)
-		}
-	}
-	if len(targets) == 0 && m.removeCursor < len(m.removeAddrs) {
-		targets = append(targets, m.removeAddrs[m.removeCursor])
-	}
-	return targets
 }
 
 // packCells derives each deployed agent's cell state from a pack record.
@@ -680,6 +650,13 @@ type syncDoneMsg struct {
 	st      *state.State // updated state after sync
 }
 
+// doctorWriteDoneMsg reports a Doctor action that wrote to a repo.
+type doctorWriteDoneMsg struct {
+	summary string
+	st      *state.State
+	err     error
+}
+
 type registerForkDoneMsg struct {
 	addr     string
 	upstream string
@@ -758,4 +735,19 @@ func runTUI() error {
 		}
 	}
 	return nil
+}
+
+// packRemoveTargets returns the packs d would remove: the marked ones, or
+// the installed pack under the cursor when none are marked.
+func (m *model) packRemoveTargets() []string {
+	var targets []string
+	for _, row := range m.packRows {
+		if row.installed && m.packMarks[row.packAddr] {
+			targets = append(targets, row.packAddr)
+		}
+	}
+	if len(targets) == 0 && m.packCursor < len(m.packRows) && m.packRows[m.packCursor].installed {
+		targets = append(targets, m.packRows[m.packCursor].packAddr)
+	}
+	return targets
 }

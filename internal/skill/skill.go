@@ -208,6 +208,9 @@ func ComputeHash(dir string) (string, error) {
 	return fmt.Sprintf("sha256:%x", h.Sum(nil)), nil
 }
 
+// CopyDir recursively copies the src directory tree to dst (see copyDir).
+func CopyDir(src, dst string) error { return copyDir(src, dst) }
+
 // copyDir recursively copies the src directory tree to dst.
 // src may be a symlink to a directory; the symlink is followed so that the
 // directory contents are walked rather than the symlink entry itself.

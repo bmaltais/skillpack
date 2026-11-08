@@ -80,6 +80,19 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case doctorWriteDoneMsg:
+		m.busy = ""
+		if msg.err != nil {
+			m.message = fmt.Sprintf("✗ %v", msg.err)
+		} else {
+			if msg.st != nil {
+				*m.st = *msg.st
+			}
+			m.refreshSkills()
+			m.message = "✓ " + msg.summary
+		}
+		return m, nil
+
 	case registerForkDoneMsg:
 		m.busy = ""
 		if msg.err != nil {
@@ -249,8 +262,8 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				*f = ""
 				m.filterActive = false
 				m.filterChanged()
-			case m.activePanel == panelPackRemove && len(m.removeSel) > 0:
-				m.removeSel = nil
+			case m.activePanel == panelPacks && len(m.packMarks) > 0 && !m.packDetailOpen:
+				m.packMarks = nil
 			case m.activePanel == panelPacks && m.packDetailOpen:
 				m.packDetailOpen = false
 				m.message = ""
@@ -295,8 +308,6 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if !m.packDetailOpen {
 					return m, m.togglePackAgent()
 				}
-			case panelPackRemove:
-				m.toggleRemoveSel()
 			}
 		case tea.KeyDelete:
 			if m.activePanel == panelRepos {
@@ -404,6 +415,10 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch ch {
 				case "q":
 					return m, tea.Quit
+				case "m":
+					m.toggleMarkPack()
+				case "d":
+					m.startPackRemove()
 				case "n":
 					m.startPackCreate()
 				case "e":
@@ -422,17 +437,6 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.message = "Pack is not installed — press Space to enable it for an agent"
 						}
 					}
-				}
-			case panelPackRemove:
-				switch ch {
-				case "q":
-					return m, tea.Quit
-				case " ":
-					m.toggleRemoveSel()
-				case "a":
-					m.selectAllRemovable()
-				case "r", "R", "d":
-					m.startPackRemove()
 				}
 			case panelDoctor:
 				switch ch {
@@ -514,8 +518,6 @@ func (m *model) activeFilter() *string {
 		}
 	case panelDoctor:
 		return &m.doctorFilter
-	case panelPackRemove:
-		return &m.removeFilter
 	}
 	return nil
 }
@@ -534,9 +536,6 @@ func (m *model) filterChanged() {
 		m.refreshPacks()
 	case panelDoctor:
 		m.doctorCursor = 0
-	case panelPackRemove:
-		m.removeCursor = 0
-		m.refreshPackRemove()
 	}
 }
 

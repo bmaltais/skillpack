@@ -33,8 +33,9 @@ const (
 	// ForkCandidate: an installed skill with no fork provenance that matches a
 	// skill in another repo. Fix: register it as a fork of Related.
 	ForkCandidate Kind = "fork-candidate"
-	// Duplicate: one pair inside a Duplicate Set. Diverged pairs offer a diff;
-	// identical pairs are informational (no Fix).
+	// Duplicate: one pair inside a Duplicate Set. Diverged pairs offer a diff
+	// or overwriting one copy with the other; identical pairs offer deleting
+	// one copy (see actions.go; both write to a repo and need confirmation).
 	Duplicate Kind = "duplicate"
 )
 
@@ -46,7 +47,9 @@ type Finding struct {
 	Related string // fork-candidate upstream, or duplicate member B
 	Agent   string // an agent the skill is installed for (stale / broken)
 	Detail  string // what is wrong, one line
-	Fix     string // what Enter will do; empty means informational only
+	// Identical is set on Duplicate findings whose two copies match exactly.
+	Identical bool
+	Fix       string // what Enter will do; empty means informational only
 }
 
 // Diagnose collects every finding for st. canWrite (may be nil) restricts
@@ -86,10 +89,12 @@ func Diagnose(st *state.State, canWrite func(string) bool) ([]Finding, error) {
 		for _, p := range set.Pairs {
 			f := Finding{
 				Kind: Duplicate, Subject: p.A, Related: p.B,
-				Detail: p.A + " and " + p.B + ": " + p.Confidence + ", " + p.LinkStatus,
+				Detail:    p.A + " and " + p.B + ": " + p.Confidence + ", " + p.LinkStatus,
+				Identical: p.Confidence != skill.ConfidenceDiverged,
+				Fix:       "View diff, or make one copy match the other",
 			}
-			if p.Confidence == skill.ConfidenceDiverged {
-				f.Fix = "View diff between the copies"
+			if f.Identical {
+				f.Fix = "Delete one of the identical copies"
 			}
 			out = append(out, f)
 		}

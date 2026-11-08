@@ -126,16 +126,16 @@ func TestDiagnose_ForkCandidateAndDuplicate(t *testing.T) {
 		t.Fatalf("fork candidate: %+v", got)
 	}
 	d := byKind(got, doctor.Duplicate)
-	if len(d) != 1 || d[0].Fix == "" {
-		t.Fatalf("diverged duplicate should offer a diff: %+v", d)
+	if len(d) != 1 || d[0].Identical || d[0].Fix == "" {
+		t.Fatalf("diverged duplicate should offer fixes: %+v", d)
 	}
 }
 
-func TestDiagnose_IdenticalDuplicateIsInformational(t *testing.T) {
+func TestDiagnose_IdenticalDuplicateOffersDelete(t *testing.T) {
 	st := newState(t, map[string]string{"a/t": "# same", "b/t": "# same"}, "a", "b")
 	got, _ := doctor.Diagnose(st, nil)
 	d := byKind(got, doctor.Duplicate)
-	if len(d) != 1 || d[0].Fix != "" {
+	if len(d) != 1 || !d[0].Identical || !strings.Contains(d[0].Fix, "Delete") {
 		t.Fatalf("got %+v", d)
 	}
 }

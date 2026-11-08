@@ -57,7 +57,6 @@ var appMenus = []menuDef{
 			{"Unmanaged", "F5", alwaysEnabled, func(m *model) tea.Cmd { return m.switchPanel(panelUnmanaged) }},
 			{"Packs", "F6", alwaysEnabled, func(m *model) tea.Cmd { return m.switchPanel(panelPacks) }},
 			{"Doctor", "F7", alwaysEnabled, func(m *model) tea.Cmd { return m.switchPanel(panelDoctor) }},
-			{"Remove Packs", "F8", alwaysEnabled, func(m *model) tea.Cmd { return m.switchPanel(panelPackRemove) }},
 			{"Refresh Status", "r", alwaysEnabled, func(m *model) tea.Cmd {
 				m.busy = "Refreshing status..."
 				m.message = ""
@@ -97,6 +96,10 @@ var appMenus = []menuDef{
 		items: []menuItem{
 			{"Create Pack", "n", alwaysEnabled, func(m *model) tea.Cmd { m.startPackCreate(); return nil }},
 			{"Edit Pack", "e", alwaysEnabled, func(m *model) tea.Cmd { return m.menuPackEdit() }},
+			{"Mark for Removal", "m", func(m *model) bool {
+				return m.activePanel == panelPacks && m.packCursor < len(m.packRows) && m.packRows[m.packCursor].installed
+			}, func(m *model) tea.Cmd { m.toggleMarkPack(); return nil }},
+			{"Remove Pack", "d", func(m *model) bool { return m.activePanel == panelPacks && len(m.packRemoveTargets()) > 0 }, func(m *model) tea.Cmd { m.startPackRemove(); return nil }},
 			{"Install/Remove on Agent", "Space", func(m *model) bool { return m.activePanel == panelPacks && m.packCursor < len(m.packRows) }, func(m *model) tea.Cmd { return m.togglePackAgent() }},
 		},
 	},

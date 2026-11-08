@@ -573,32 +573,34 @@ func TestPackMatrix_SpaceTogglesSelectedAgent(t *testing.T) {
 	}
 }
 
-// TestPackRemove_SelectAndConfirm drives the Remove Packs panel: Space
-// checks, r opens the confirm dialog, y removes and clears the selection.
-func TestPackRemove_SelectAndConfirm(t *testing.T) {
+// TestPackRemove_MarkAndConfirm drives removal from the Packs panel: m marks,
+// d opens the confirm dialog, y removes and clears the marks.
+func TestPackRemove_MarkAndConfirm(t *testing.T) {
 	m := packMatrixModel(t)
-	m.activePanel = panelPackRemove
-	for _, k := range []tea.KeyMsg{keyRune(" "), keyRune("r")} {
+	for _, k := range []tea.KeyMsg{keyRune("m"), keyRune("d")} {
 		next, _ := m.Update(k)
 		m = next.(model)
 	}
-	if !m.removeSel["r/packs/p"] || m.inputMode != modePackConfirmRemove {
-		t.Fatalf("sel = %v, mode = %v; want checked pack and confirm dialog", m.removeSel, m.inputMode)
+	if !m.packMarks["r/packs/p"] || m.inputMode != modePackConfirmRemove {
+		t.Fatalf("marks = %v, mode = %v; want marked pack and confirm dialog", m.packMarks, m.inputMode)
 	}
 	next, _ := m.Update(keyRune("y"))
 	m = next.(model)
-	if len(m.st.InstalledPacks) != 0 || len(m.removeAddrs) != 0 || len(m.removeSel) != 0 {
-		t.Errorf("pack not removed: %v / %v / %v", m.st.InstalledPacks, m.removeAddrs, m.removeSel)
+	if len(m.st.InstalledPacks) != 0 || len(m.packMarks) != 0 {
+		t.Errorf("pack not removed: %v / %v", m.st.InstalledPacks, m.packMarks)
 	}
 }
 
-// TestPackRemove_DefaultsToHighlighted checks r with nothing checked still
-// targets the highlighted pack, behind the confirm dialog.
+// TestPackRemove_DefaultsToHighlighted checks d with nothing marked still
+// targets the highlighted installed pack, behind the confirm dialog.
 func TestPackRemove_DefaultsToHighlighted(t *testing.T) {
 	m := packMatrixModel(t)
-	m.activePanel = panelPackRemove
 	if got := m.packRemoveTargets(); len(got) != 1 || got[0] != "r/packs/p" {
 		t.Errorf("targets = %v", got)
+	}
+	next, _ := m.Update(keyRune("d"))
+	if next.(model).inputMode != modePackConfirmRemove {
+		t.Error("d should open the confirm dialog for the highlighted pack")
 	}
 }
 
@@ -689,8 +691,8 @@ func TestRefreshDoctor_FindsDuplicateAcrossRepos(t *testing.T) {
 		t.Fatalf("expected 1 finding, got %d", len(m.doctorFindings))
 	}
 	f := m.doctorFindings[0]
-	if f.Kind != doctor.Duplicate || f.Fix != "" || !strings.Contains(f.Detail, "identical") {
-		t.Errorf("expected an informational identical duplicate, got %+v", f)
+	if f.Kind != doctor.Duplicate || !f.Identical || f.Fix == "" {
+		t.Errorf("expected an identical duplicate with a delete fix, got %+v", f)
 	}
 }
 

@@ -24,35 +24,6 @@ import (
 
 func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 	switch m.inputMode {
-	case modeAddRepoName:
-		switch msg.Type {
-		case tea.KeyEsc:
-			m.inputMode = modeNormal
-			m.inputBuffer = ""
-			m.message = ""
-		case tea.KeyEnter:
-			name := strings.TrimSpace(m.inputBuffer)
-			if name == "" {
-				m.message = "✗ Repo name cannot be empty"
-				m.inputMode = modeNormal
-				m.inputBuffer = ""
-			} else {
-				m.newRepoName = name
-				m.inputMode = modeAddRepoURL
-				m.inputBuffer = ""
-			}
-		case tea.KeyBackspace:
-			if len(m.inputBuffer) > 0 {
-				m.inputBuffer = m.inputBuffer[:len(m.inputBuffer)-1]
-			}
-		case tea.KeyRunes:
-			m.inputBuffer += msg.String()
-		case tea.KeySpace:
-			m.inputBuffer += " "
-		case tea.KeyCtrlC:
-			return *m, tea.Quit
-		}
-
 	case modeAddRepoURL:
 		switch msg.Type {
 		case tea.KeyEsc:
@@ -66,7 +37,7 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 				m.inputMode = modeNormal
 				m.inputBuffer = ""
 			} else {
-				m.doAddRepo(m.newRepoName, url)
+				m.doAddRepo(repo.NameFromURL(url), url)
 				m.inputMode = modeNormal
 				m.inputBuffer = ""
 			}
@@ -311,21 +282,30 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 		}
 
 	case modeRelinkBrokenChoice:
+		choose := func(i int) (model, tea.Cmd) {
+			if i == 0 {
+				m.relinkInput = ""
+				m.inputMode = modeRelinkBrokenSetInput
+				return *m, nil
+			}
+			m.inputMode = modeNormal
+			m.busy = "Clearing upstream pointer..."
+			return *m, m.cmdRelinkUpstream(m.relinkAddr, "", m.relinkAgentName)
+		}
 		switch msg.Type {
 		case tea.KeyEsc:
 			m.inputMode = modeNormal
 			m.message = ""
+		case tea.KeyUp, tea.KeyDown:
+			m.relinkChoice = 1 - m.relinkChoice
+		case tea.KeyEnter:
+			return choose(m.relinkChoice)
 		case tea.KeyRunes:
 			switch msg.String() {
 			case "1":
-				// Set upstream — prompt for new address
-				m.relinkInput = ""
-				m.inputMode = modeRelinkBrokenSetInput
+				return choose(0)
 			case "2":
-				// Clear upstream
-				m.inputMode = modeNormal
-				m.busy = "Clearing upstream pointer..."
-				return *m, m.cmdRelinkUpstream(m.relinkAddr, "", m.relinkAgentName)
+				return choose(1)
 			}
 		case tea.KeyCtrlC:
 			return *m, tea.Quit
@@ -383,6 +363,9 @@ func (m *model) handleInputMode(msg tea.KeyMsg) (model, tea.Cmd) {
 		case tea.KeyCtrlC:
 			return *m, tea.Quit
 		}
+
+	case modePalette:
+		return m.handlePaletteKey(msg)
 
 	case modeHelp:
 		switch msg.String() {
@@ -550,7 +533,7 @@ func (m *model) handleSkillToggle() {
 // startAddRepo begins the add-repo input flow. Shared by the 'a' key in the
 // Repos panel and the File→Add Repo menu item.
 func (m *model) startAddRepo() {
-	m.inputMode = modeAddRepoName
+	m.inputMode = modeAddRepoURL
 	m.inputBuffer = ""
 	m.message = ""
 }
@@ -878,6 +861,7 @@ func (m *model) beginRelink(addr, agent string, stale bool) {
 		m.inputMode = modeRelinkStaleInput
 		return
 	}
+	m.relinkChoice = 0
 	m.inputMode = modeRelinkBrokenChoice
 }
 
@@ -1013,13 +997,19 @@ func (m *model) toggleRemoveSel() {
 
 // selectAllRemovable checks every pack, or clears the selection when all are already checked.
 func (m *model) selectAllRemovable() {
-	if len(m.removeSel) == len(m.removeAddrs) {
-		m.removeSel = nil
-		return
-	}
-	m.removeSel = make(map[string]bool, len(m.removeAddrs))
+	all := true
 	for _, addr := range m.removeAddrs {
-		m.removeSel[addr] = true
+		all = all && m.removeSel[addr]
+	}
+	if m.removeSel == nil {
+		m.removeSel = make(map[string]bool)
+	}
+	for _, addr := range m.removeAddrs {
+		if all {
+			delete(m.removeSel, addr)
+		} else {
+			m.removeSel[addr] = true
+		}
 	}
 }
 

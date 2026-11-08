@@ -63,7 +63,6 @@ type inputMode int
 
 const (
 	modeNormal inputMode = iota
-	modeAddRepoName
 	modeAddRepoURL
 	modeAddAgentPick // pick a bundled known agent (or "Custom...") to add
 	modeAddAgentName // custom agent: type the name
@@ -78,6 +77,7 @@ const (
 	modeRelinkBrokenSetInput // broken-upstream repair: user types new upstream address
 	modePackConfirmRemove    // packs panel: confirm pack removal
 	modeHelp                 // Help→Keys / F1: scrollable key-binding reference
+	modePalette              // Ctrl+P / ":": fuzzy command palette
 )
 
 // --- Model ---
@@ -109,10 +109,13 @@ type model struct {
 	menuItemIndex int // cursor within the open menu's items
 	helpScroll    int // scroll offset for the F1 help dialog
 
+	// Command palette
+	paletteQuery  string
+	paletteCursor int
+
 	// Input mode for repo add / fork
 	inputMode       inputMode
 	inputBuffer     string
-	newRepoName     string
 	newAgentName    string                  // agent name chosen in modeAddAgentPick/Name, used by modeAddAgentDir
 	agentCandidates []config.AgentCandidate // known agents not yet configured, offered in modeAddAgentPick
 	agentPickCursor int                     // cursor within agentCandidates (len(agentCandidates) == "Custom..." row)
@@ -143,6 +146,7 @@ type model struct {
 	relinkCandidates      []string // SuggestReplacements candidates (stale flow)
 	relinkCandidateCursor int      // cursor within relinkCandidates list
 	relinkInput           string   // current input buffer for address entry
+	relinkChoice          int      // broken-upstream repair: 0 = set upstream, 1 = clear
 	relinkCandidateMode   bool     // true = candidate list shown; false = free-text input
 
 	// Unmanaged panel
@@ -174,6 +178,7 @@ type model struct {
 	removeAddrs  []string
 	removeCursor int
 	removeSel    map[string]bool
+	removeFilter string // incremental filter for the Remove Packs panel
 
 	// packCol is the agent column index in the packs matrix.
 	packCol        int
@@ -492,15 +497,20 @@ func (m *model) refreshPacks() {
 // refreshPackRemove rebuilds the Remove Packs list from state and drops
 // selections of packs that are no longer installed.
 func (m *model) refreshPackRemove() {
-	m.removeAddrs = m.removeAddrs[:0]
+	all := make([]string, 0, len(m.st.InstalledPacks))
 	for addr := range m.st.InstalledPacks {
-		m.removeAddrs = append(m.removeAddrs, addr)
+		all = append(all, addr)
 	}
-	sort.Strings(m.removeAddrs)
+	sort.Strings(all)
+	f := strings.ToLower(m.removeFilter)
+	m.removeAddrs = m.removeAddrs[:0]
 	sel := make(map[string]bool)
-	for _, addr := range m.removeAddrs {
-		if m.removeSel[addr] {
+	for _, addr := range all {
+		if m.removeSel[addr] { // selections survive filtering
 			sel[addr] = true
+		}
+		if f == "" || strings.Contains(strings.ToLower(addr), f) {
+			m.removeAddrs = append(m.removeAddrs, addr)
 		}
 	}
 	m.removeSel = sel

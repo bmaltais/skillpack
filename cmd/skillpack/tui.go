@@ -12,15 +12,18 @@ var tuiCmd = &cobra.Command{
 menu bar, bottom status bar) to browse skills across repos and toggle
 installation for each configured agent.
 
-Panels (Tab to cycle, or jump directly with F2-F6):
+Panels (a strip under the menu bar lists them; Tab/Shift+Tab cycle, F2-F8 jump):
   F2  Skills      Browse and install/remove skills
   F3  Status      View installed skill states, update, sync
   F4  Repos       Add/remove skill repositories
   F5  Unmanaged   Adopt skills found in agent dirs but not tracked by skillpack
   F6  Packs       Browse packs, install them per agent (Space), create, and edit
+  F7  Doctor      Report duplicate skills across repos
+  F8  Remove Packs  Check installed packs and remove them
 
 F10 (or Alt+F/V/A/P/H) opens the menu bar (File/View/Actions/Packs/Help);
-F1 opens a scrollable key-binding reference sourced from the same menus.
+F1 or ? opens a scrollable key-binding reference sourced from the same menus.
+Esc only backs out (clears a filter, closes a dialog); q or Ctrl+C quits.
 
 Skills panel:
   ↑/↓         Move between items

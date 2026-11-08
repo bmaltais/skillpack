@@ -3,6 +3,7 @@ package doctor_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bmaltais/skillpack/internal/doctor"
@@ -145,5 +146,41 @@ func TestDiagnose_OrderedByKind(t *testing.T) {
 	got, _ := doctor.Diagnose(st, nil)
 	if len(got) < 2 || got[0].Kind != doctor.StaleSkill || got[len(got)-1].Kind != doctor.Duplicate {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestDiff_ChangedOnlyAndMissingFiles(t *testing.T) {
+	st := newState(t, map[string]string{"a/t": "# t\nsame\nold line\n", "b/t": "# t\nsame\nnew line\n"}, "a", "b")
+	write(t, filepath.Join(st.Repos["b"].CachePath, "t", "extra.md"), "x")
+	write(t, filepath.Join(st.Repos["a"].CachePath, "t", ".skillpack-fork"), "meta")
+	got, err := doctor.Diff(st, "a/t", "b/t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"- old line", "+ new line", "Only in b/t: extra.md"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, ".skillpack-fork") {
+		t.Errorf("provenance file must be ignored:\n%s", got)
+	}
+}
+
+func TestDiff_IdenticalSaysSo(t *testing.T) {
+	st := newState(t, map[string]string{"a/t": "# same", "b/t": "# same"}, "a", "b")
+	got, _ := doctor.Diff(st, "a/t", "b/t")
+	if !strings.Contains(got, "no differences") {
+		t.Fatalf("got:\n%s", got)
+	}
+}
+
+func TestSkillProblems(t *testing.T) {
+	st := newState(t, map[string]string{"a/ok": "# ok"}, "a")
+	st.InstalledSkills["a/ok"] = map[string]state.InstalledSkillRecord{"claude": {}}
+	st.InstalledSkills["a/gone"] = map[string]state.InstalledSkillRecord{"claude": {}}
+	p := doctor.SkillProblems(st, map[string]bool{"a/ok": true})
+	if len(p) != 1 || p["a/gone"].Kind != doctor.StaleSkill {
+		t.Fatalf("got %+v", p)
 	}
 }

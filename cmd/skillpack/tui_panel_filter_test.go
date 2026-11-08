@@ -1,7 +1,7 @@
 package main
 
 import (
-	"strings"
+	"github.com/bmaltais/skillpack/internal/doctor"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -162,14 +162,14 @@ func TestSlashFilter_PacksPanel(t *testing.T) {
 
 // TestSlashFilter_DoctorPanel mirrors TestSlashFilter_UnmanagedPanel for the
 // Doctor panel's doctorFilter field, matching on duplicate-set skill
-// addresses. Doctor filters at render time (doctorLines), so doctorSets
+// addresses. Doctor filters at read time (doctorVisible), so doctorFindings
 // itself is left untouched by typing.
 func TestSlashFilter_DoctorPanel(t *testing.T) {
 	m := emptyTestModel()
 	m.activePanel = panelDoctor
-	m.doctorSets = []doctorSetRow{
-		{basename: "debugger", members: []string{"repo-a/debugger", "repo-b/debugger"}},
-		{basename: "linter", members: []string{"repo-a/linter", "repo-b/linter"}},
+	m.doctorFindings = []doctor.Finding{
+		{Kind: doctor.Duplicate, Subject: "repo-a/debugger", Related: "repo-b/debugger"},
+		{Kind: doctor.Duplicate, Subject: "repo-a/linter", Related: "repo-b/linter"},
 	}
 
 	next, cmd := m.Update(keyRune("q"))
@@ -191,12 +191,11 @@ func TestSlashFilter_DoctorPanel(t *testing.T) {
 	if m.doctorFilter != "deb" {
 		t.Fatalf("doctorFilter = %q, want %q", m.doctorFilter, "deb")
 	}
-	if len(m.doctorSets) != 2 {
-		t.Fatal("doctorFilter must not mutate doctorSets itself")
+	if len(m.doctorFindings) != 2 {
+		t.Fatal("doctorFilter must not mutate doctorFindings itself")
 	}
-	joined := strings.Join(doctorLines(m), "\n")
-	if !strings.Contains(joined, "debugger") || strings.Contains(joined, "linter") {
-		t.Fatalf("doctorLines with filter %q did not narrow to the debugger set: %q", m.doctorFilter, joined)
+	if vis := m.doctorVisible(); len(vis) != 1 || vis[0].Subject != "repo-a/debugger" {
+		t.Fatalf("filter %q did not narrow to the debugger finding: %+v", m.doctorFilter, vis)
 	}
 
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
@@ -204,8 +203,7 @@ func TestSlashFilter_DoctorPanel(t *testing.T) {
 	if m.doctorFilter != "" || m.filterActive {
 		t.Fatal("Esc should clear the doctor filter and exit filter mode")
 	}
-	joined = strings.Join(doctorLines(m), "\n")
-	if !strings.Contains(joined, "debugger") || !strings.Contains(joined, "linter") {
-		t.Fatalf("doctorLines after Esc clear should show both sets: %q", joined)
+	if len(m.doctorVisible()) != 2 {
+		t.Fatal("after Esc clear both findings should be visible")
 	}
 }

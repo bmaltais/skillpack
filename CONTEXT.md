@@ -65,7 +65,7 @@ Each pair within a Duplicate Set carries two independent labels:
 - **Confidence:** `identical` (content hash matches) or `diverged` (same identity, different content) — informational, never a filter.
 - **Link status:** `linked (fork)` (already carries `.skillpack-fork` provenance) or `unlinked` — both are reported, since a `linked` pair can still have diverged.
 
-`skillpack doctor` reports Duplicate Sets; it never propagates changes between them. Keeping duplicates in sync automatically is explicitly deferred (see ADR-0003).
+`skillpack doctor` reports Duplicate Sets; it never propagates changes between them. The TUI Doctor panel goes further: it lists **Findings** (stale skill, broken upstream, partial pack, fork candidate, duplicate pair), each with a non-destructive fix the user confirms (see [ADR-0004](docs/adr/0004-doctor-fixes.md)). Keeping duplicates in sync automatically is explicitly deferred (see ADR-0003).
 
 ---
 

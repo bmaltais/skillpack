@@ -2,13 +2,14 @@
 
 ## Purpose
 
-Diagnoses a skillpack setup and describes, per problem, the fix a caller can offer. Powers the TUI Doctor panel (selectable findings with fixes). The `skillpack doctor` CLI command stays a read-only Duplicate Set report.
+Diagnoses a skillpack setup and describes, per problem, the fix a caller can offer. Powers the TUI Doctor panel (selectable findings with fixes); `SkillProblems` is also what the Skills panel uses to flag stale and broken-upstream rows. The `skillpack doctor` CLI command stays a read-only Duplicate Set report.
 
 ## Ownership
 
 | Concern | Owner |
 |---------|-------|
 | `Diagnose`, `Finding`, `Kind` | `internal/doctor/doctor.go` |
+| `Diff` (line diff of two skills' files in the repo caches) | `internal/doctor/diff.go` |
 | Tests (temp-dir repo caches, in-memory `state.State`) | `internal/doctor/doctor_test.go` |
 
 ## Local Contracts

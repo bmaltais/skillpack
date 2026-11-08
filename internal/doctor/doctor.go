@@ -108,18 +108,21 @@ func Diagnose(st *state.State, canWrite func(string) bool) ([]Finding, error) {
 	return out, nil
 }
 
-// skillFindings reports stale and broken-upstream installed skills using only
-// local stat calls (no git or network).
-func skillFindings(st *state.State, discovered map[string]bool) []Finding {
-	var out []Finding
+// Problem is the health problem of one installed skill.
+type Problem struct {
+	Kind     Kind   // StaleSkill or BrokenUpstream
+	Upstream string // the missing upstream address (BrokenUpstream only)
+}
+
+// SkillProblems classifies installed skills whose address is stale or whose
+// fork upstream is gone. discovered is the set of addresses found in the repo
+// caches. Local stat calls only (no git or network). Healthy skills are absent
+// from the result.
+func SkillProblems(st *state.State, discovered map[string]bool) map[string]Problem {
+	out := make(map[string]Problem)
 	for addr, agents := range st.InstalledSkills {
-		agent := firstAgent(agents)
 		if !discovered[addr] {
-			out = append(out, Finding{
-				Kind: StaleSkill, Subject: addr, Agent: agent,
-				Detail: "installed, but no longer exists in any registered repo",
-				Fix:    "Relink to a replacement address",
-			})
+			out[addr] = Problem{Kind: StaleSkill}
 			continue
 		}
 		for _, rec := range agents {
@@ -127,14 +130,31 @@ func skillFindings(st *state.State, discovered map[string]bool) []Finding {
 				continue
 			}
 			if upstreamMissing(st, rec.UpstreamAddr) {
-				out = append(out, Finding{
-					Kind: BrokenUpstream, Subject: addr, Related: rec.UpstreamAddr, Agent: agent,
-					Detail: "fork upstream " + rec.UpstreamAddr + " no longer exists",
-					Fix:    "Set a new upstream, or clear it",
-				})
+				out[addr] = Problem{Kind: BrokenUpstream, Upstream: rec.UpstreamAddr}
 			}
 			break // one agent record is enough to determine fork status
 		}
+	}
+	return out
+}
+
+func skillFindings(st *state.State, discovered map[string]bool) []Finding {
+	var out []Finding
+	for addr, p := range SkillProblems(st, discovered) {
+		agent := firstAgent(st.InstalledSkills[addr])
+		if p.Kind == StaleSkill {
+			out = append(out, Finding{
+				Kind: StaleSkill, Subject: addr, Agent: agent,
+				Detail: "installed, but no longer exists in any registered repo",
+				Fix:    "Relink to a replacement address",
+			})
+			continue
+		}
+		out = append(out, Finding{
+			Kind: BrokenUpstream, Subject: addr, Related: p.Upstream, Agent: agent,
+			Detail: "fork upstream " + p.Upstream + " no longer exists",
+			Fix:    "Set a new upstream, or clear it",
+		})
 	}
 	return out
 }

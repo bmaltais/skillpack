@@ -14,6 +14,20 @@ import (
 // handleInputMode (the giant mode-specific key handler) was moved to tui_handlers.go in Phase 3.
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	// A Doctor fix finished (dialog closed, async work done): rescan so the
+	// fixed finding disappears.
+	if nm, ok := next.(model); ok && nm.doctorDirty && nm.inputMode == modeNormal && nm.busy == "" {
+		nm.doctorDirty = false
+		if err := nm.refreshDoctor(); err != nil {
+			nm.message = fmt.Sprintf("✗ %v", err)
+		}
+		return nm, cmd
+	}
+	return next, cmd
+}
+
+func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Embedded pack wizard takes over key/window/result messages while active.
 	// Other async results (status refresh, etc.) still fall through to the
 	// main switch below.
@@ -262,6 +276,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.packCol++
 			}
 		case tea.KeyEnter:
+			if m.activePanel == panelDoctor {
+				return m, m.applyDoctorFix()
+			}
 			m.handleAction()
 		case tea.KeySpace:
 			if m.filterActive && m.activeFilter() != nil {
@@ -411,8 +428,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch ch {
 				case "q":
 					return m, tea.Quit
+				case "f":
+					return m, m.applyDoctorFix()
 				case "r":
-					m.doctorScroll = 0
 					if err := m.refreshDoctor(); err != nil {
 						m.message = fmt.Sprintf("✗ %v", err)
 					} else {
@@ -503,7 +521,7 @@ func (m *model) filterChanged() {
 	case panelPacks:
 		m.refreshPacks()
 	case panelDoctor:
-		m.doctorScroll = 0
+		m.doctorCursor = 0
 	}
 }
 

@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/bmaltais/skillpack/internal/doctor"
 )
 
 // --- View Styles (moved from tui.go in Phase 1) ---
@@ -175,7 +177,7 @@ func hintForPanel(m model) string {
 	case panelPackRemove:
 		return "↑↓ navigate  Space select  a all  r remove  Esc clear  Tab switch  q quit"
 	case panelDoctor:
-		return "↑↓ scroll  r rescan  / filter  Tab switch  q quit"
+		return "↑↓ select  Enter/f apply fix  r rescan  / filter  Tab switch  q quit"
 	default:
 		return ""
 	}
@@ -757,75 +759,28 @@ func (m model) viewStatus(b *strings.Builder) {
 	}
 }
 
-// doctorLines renders every Duplicate Set as report text, mirroring
-// `skillpack doctor`'s CLI output with TUI styling. Returns the already
-// scrolled/paginated page (see helpLines for the same pattern).
-func doctorLines(m model) []string {
-	sets := m.doctorSets
-	if m.doctorFilter != "" {
-		sets = nil
-		for _, set := range m.doctorSets {
-			if doctorSetMatches(set, m.doctorFilter) {
-				sets = append(sets, set)
-			}
-		}
+// doctorKindTag is the short label shown at the start of a finding row.
+func doctorKindTag(k doctor.Kind) string {
+	switch k {
+	case doctor.StaleSkill:
+		return "STALE    "
+	case doctor.BrokenUpstream:
+		return "UPSTREAM "
+	case doctor.PartialPack:
+		return "PACK     "
+	case doctor.ForkCandidate:
+		return "FORK?    "
+	case doctor.Duplicate:
+		return "DUPLICATE"
 	}
-	if len(sets) == 0 {
-		if m.doctorFilter != "" {
-			return []string{dimStyle.Render("No duplicate sets match filter.")}
-		}
-		return []string{dimStyle.Render("No duplicates found.")}
-	}
-
-	var all []string
-	for i, set := range sets {
-		if i > 0 {
-			all = append(all, "")
-		}
-		all = append(all, titleStyle.Render(fmt.Sprintf("%s (%d members)", set.basename, len(set.members))))
-		for _, member := range set.members {
-			all = append(all, "  - "+member)
-		}
-		for _, p := range set.pairs {
-			confidence := p.confidence
-			if confidence == "diverged" {
-				confidence = modifiedStyle.Render(confidence)
-			}
-			linkStatus := p.linkStatus
-			if linkStatus == "unlinked" {
-				linkStatus = modifiedStyle.Render(linkStatus)
-			}
-			all = append(all, fmt.Sprintf("  %s <-> %s: %s, %s", p.a, p.b, confidence, linkStatus))
-		}
-	}
-
-	visible := m.height - panelStripRows - 10 // title+menu bar, filter indicator, panel header, footer, margin
-	if visible < 6 {
-		visible = 6
-	}
-	if len(all) <= visible {
-		return all
-	}
-
-	maxScroll := len(all) - visible
-	scroll := m.doctorScroll
-	if scroll > maxScroll {
-		scroll = maxScroll
-	}
-	if scroll < 0 {
-		scroll = 0
-	}
-	page := append([]string{}, all[scroll:scroll+visible-1]...)
-	page = append(page, dimStyle.Render(fmt.Sprintf("↑↓ scroll (%d/%d)", scroll+visible-1, len(all))))
-	return page
+	return string(k)
 }
 
-// viewDoctor renders the read-only Duplicate Set report. doctor never
-// mutates state, so this panel has no per-row selection or actions.
+// viewDoctor renders the findings list with the selected finding's problem
+// and offered fix underneath. Enter (or f) applies the fix.
 func (m model) viewDoctor(b *strings.Builder) {
 	b.WriteString("\n")
 
-	// Filter indicator
 	switch {
 	case m.filterActive:
 		b.WriteString(filterStyle.Render(fmt.Sprintf(" Filter: %s▌", m.doctorFilter)))
@@ -836,25 +791,53 @@ func (m model) viewDoctor(b *strings.Builder) {
 	}
 	b.WriteString("\n")
 
-	for _, l := range doctorLines(m) {
-		b.WriteString(" " + l)
-		b.WriteString("\n")
+	vis := m.doctorVisible()
+	if len(vis) == 0 {
+		msg := "✓ No problems found."
+		if m.doctorFilter != "" {
+			msg = "No findings match filter."
+		}
+		b.WriteString(" " + checkStyle.Render(msg) + "\n")
 	}
+
+	maxRows := max(m.height-panelStripRows-13, 3)
+	start := scrollOffset(m.doctorCursor, maxRows, len(vis))
+	for i := start; i < len(vis) && i < start+maxRows; i++ {
+		f := vis[i]
+		line := fmt.Sprintf(" %s  %s", doctorKindTag(f.Kind), f.Subject)
+		if f.Kind == doctor.Duplicate {
+			line += "  ↔  " + f.Related
+		}
+		line = truncate(line, m.width-1)
+		if i == m.doctorCursor {
+			line = selectedStyle.Render(padLine(line, m.width-1))
+		} else if f.Fix == "" {
+			line = dimStyle.Render(line)
+		}
+		b.WriteString(line + "\n")
+	}
+
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render(" " + safeRepeat("─", m.width-2)))
 	b.WriteString("\n")
+	if f := m.selectedFinding(); f != nil {
+		b.WriteString(" " + truncate("Problem: "+f.Detail, m.width-2) + "\n")
+		if f.Fix != "" {
+			b.WriteString(" " + checkStyle.Render(truncate("Fix:     "+f.Fix+"   (Enter)", m.width-2)) + "\n")
+		} else {
+			b.WriteString(dimStyle.Render(" Fix:     none, informational") + "\n")
+		}
+	}
 	if m.message != "" {
 		b.WriteString(msgStyle.Render(" " + m.message))
-	} else if m.doctorFilter != "" {
-		matched := 0
-		for _, set := range m.doctorSets {
-			if doctorSetMatches(set, m.doctorFilter) {
-				matched++
+	} else {
+		fixable := 0
+		for _, f := range m.doctorFindings {
+			if f.Fix != "" {
+				fixable++
 			}
 		}
-		b.WriteString(dimStyle.Render(fmt.Sprintf(" %d/%d duplicate set(s) match filter", matched, len(m.doctorSets))))
-	} else {
-		b.WriteString(dimStyle.Render(fmt.Sprintf(" %d duplicate set(s)", len(m.doctorSets))))
+		b.WriteString(dimStyle.Render(fmt.Sprintf(" %d finding(s), %d with a fix", len(m.doctorFindings), fixable)))
 	}
 }
 

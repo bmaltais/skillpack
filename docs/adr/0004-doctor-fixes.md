@@ -30,6 +30,8 @@ right command. Most problems it can see already have a fix in skillpack
 
 - New package `internal/doctor`; the TUI Doctor panel becomes a selectable
   list (later phases).
-- The stale/broken-upstream check now exists in `doctor` and in the TUI's
-  `computeSkillProblems`; the TUI copy is removed when the panel adopts
-  `Diagnose`.
+- The stale/broken-upstream classification lives only in
+  `doctor.SkillProblems`; the Skills panel's `computeSkillProblems` wraps it.
+- Duplicate pairs offer a line diff (`doctor.Diff`) opened in the platform
+  viewer; the other kinds reuse the relink, pack-complete and
+  fork-registration flows.
